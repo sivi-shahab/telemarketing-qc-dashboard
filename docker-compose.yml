@@ -1,0 +1,24 @@
+# Compose repo dashboard: hanya service `dashboard` (Nginx menyajikan hasil build
+# Vite). API-nya ada di compose repo telemarketing-qc-api.
+#
+# Network eksternal yang sama dengan API (buat sekali di host):
+#     docker network create qc-net
+networks:
+  default:
+    external: true
+    name: qc-net
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Di-bake ke bundle saat build — ganti kalau environment-nya beda.
+        VITE_API_URL: ${VITE_API_URL:-/telemarketing_qc_system/api}
+    image: ${REGISTRY:-local}/qc-dashboard:${TAG:-latest}
+    ports:
+      - "4006:4006"
+    # Tanpa depends_on ke `api` (beda compose file) — Nginx tetap jalan meski API
+    # belum siap; request-nya yang akan gagal sampai API naik.
+    restart: unless-stopped

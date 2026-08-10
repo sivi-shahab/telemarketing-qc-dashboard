@@ -1,0 +1,9 @@
+# `COPY . .` di Dockerfile ikut menyalin apa pun yang ada di workspace —
+# node_modules lokal (arsitektur host) bisa menimpa hasil `npm ci` di image.
+node_modules
+dist
+.git
+.env
+*.log
+Dockerfile
+.dockerignore
