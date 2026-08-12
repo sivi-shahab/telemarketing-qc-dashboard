@@ -55,9 +55,11 @@
         <RouterLink v-if="isSpqHead" to="/dashboard/sales-database" class="menu-item" active-class="active" :title="collapsed ? 'Database Sales' : ''">
           <span class="icon">🗃</span> <span class="label">Database Sales</span>
         </RouterLink>
+        <!-- qc-database dinonaktifkan (route + endpoint API sudah dimatikan)
         <RouterLink v-if="isSpqHead" to="/dashboard/qc-database" class="menu-item" active-class="active" :title="collapsed ? 'Database QC' : ''">
           <span class="icon">🗂</span> <span class="label">Database QC</span>
         </RouterLink>
+        -->
       </div>
 
       <div v-if="!isStatsResultsOnly || isQcSupport || isTlQc || isDemo" class="menu-group">
@@ -77,9 +79,11 @@
         <RouterLink v-if="isSpqHead" to="/upload/sales-database" class="menu-item" active-class="active" :title="collapsed ? 'Upload Database Sales' : ''">
           <span class="icon">📥</span> <span class="label">Upload Database Sales</span>
         </RouterLink>
+        <!-- qc-database dinonaktifkan (route + endpoint API sudah dimatikan)
         <RouterLink v-if="isSpqHead" to="/upload/qc-database" class="menu-item" active-class="active" :title="collapsed ? 'Upload Database QC' : ''">
           <span class="icon">📥</span> <span class="label">Upload Database QC</span>
         </RouterLink>
+        -->
       </div>
 
       <div v-if="!isStatsResultsOnly && !isQcSupport" class="menu-group">

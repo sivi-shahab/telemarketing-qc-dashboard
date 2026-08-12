@@ -39,10 +39,11 @@ const routes = [
     path: '/dashboard/sales-database',
     component: () => import('../views/dashboard/SalesDatabaseView.vue'),
   },
-  {
-    path: '/dashboard/qc-database',
-    component: () => import('../views/dashboard/QcDatabaseView.vue'),
-  },
+  // qc-database dinonaktifkan (endpoint /list_qc_databases sudah dimatikan di API).
+  // {
+  //   path: '/dashboard/qc-database',
+  //   component: () => import('../views/dashboard/QcDatabaseView.vue'),
+  // },
   {
     path: '/upload/transcript',
     component: () => import('../views/upload/UploadTranscriptView.vue'),
@@ -63,10 +64,11 @@ const routes = [
     path: '/upload/sales-database',
     component: () => import('../views/upload/UploadSalesDatabaseView.vue'),
   },
-  {
-    path: '/upload/qc-database',
-    component: () => import('../views/upload/UploadQcDatabaseView.vue'),
-  },
+  // qc-database dinonaktifkan (endpoint /upload_qc_database sudah dimatikan di API).
+  // {
+  //   path: '/upload/qc-database',
+  //   component: () => import('../views/upload/UploadQcDatabaseView.vue'),
+  // },
   {
     path: '/delete/campaign',
     component: () => import('../views/delete/DeleteCampaignView.vue'),
@@ -135,10 +137,11 @@ router.beforeEach(to => {
     return '/'
   }
 
-  // Sales/QC database (upload + list) is SPQ Head / Admin only.
+  // Sales database (upload + list) is SPQ Head / Admin only.
+  // qc-database dinonaktifkan: route-nya di-comment, path-nya tidak ada lagi.
   if (
     ['/upload/sales-database', '/dashboard/sales-database',
-     '/upload/qc-database', '/dashboard/qc-database'].includes(to.path) &&
+     /* '/upload/qc-database', '/dashboard/qc-database' */].includes(to.path) &&
     !['spq_head', 'admin'].includes(user?.role)
   ) {
     return '/'
