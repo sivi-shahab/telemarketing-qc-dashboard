@@ -4,7 +4,18 @@
     <div class="filter-bar">
       <select v-model="filterAiStatus" class="select-input" @change="applyFilter">
         <option value="">Semua AI Status</option>
-        <option v-for="s in AI_STATUS_VALUES" :key="s" :value="s">{{ aiStatusLabel(s) }}</option>
+        <option value="PASS">Qualified</option>
+        <option value="FAIL">Not Qualified</option>
+        <option value="PENDING">Pending</option>
+      </select>
+      <!-- Manual Status berdiri sendiri dari AI Status, jadi filternya juga terpisah.
+           Dipakai bersamaan = irisan keduanya (mis. AI Qualified tapi human menilai
+           Not Qualified = daftar tiket yang dikoreksi human). -->
+      <select v-if="showManualStatus" v-model="filterManualStatus" class="select-input" @change="applyFilter">
+        <option value="">Semua Manual Status</option>
+        <option value="PASS">Qualified</option>
+        <option value="FAIL">Not Qualified</option>
+        <option value="PENDING">Pending</option>
       </select>
       <select v-model="filterCampaign" class="select-input" @change="applyFilter">
         <option value="">Semua Campaign</option>
@@ -41,7 +52,28 @@
       </div>
       <button class="btn-clear" @click="clearFilters">Reset</button>
     </div>
+
+    <!-- Export agregat per kategori verifikasi (SPQ Head & Admin). Berbeda dengan
+         tombol XLSX per baris: ini menarik SEMUA tiket Not Qualified & Pending yang
+         punya temuan pada kategori terpilih, satu baris per parameter. Filter
+         Campaign di atas ikut berlaku supaya hasilnya sama dengan yang terlihat. -->
+    <div v-if="canExportVerification" class="export-bar">
+      <span class="export-label">Export Agregat</span>
+      <select v-model="exportCategory" class="select-input">
+        <option v-for="c in EXPORT_CATEGORIES" :key="c.key" :value="c.key">{{ c.label }}</option>
+      </select>
+      <button class="btn-export-agg" :disabled="exportingCategory" @click="exportVerification">
+        {{ exportingCategory ? 'Menyiapkan…' : 'Export XLSX' }}
+      </button>
+      <span class="export-note">
+        Not Qualified &amp; Pending<template v-if="filterCampaign"> · campaign {{ filterCampaign }}</template>
+      </span>
+    </div>
+
+    <!-- [FIX] `fetchError` sebelumnya di-set tapi tidak pernah ditampilkan: kalau
+         /list_results gagal, tabel hanya tampak kosong tanpa keterangan. -->
     <div v-if="fetchError" class="error-box">{{ fetchError }}</div>
+
     <div v-if="loading" class="skeleton-list">
       <div class="skeleton-row" v-for="i in 5" :key="i"></div>
     </div>
@@ -59,13 +91,13 @@
           <col v-if="showNonTolerable" style="width: 11%" />
           <col v-if="!isSimpleViewer" style="width: 8%" />
           <col style="width: 8%" />
-          <col style="width: 10%" />
+          <col v-if="showManualStatus" style="width: 10%" />
           <col v-if="!isSimpleViewer" style="width: 7%" />
-          <col v-if="canUploadDocument" style="width: 9%" />
-          <col v-if="isQc" style="width: 12%" />
-          <col v-if="isSpqHead" style="width: 12%" />
-          <col v-if="isSpqHead" style="width: 8%" />
-          <col v-if="isTlQc" style="width: 12%" />
+          <col style="width: 9%" />
+          <col v-if="canAppealErrorCode" style="width: 12%" />
+          <col v-if="canReviewBandingSpq" style="width: 12%" />
+          <col v-if="canDeleteTicket" style="width: 8%" />
+          <col v-if="canReviewBandingTl" style="width: 12%" />
           <col v-if="isPendingCheck" style="width: 11%" />
         </colgroup>
         <thead>
@@ -81,13 +113,15 @@
             <th v-if="showNonTolerable">Non-Tolerable</th>
             <th v-if="!isSimpleViewer" class="num">Passing Grade</th>
             <th>AI Status</th>
-            <th>Manual Status</th>
+            <th v-if="showManualStatus">Manual Status</th>
             <th v-if="!isSimpleViewer">Export</th>
-            <th v-if="canUploadDocument">Upload Document</th>
-            <th v-if="isQc">Manual Check</th>
-            <th v-if="isSpqHead">Manual Check</th>
-            <th v-if="isSpqHead">Delete Record</th>
-            <th v-if="isTlQc">Manual Check</th>
+            <th>Document</th>
+            <!-- Kolom ini SEMATA-MATA tentang banding Error Code (sumbernya
+                 error_code_appeals), tidak ada hubungannya dengan Manual Status. -->
+            <th v-if="canAppealErrorCode">Manual Check</th>
+            <th v-if="canReviewBandingSpq">Manual Check</th>
+            <th v-if="canDeleteTicket">Delete Record</th>
+            <th v-if="canReviewBandingTl">Manual Check</th>
             <th v-if="isPendingCheck">Sisa Waktu (H+2)</th>
           </tr>
         </thead>
@@ -136,15 +170,49 @@
               </td>
               <td v-if="!isSimpleViewer" class="num">{{ passingGradeDisplay(group.primary) }}</td>
               <td>
-                <span v-if="group.primary.ai_status" :class="['status-badge', aiStatusBadgeClass(group.primary.ai_status)]">
-                  {{ aiStatusLabel(group.primary.ai_status) }}
-                </span>
+                <span v-if="group.primary.ai_status" :class="['status-badge', aiStatusBadgeClass(group.primary.ai_status)]">{{ aiStatusLabel(group.primary.ai_status) }}</span>
                 <span v-else>—</span>
+                <!-- PENDING tanpa keterangan tidak bisa ditindaklanjuti: sebutkan
+                     dokumen apa yang ditunggu dan bahwa tenggatnya H+2. -->
+                <div v-if="group.primary.pending_reason" class="ai-status-note">{{ group.primary.pending_reason }}</div>
+                <!-- Not Qualified karena sebab yang TIDAK terbaca dari skor: saat ini
+                     indikasi fraud (penyebutan verifikasi statik berubah-ubah). -->
+                <div v-if="group.primary.fail_reason" class="ai-status-note note-fraud">{{ group.primary.fail_reason }}</div>
               </td>
-              <td class="cell-mstatus" @click.stop>
-                <span v-if="group.primary.manual_status" :class="['mstatus-badge', mStatusClass(group.primary.manual_status)]" :title="mStatusTitle(group.primary)">{{ mStatusLabel(group.primary.manual_status) }}</span>
-                <span v-else class="mstatus-dash">—</span>
-                <button v-if="manualStatusAction(group.primary)" class="btn-mstatus" @click="onManualStatusAction(group.primary)">{{ manualStatusAction(group.primary) }}</button>
+              <!-- Manual Status (sisi QC + administrasi): verdict QC via hierarki +
+                   default missing-docs. Divisi sales tidak melihat kolom ini. -->
+              <td v-if="showManualStatus" class="cell-mstatus" @click.stop>
+                <!-- Badge vonis + tombol aksi di baris atas, tautan Riwayat di bawahnya.
+                     Tanpa vonis, selnya langsung mulai dengan tombol — tidak ada "—"
+                     dan tidak ada keterangan alur kerja. -->
+                <div
+                  v-if="group.primary.manual_status || manualStatusAction(group.primary) || manualReviewAction(group.primary)"
+                  class="mstatus-top"
+                >
+                  <span
+                    v-if="group.primary.manual_status"
+                    :class="['mstatus-badge', mStatusClass(group.primary.manual_status), { 'mstatus-inherited': !group.primary.manual_status_by_human }]"
+                    :title="mStatusTitle(group.primary)"
+                  >{{ mStatusLabel(group.primary.manual_status) }}</span>
+                  <button v-if="manualStatusAction(group.primary)" class="btn-mstatus" @click="onManualStatusAction(group.primary)">{{ manualStatusAction(group.primary) }}</button>
+                  <button v-if="manualReviewAction(group.primary)" class="btn-mstatus" @click="onManualReviewAction(group.primary)">{{ manualReviewAction(group.primary) }}</button>
+                </div>
+                <!-- Riwayat: tombol sungguhan (bukan tautan) agar terbaca sebagai aksi,
+                     tapi bergaya sekunder supaya tidak menyaingi Set/Ubah di baris atas.
+                     Tersedia untuk SEMUA role — vonis human bisa ditetapkan langsung
+                     tanpa jejak review, jadi jejaknya perlu mudah dibuka. -->
+                <button
+                  v-if="group.primary.manual_status_history_count"
+                  class="btn-mstatus btn-mstatus-ghost"
+                  :title="`Lihat ${group.primary.manual_status_history_count} perubahan Manual Status`"
+                  @click="openHistory(group.primary)"
+                >
+                  Riwayat ({{ group.primary.manual_status_history_count }})
+                </button>
+                <!-- Satu-satunya keterangan yang tersisa di kolom ini: kondisi SLA H+2
+                     (dokumen wajib belum diunggah), yang memang perlu tindakan human dan
+                     tidak terwakili oleh riwayat karena belum tentu ada kejadiannya. -->
+                <span v-if="group.primary.missing_documents" class="mstatus-note">{{ missingDocNote(group.primary) }}</span>
               </td>
               <td v-if="!isSimpleViewer" class="cell-export" @click.stop>
                 <button
@@ -157,50 +225,107 @@
                 </button>
                 <span v-else>—</span>
               </td>
-              <td v-if="canUploadDocument" class="cell-doc" @click.stop>
-                <template v-if="group.primary.has_documents">
-                  <span class="doc-uploaded">✓ Uploaded</span>
-                  <span v-if="group.primary.document_uploaded_at" class="doc-time">{{ formatDate(group.primary.document_uploaded_at) }}</span>
-                </template>
-                <button
-                  v-else
-                  class="btn-doc-row"
-                  :disabled="!(group.primary.document_triggers && group.primary.document_triggers.length)"
-                  :title="group.primary.document_triggers && group.primary.document_triggers.length
-                    ? 'Aktif karena: ' + group.primary.document_triggers.join(', ')
-                    : 'Aktif hanya jika ada perubahan data di TMS: Alamat Kantor, Alamat Rumah, NPWP, atau NIK'"
-                  @click="openDocModal(group.primary)"
+              <!-- Satu kolom untuk kedua aksi: yang bisa upload DAN view mendapat dua
+                   tombol bertumpuk (atas-bawah), bukan dua kolom. -->
+              <td class="cell-doc" @click.stop>
+                <div class="doc-actions">
+                  <!-- Upload — hanya Team Leader Sales & Admin. -->
+                  <template v-if="canUploadDocument">
+                    <span v-if="group.primary.has_documents && !docMissing(group.primary).length" class="doc-uploaded">
+                      ✓ Uploaded
+                      <span v-if="group.primary.document_uploaded_at" class="doc-time">{{ formatDate(group.primary.document_uploaded_at) }}</span>
+                    </span>
+                    <button
+                      v-else
+                      class="btn-doc-row"
+                      :disabled="!docMissing(group.primary).length"
+                      @click="openDocModal(group.primary)"
+                    >
+                      <span>Upload</span>
+                      <span>Document</span>
+                    </button>
+                  </template>
+                  <!-- View — semua role, mati bila belum ada dokumen sama sekali. -->
+                  <button
+                    class="btn-doc-row btn-doc-view"
+                    :disabled="!group.primary.has_documents"
+                    :title="group.primary.has_documents ? 'Lihat dokumen yang sudah diunggah' : 'Belum ada dokumen yang diunggah'"
+                    @click="openViewDocModal(group.primary)"
+                  >
+                    <span>View</span>
+                    <span>Document</span>
+                  </button>
+                </div>
+                <!-- Sebagian sudah diunggah, sisanya belum (mis. KTP sudah, KK belum). -->
+                <span
+                  v-if="canUploadDocument && group.primary.has_documents && docMissing(group.primary).length"
+                  class="doc-uploaded doc-uploaded-partial"
                 >
-                  <span>Upload</span>
-                  <span>Document</span>
-                </button>
+                  ✓ Sebagian diunggah
+                </span>
+                <!-- Kebutuhan dokumen ditulis lengkap dengan alasannya, satu baris per
+                     dokumen: "Perlu Dokumen NPWP karena Perubahan NPWP". Hanya dokumen
+                     yang BELUM diunggah yang disebut; tiket tanpa kebutuhan dokumen
+                     meninggalkan sel ini kosong. -->
+                <div v-if="canUploadDocument && docNeeds(group.primary).length" class="doc-reason">
+                  <span
+                    v-for="n in docNeeds(group.primary)"
+                    :key="n.doc_type"
+                    class="doc-reason-line"
+                  >Perlu Dokumen {{ n.doc_label }} karena {{ n.reason }}</span>
+                </div>
               </td>
-              <td v-if="isQc" class="cell-banding" :title="appealTooltip(group.primary)">
+              <!-- Kolom "Manual Check" untuk QC: ringkasan banding Error
+                   Code miliknya (approved / rejected / menunggu). Murni Error Code —
+                   vonis human ada di kolom Manual Status, terpisah. -->
+              <td v-if="canAppealErrorCode" class="cell-banding">
                 <template v-if="group.primary.appeal_summary">
                   <span v-if="group.primary.appeal_summary.approved" class="banding-badge badge-green">✓ {{ group.primary.appeal_summary.approved }}</span>
                   <span v-if="group.primary.appeal_summary.rejected" class="banding-badge badge-red">✗ {{ group.primary.appeal_summary.rejected }}</span>
-                  <span v-if="group.primary.appeal_summary.pending" class="banding-badge badge-wait">⏳ {{ group.primary.appeal_summary.pending }}</span>
+                  <span v-if="group.primary.appeal_summary.pending" class="banding-badge badge-wait">{{ group.primary.appeal_summary.pending }}</span>
                 </template>
                 <span v-else>—</span>
+                <button
+                  v-if="appealHistoryCount(group.primary)"
+                  class="btn-mstatus btn-mstatus-ghost"
+                  :title="`Lihat ${appealHistoryCount(group.primary)} kejadian banding Error Code`"
+                  @click.stop="openAppealHistory(group.primary)"
+                >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
-              <td v-if="isSpqHead" class="cell-banding" :title="groupAppealTooltip(group)">
-                <template v-if="group.appeal">
-                  <span v-if="group.appeal.pending" class="banding-badge badge-wait">⏳ {{ group.appeal.pending }} menunggu</span>
+              <!-- Banding Review (reuses the old hidden QC Approval column slot for SPQ Head):
+                   highlight IDs awaiting review. -->
+              <td v-if="canReviewBandingSpq" class="cell-banding">
+                <template v-if="group.primary.appeal_summary">
+                  <span v-if="group.primary.appeal_summary.pending" class="banding-badge badge-wait">{{ group.primary.appeal_summary.pending }} menunggu</span>
                   <span v-else class="banding-badge badge-gray">Selesai</span>
                 </template>
                 <span v-else>—</span>
+                <button
+                  v-if="appealHistoryCount(group.primary)"
+                  class="btn-mstatus btn-mstatus-ghost"
+                  :title="`Lihat ${appealHistoryCount(group.primary)} kejadian banding Error Code`"
+                  @click.stop="openAppealHistory(group.primary)"
+                >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
-              <td v-if="isSpqHead" class="cell-delete" @click.stop>
+              <td v-if="canDeleteTicket" class="cell-delete" @click.stop>
                 <button class="btn-delete-row" @click="openDeleteModal(group.primary)">Delete</button>
               </td>
-              <td v-if="isTlQc" class="cell-banding" :title="appealTooltip(group.primary)">
+              <!-- Team Leader QC: flag IDs with a banding awaiting THEIR check. -->
+              <td v-if="canReviewBandingTl" class="cell-banding">
                 <template v-if="group.primary.appeal_summary">
-                  <span v-if="group.primary.appeal_summary.tl_pending" class="banding-badge badge-wait">⏳ {{ group.primary.appeal_summary.tl_pending }} perlu dicek</span>
+                  <span v-if="group.primary.appeal_summary.tl_pending" class="banding-badge badge-wait">{{ group.primary.appeal_summary.tl_pending }} perlu dicek</span>
                   <span v-else-if="group.primary.appeal_summary.spq_pending" class="banding-badge badge-gray">diteruskan ke SPQ</span>
                   <span v-else class="banding-badge badge-gray">—</span>
                 </template>
                 <span v-else>—</span>
+                <button
+                  v-if="appealHistoryCount(group.primary)"
+                  class="btn-mstatus btn-mstatus-ghost"
+                  :title="`Lihat ${appealHistoryCount(group.primary)} kejadian banding Error Code`"
+                  @click.stop="openAppealHistory(group.primary)"
+                >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
+              <!-- Pending Check: H+2 SLA timer from TMS submit_time (deadline = submit_time + 2 hari). -->
               <td v-if="isPendingCheck" class="cell-timer" @click.stop>
                 <span v-if="slaInfo(group.primary)" :class="['sla-badge', slaInfo(group.primary).cls]" :title="slaInfo(group.primary).title">
                   {{ slaInfo(group.primary).text }}
@@ -224,7 +349,7 @@
                       v-if="isSimpleViewer && group.primary.qc_request?.approval_status === 'approved'"
                       class="qc-approval-note"
                     >
-                      <div class="qan-title">📝 Catatan QC (Disetujui SPQ Head)</div>
+                      <div class="qan-title">Catatan QC (Disetujui SPQ Head)</div>
                       <p class="qan-reason">{{ group.primary.qc_request.reason || '—' }}</p>
                       <div class="qan-meta">
                         Status:
@@ -293,11 +418,36 @@
       @close="closeDocModal"
       @uploaded="onDocUploaded"
     />
+
+    <ErrorCodeHistoryModal
+      v-if="appealHistoryItem"
+      :history="appealHistoryItem.appeal_summary?.history || []"
+      :display-id="appealHistoryItem.id"
+      @close="closeAppealHistory"
+    />
+
+    <ManualStatusHistoryModal
+      v-if="historyItem"
+      :result-id="historyItem.result_id"
+      :display-id="historyItem.id"
+      @close="closeHistory"
+    />
+
+    <ViewDocumentModal
+      v-if="viewDocItem"
+      :result-id="viewDocItem.result_id"
+      :doc-id="viewDocItem.id"
+      :evaluation="results[viewDocItem.result_id]?.result?.evaluation || null"
+      @close="closeViewDocModal"
+    />
+
     <ManualCheckModal
       v-if="manualCheckItem"
       :result-id="manualCheckItem.result_id"
       :display-id="manualCheckItem.id"
       :existing="manualCheckItem.qc_request"
+      :ai-status="manualCheckItem.ai_status"
+      :by-human="!!manualCheckItem.manual_status_by_human"
       @close="manualCheckItem = null"
       @submitted="onQcRequestChanged"
     />
@@ -320,8 +470,9 @@
             <button class="del-close-x" @click="closeDeleteModal">✕</button>
           </header>
           <div v-if="deleteStep === 1" class="del-modal-body">
-            <p>Anda akan menghapus <strong>SEMUA entry</strong> untuk ticket <strong>{{ deleteItem.id }}</strong>.</p>
-            <p class="del-warn">⚠️ Tindakan ini permanen dan tidak dapat dibatalkan.</p>
+            <p>Anda akan menghapus <strong>SEMUA entry</strong> untuk ticket
+              <strong>{{ deleteItem.id }}</strong>.</p>
+            <p class="del-warn">Tindakan ini permanen dan tidak dapat dibatalkan.</p>
           </div>
           <div v-else class="del-modal-body">
             <p>Konfirmasi sekali lagi. Ketik ticket id <strong>{{ deleteItem.id }}</strong> untuk menghapus semua entry-nya.</p>
@@ -343,22 +494,25 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import EvaluationView from '../../components/EvaluationView.vue'
 import UploadDocumentModal from '../../components/UploadDocumentModal.vue'
+import ViewDocumentModal from '../../components/ViewDocumentModal.vue'
+import ManualStatusHistoryModal from '../../components/ManualStatusHistoryModal.vue'
+import ErrorCodeHistoryModal from '../../components/ErrorCodeHistoryModal.vue'
 import ManualCheckModal from '../../components/ManualCheckModal.vue'
 import QcApprovalModal from '../../components/QcApprovalModal.vue'
 import DocumentsSection from '../../components/DocumentsSection.vue'
 import AgentErrorTable from '../../components/AgentErrorTable.vue'
-import ResultDetail from '../../components/ResultDetail.vue'
 import apiClient from '../../api/client.js'
 import { useAuthStore } from '../../stores/auth.js'
-import { aiStatusLabel, AI_STATUS_VALUES } from '../../utils/aiStatus.js'
+import { P } from '../../permissions.js'
+import { aiStatusLabel, aiStatusBadgeClass } from '../../utils/aiStatus.js'
+import { campaignsInScope } from '../../utils/campaignScope.js'
 
 const GROUPING_MODE = import.meta.env.VITE_RESULTS_GROUPING === 'server' ? 'server' : 'client'
-const LIMIT = 20
 const GROUP_LIMIT = 20
 const FETCH_LIMIT = 100
 const MAX_FETCH_PAGES = 200
@@ -370,6 +524,8 @@ const serverTotalResults = ref(0)
 
 const route = useRoute()
 const isBandingReview = route.meta?.bandingReview === true
+// "Pending Check" queue (route meta.pendingCheck): tickets whose Manual Status is
+// still pending the caller's review tier, plus an H+2 SLA timer from TMS submit_time.
 const isPendingCheck = route.meta?.pendingCheck === true
 
 const page = ref(1)
@@ -377,6 +533,7 @@ const loading = ref(true)
 const fetchError = ref(null)
 
 const filterAiStatus = ref('')
+const filterManualStatus = ref('')
 const filterCampaign = ref('')
 const filterTicketId = ref('')
 const filterDateStart = ref('')
@@ -433,64 +590,77 @@ const loadingResult = ref({})
 
 const auth = useAuthStore()
 const showAgentSummary = true
-const SIMPLE_VIEWER_ROLES = ['sales_agent', 'team_leader', 'area_manager', 'telesales_head']
-const isSimpleViewer = computed(() => SIMPLE_VIEWER_ROLES.includes(auth.user?.role))
-const EVALUATION_DETAIL_ROLES = ['qc', 'team_leader_qc', 'qc_support', 'spq_head', 'admin', 'demo']
-const showEvaluationDetail = computed(() => EVALUATION_DETAIL_ROLES.includes(auth.user?.role))
-const DOCUMENT_UPLOADER_ROLES = ['team_leader', 'admin']
-const canUploadDocument = computed(() => DOCUMENT_UPLOADER_ROLES.includes(auth.user?.role))
-const isQc = computed(() => auth.user?.role === 'qc')
-const isSpqHead = computed(() => auth.user?.role === 'spq_head')
-const isTlQc = computed(() => auth.user?.role === 'team_leader_qc')
-const CF_HIDDEN_ROLES = ['sales_agent', 'team_leader', 'area_manager', 'telesales_head']
-const showCriticalFailure = computed(() => !CF_HIDDEN_ROLES.includes(auth.user?.role))
+// "Simple viewer" (sales agent, team leader, area manager, telesales head):
+// kolom Customer Name + Nomor Kartu, tanpa Passing Grade/Export. Sama dengan
+// is_simple_viewer di api/routers/stats.py.
+// Area Manager & Telesales Head memakai tampilan yang SAMA PERSIS dengan sales
+// agent — termasuk detail ticket saat baris di-expand, dan sama-sama tanpa Upload
+// Document / Export XLSX. Yang membedakan hanya cakupan data: mereka atasan dari
+// banyak sales, jadi scope-nya lebih luas (lihat _scoped_customer_ids di
+// api/routers/stats.py), bukan tampilannya.
+// "Simple viewer" = role tanpa detail evaluasi (sisi sales). Diturunkan dari
+// capability, bukan daftar nama role.
+const isSimpleViewer = computed(() => !auth.can(P.RESULTS_EVALUATION_DETAIL))
+// Detail penilaian (Executive Summary + verifikasi Ascend/TMS + dokumen) hanya
+// untuk sisi QC. Sisi sales cukup Agent Error Summary — mereka tidak boleh
+// membuka detail penilaian tiket agent di bawah mereka. Harus sama dengan
+// get_evaluation_detail_user di api/dependencies.py, yang menegakkan ini di
+// backend (GET /result/{id} balas 403).
+// "demo" (read-only showcase) mirrors the SPQ view and may open evaluation detail.
+const showEvaluationDetail = computed(() => auth.can(P.RESULTS_EVALUATION_DETAIL))
+// Who may UPLOAD supporting documents: ONLY Team Leader Sales supplies them (+ admin
+// superuser). QC, TL QC, SPQ Head, QC Support are view-only. Must match
+// get_document_uploader_user in api/dependencies.py. (Viewing reuses showEvaluationDetail,
+// the same role set as get_document_viewer_user, so document cards only render for those.)
+const canUploadDocument = computed(() => auth.can(P.DOCUMENT_UPLOAD))
+// MELIHAT dokumen terbuka untuk SEMUA role — yang membatasi bukan role melainkan
+// tiketnya: backend memeriksa setiap permintaan dengan ensure_can_view_result
+// (api/qc_scope.py), yang meniru cakupan daftar Results. Jadi seorang Team Leader
+// hanya bisa membuka dokumen tiket timnya sendiri.
+// Aksi Manual Status & banding kini murni capability. Ini juga yang membuat
+// pembatasan role "admin" (menu sama dengan SPQ Head, tanpa aksi QC) berlaku di
+// SATU tempat, bukan tersebar sebagai perbandingan nama role.
+// Kolom Manual Status hanya untuk sisi QC + administrasi. Divisi sales (TLO,
+// Team Leader Sales, Area Manager, Telesales Head) cukup AI Status — vonis human
+// adalah urusan QC. Filternya ikut disembunyikan karena tanpa kolomnya, memfilter
+// dengan nilai yang tidak terlihat hanya membingungkan.
+const showManualStatus = computed(() => auth.can(P.MANUAL_STATUS_COLUMN))
+const canSetManualStatus = computed(() => auth.can(P.MANUAL_STATUS_SET))
+const canReviewManualTl = computed(() => auth.can(P.MANUAL_STATUS_REVIEW_TL))
+const canReviewManualSpq = computed(() => auth.can(P.MANUAL_STATUS_REVIEW_SPQ))
+const canAppealErrorCode = computed(() => auth.can(P.ERROR_CODE_APPEAL))
+const canReviewBandingTl = computed(() => auth.can(P.ERROR_CODE_REVIEW_TL))
+const canReviewBandingSpq = computed(() => auth.can(P.ERROR_CODE_REVIEW_SPQ))
+const canDeleteTicket = computed(() => auth.can(P.ADMIN_TICKET_DELETE))
+// Critical Failure(s) tampil untuk semua role KECUALI sisi sales (TLO/sales agent,
+// Team Leader, Area Manager, Telesales Head) — QC, TL QC, QC Support, SPQ Head,
+// dan admin tetap melihatnya.
+const showCriticalFailure = computed(() => auth.can(P.RESULTS_CRITICAL_FAILURE))
 
 const showNonTolerable = false
 
+// Column count for empty/expand row colspan, mirroring the per-role <th> visibility:
+//   5 base columns: ID, Number of Calls, Call Duration, Campaign Interest, AI Status
+//   + Customer Name, Nomor Kartu, Limit Sebelumnya (simple viewer only)
+//   + Passing Grade, Export (non-simple-viewer)
+//   + Document (SEMUA role — View Document terbuka untuk semua; Upload menumpuk di
+//     sel yang sama untuk TL Sales / Admin)
+//   + Manual Check (QC / TL QC / SPQ Head) — ringkasan banding Error Code
 const colCount = computed(() => {
-  let n = 6
-  if (isSimpleViewer.value) n += 3
-  if (showCriticalFailure.value) n += 1
-  if (showNonTolerable) n += 1
-  if (!isSimpleViewer.value) n += 2
-  if (canUploadDocument.value) n += 1
-  if (isQc.value) n += 1
-  if (isSpqHead.value) n += 2
-  if (isTlQc.value) n += 1
-  if (isPendingCheck) n += 1
+  let n = 5 // ID, Number of Calls, Call Duration, Campaign Interest, AI Status
+  if (showManualStatus.value) n += 1 // Manual Status — hanya sisi QC & administrasi
+  if (isSimpleViewer.value) n += 3 // Customer Name, Nomor Kartu, Limit Sebelumnya
+  if (showCriticalFailure.value) n += 1 // Critical Failure(s)
+  if (showNonTolerable) n += 1 // Non-Tolerable
+  if (!isSimpleViewer.value) n += 2 // Passing Grade, Export
+  n += 1 // kolom Document (Upload dan/atau View) — selalu ada
+  if (canAppealErrorCode.value) n += 1 // Manual Check — pengaju banding
+  if (canReviewBandingSpq.value) n += 1 // Banding Review tahap SPQ Head
+  if (canDeleteTicket.value) n += 1 // Delete Record
+  if (canReviewBandingTl.value) n += 1 // Banding Review tahap Team Leader QC
+  if (isPendingCheck) n += 1 // Sisa Waktu (H+2) timer
   return n
 })
-
-function groupFlat(arr) {
-  const map = new Map()
-  arr.forEach(it => {
-    if (!map.has(it.id)) map.set(it.id, { id: it.id, results: [], primary: it, appeal: it.appeal_summary || null })
-    map.get(it.id).results.push(it)
-  })
-  return Array.from(map.values())
-}
-
-const pagedGroups = computed(() => {
-  if (GROUPING_MODE === 'server') return serverGroups.value
-  const start = (page.value - 1) * LIMIT
-  return groupFlat(rawItems.value).slice(start, start + LIMIT)
-})
-
-const totalGroups = computed(() => GROUPING_MODE === 'server' ? serverTotalGroups.value : groupFlat(rawItems.value).length)
-const totalResults = computed(() => GROUPING_MODE === 'server' ? serverTotalResults.value : rawItems.value.length)
-const totalPages = computed(() => Math.max(1, Math.ceil(totalGroups.value / LIMIT)))
-
-function appealTooltip(item) {
-  const s = item.appeal_summary
-  if (!s || !s.history?.length) return ''
-  const label = { pending: 'Menunggu Approval', approved: 'Approved', rejected: 'Rejected' }
-  return s.history
-    .map((h) => {
-      const who = h.reviewed_by_username ? ` — ${label[h.approval_status] || h.approval_status} oleh ${h.reviewed_by_username}` : ` — ${label[h.approval_status] || h.approval_status}`
-      return `${h.error_code}/${h.item_code}${who}`
-    })
-    .join('\n')
-}
 
 const agentSummary = ref({})
 const loadingAgent = ref({})
@@ -543,6 +713,13 @@ async function confirmDelete() {
 const docModalResultId = ref(null)
 const docModalId = ref(null)
 const docModalTypes = ref([])
+// Tiket yang sedang dibuka di modal "View Document".
+const viewDocItem = ref(null)
+// Tiket yang sedang dibuka di modal riwayat Manual Status.
+const historyItem = ref(null)
+// Tiket yang sedang dibuka di modal riwayat banding Error Code.
+const appealHistoryItem = ref(null)
+
 const manualCheckItem = ref(null)
 const approvalItem = ref(null)
 
@@ -554,17 +731,98 @@ function formatDate(iso) {
   return new Date(s).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta' })
 }
 
-const SLA_HOURS = 48
+// --- Grouping per ticket id ------------------------------------------------
+// [FIX] `groupFlat`, `groups`, `pagedGroups`, `totalGroups`, `totalResults` dan
+// `totalPages` hilang saat merge padahal dipakai template -> layar kosong /
+// ReferenceError. Satu `id` bisa punya beberapa result (tiket di-reprocess);
+// `primary` = result TERBARU, yaitu yang ditampilkan di baris induk.
+function groupFlat(list) {
+  const map = new Map()
+  for (const it of list) {
+    const key = it.id ?? it.result_id
+    let g = map.get(key)
+    if (!g) {
+      g = { id: key, results: [] }
+      map.set(key, g)
+    }
+    g.results.push(it)
+  }
+  const arr = Array.from(map.values())
+  for (const g of arr) {
+    g.results.sort((a, b) => resultTs(b) - resultTs(a))
+    g.primary = g.results[0]
+  }
+  arr.sort((a, b) => resultTs(b.primary) - resultTs(a.primary))
+  return arr
+}
+
+function resultTs(item) {
+  if (!item) return 0
+  const raw = item.generated_at
+  if (!raw) return 0
+  const s = /[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : raw + 'Z'
+  const t = new Date(s).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+const groups = computed(() =>
+  (GROUPING_MODE === 'server' ? serverGroups.value : groupFlat(rawItems.value))
+)
+
+// Server mode sudah memaginasi per grup, jadi halamannya diiris backend.
+const pagedGroups = computed(() => {
+  if (GROUPING_MODE === 'server') return groups.value
+  const start = (page.value - 1) * GROUP_LIMIT
+  return groups.value.slice(start, start + GROUP_LIMIT)
+})
+
+const totalGroups = computed(() =>
+  (GROUPING_MODE === 'server' ? serverTotalGroups.value : groups.value.length)
+)
+const totalResults = computed(() =>
+  (GROUPING_MODE === 'server' ? serverTotalResults.value : rawItems.value.length)
+)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalGroups.value / GROUP_LIMIT)))
+
+// Cari satu result di state (mode client maupun server) — dipakai setelah upload
+// dokumen supaya barisnya bisa ditandai tanpa fetch ulang.
+function findResult(resultId) {
+  if (GROUPING_MODE === 'server') {
+    for (const g of serverGroups.value) {
+      const hit = g.results.find((r) => r.result_id === resultId)
+      if (hit) return hit
+    }
+    return null
+  }
+  return rawItems.value.find((it) => it.result_id === resultId) || null
+}
+
+// --- Pending Check SLA timer (H+2 after TMS submit_time) ---
+// A ticking clock so the countdown updates live; only wired up in Pending Check mode.
+const SLA_HOURS = 48 // "H+2" = 2 hari setelah submit_time (cashline TMS)
 const nowTs = ref(Date.now())
 let slaTimer = null
-
+// Parse a TMS submit_time ("2026-06-17 15:24:53", naive WIB) into an epoch ms.
+function parseSubmitWib(s) {
+  const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/)
+  if (!m) return NaN
+  const [, Y, Mo, D, H, Mi, S] = m
+  return Date.parse(`${Y}-${Mo}-${D}T${H}:${Mi}:${S || '00'}+07:00`)
+}
 function slaInfo(item) {
-  const iso = item.generated_at
-  if (!iso) return null
-  const s = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z'
-  const gen = new Date(s).getTime()
-  if (!Number.isFinite(gen)) return null
-  const deadline = gen + SLA_HOURS * 3600 * 1000
+  // Basis = TMS submit_time (disbursement submission, WIB). Fall back to the
+  // transcript's generated_at only when a ticket has no submit_time.
+  let base = NaN
+  if (item.submit_time) {
+    base = parseSubmitWib(item.submit_time)
+  } else if (item.generated_at) {
+    // Same UTC->WIB convention as formatDate: append 'Z' when the string is naive.
+    const iso = item.generated_at
+    const s = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z'
+    base = new Date(s).getTime()
+  }
+  if (!Number.isFinite(base)) return null
+  const deadline = base + SLA_HOURS * 3600 * 1000
   const remaining = deadline - nowTs.value
   const deadlineStr = new Date(deadline).toLocaleString('id-ID', {
     dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta',
@@ -610,35 +868,31 @@ function nonTolerableItems(item) {
   return item?.non_tolerable_items || []
 }
 
+// Requirement text per bullet. The backend now sends a per-item `reason` that names
+// the ACTUAL cause — important for the static verification items, where "Agent tidak
+// memverifikasi tanggal lahir" is simply false when the agent DID ask and the answer
+// merely failed to match Ascend (compliance/error_codes.py:
+// annotate_critical_compliance_reasons). The local negation below is only a fallback
+// for results fetched before that field existed.
 function cccRequirement(it) {
+  if (it.reason) return it.reason
   const req = it.requirement || it.item_code || '—'
   if (it.status === 'PASS' || req === '—') return req
   const m = req.match(/^(\s*Agent\s+)(.*)$/i)
   return m ? `${m[1]}tidak ${m[2]}` : `Tidak: ${req}`
 }
 
-function aiStatusBadgeClass(status) {
-  if (status === 'PASS') return 'badge-green'
-  if (status === 'FAILED') return 'badge-red'
-  return 'badge-gray'
-}
-
-function groupAppealTooltip(group) {
-  const h = group.appeal?.history
-  if (!h?.length) return ''
-  const label = { pending: 'Menunggu Approval', approved: 'Approved', rejected: 'Rejected' }
-  return h
-    .map((x) => {
-      const st = label[x.approval_status] || x.approval_status
-      const who = x.reviewed_by_username ? `${st} oleh ${x.reviewed_by_username}` : st
-      return `${x.error_code}/${x.item_code} — ${who}`
-    })
-    .join('\n')
-}
+// [FIX] Definisi lokal `aiStatusBadgeClass` DIHAPUS — namanya bentrok dengan yang
+// di-import dari utils/aiStatus.js (penyebab "Identifier has already been
+// declared"). Versi lokal juga mencocokkan 'FAILED', padahal filter di halaman ini
+// memakai 'FAIL'; utils yang jadi sumber kebenaran untuk label + warna badge.
 
 function buildParams() {
   const p = {}
   if (filterAiStatus.value) p.ai_status = filterAiStatus.value
+  // [FIX] filter Manual Status hilang dari buildParams saat merge — dropdown-nya
+  // ada di layar tapi tidak pernah dikirim ke backend.
+  if (filterManualStatus.value) p.manual_status = filterManualStatus.value
   if (filterCampaign.value) p.campaign = filterCampaign.value
   if (filterTicketId.value) p.ticket_id = filterTicketId.value.trim()
   if (filterAm.value) p.am_nip = filterAm.value
@@ -653,6 +907,11 @@ function buildParams() {
   return p
 }
 
+// [FIX] Ada DUA `fetchItems` setelah merge; versi kedua memakai `items`/`total`
+// yang sudah tidak ada di komponen ini (peninggalan sebelum grouping). Yang
+// dipertahankan versi grouping di bawah ini.
+// `silent` polling refreshes must not flip `loading` — the skeleton would flash
+// and collapse the expanded row every few seconds.
 async function fetchItems({ silent = false } = {}) {
   if (!silent) loading.value = true
   try {
@@ -685,14 +944,21 @@ async function fetchItems({ silent = false } = {}) {
   } finally {
     if (!silent) loading.value = false
   }
+  // Auto-start/stop polling: run only while some row is still being processed.
   if (hasInProgress()) startPolling()
   else stopPolling()
 }
 
+// Active campaign names for the Campaign filter dropdown, dipersempit ke cakupan
+// campaign login ini (campaignsInScope) — campaign di luar cakupan selalu memberi
+// hasil kosong, jadi tidak ditawarkan.
+// [FIX] Versi duplikat tanpa campaignsInScope dihapus.
 async function fetchCampaigns() {
   try {
     const res = await apiClient.get('/list_campaigns')
-    campaignOptions.value = (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
+    campaignOptions.value = campaignsInScope(
+      (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
+    )
   } catch {
     campaignOptions.value = []
   }
@@ -724,7 +990,10 @@ async function fetchAgentSummary(id) {
   }
 }
 
-const POLL_INTERVAL_MS = GROUPING_MODE === 'server' ? 7000 : 15000
+// --- Auto-refresh (polling) ------------------------------------------------
+// The backend has no push channel, so we poll /list_results while any row is
+// pending/processing and stop once everything is done/failed.
+const POLL_INTERVAL_MS = 7000
 let pollTimer = null
 
 function hasInProgress() {
@@ -776,6 +1045,7 @@ function debouncedFilter() {
 
 function clearFilters() {
   filterAiStatus.value = ''
+  filterManualStatus.value = ''
   filterCampaign.value = ''
   filterTicketId.value = ''
   filterAm.value = ''
@@ -817,26 +1087,62 @@ function reloadResult() {
   }
 }
 
+// --- Export agregat per kategori verifikasi (SPQ Head & Admin) -------------
+const canExportVerification = computed(() => auth.can(P.RESULTS_EXPORT_VERIFICATION))
+// Key-nya harus sama persis dengan VERIFICATION_EXPORT_CATEGORIES di
+// compliance/stats_aggregate.py — backend menolak key yang tidak dikenal (422).
+const EXPORT_CATEGORIES = [
+  { key: 'verifikasi_statik', label: 'Verifikasi Statik' },
+  { key: 'verifikasi_dinamik', label: 'Verifikasi Dinamik' },
+  { key: 'cashline_verification', label: 'Cashline Verification' },
+  { key: 'cardholder_verification', label: 'Cardholder Verification' },
+]
+const exportCategory = ref(EXPORT_CATEGORIES[0].key)
+const exportingCategory = ref(false)
+
+async function exportVerification() {
+  if (exportingCategory.value) return
+  exportingCategory.value = true
+  try {
+    const params = { category: exportCategory.value }
+    if (filterCampaign.value) params.campaign = filterCampaign.value
+    const res = await apiClient.get('/export_verification_xlsx', { params, responseType: 'blob' })
+    downloadBlob(res, `${exportCategory.value}.xlsx`)
+  } catch {
+    alert('Gagal export XLSX agregat.')
+  } finally {
+    exportingCategory.value = false
+  }
+}
+
+// Simpan respons blob sebagai unduhan, memakai nama file dari Content-Disposition
+// bila ada (backend mengirim "<kategori>_<timestamp>.xlsx").
+function downloadBlob(res, fallbackName) {
+  const url = URL.createObjectURL(
+    new Blob([res.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+  )
+  const disposition = res.headers['content-disposition'] || ''
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = match ? decodeURIComponent(match[1]) : fallbackName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 async function exportRow(item) {
   if (exportingId.value) return
   exportingId.value = item.result_id
   try {
-    const res = await apiClient.get(`/export_result_xlsx/${item.result_id}`, { responseType: 'blob' })
-    const url = URL.createObjectURL(
-      new Blob([res.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      }),
-    )
-    const disposition = res.headers['content-disposition'] || ''
-    const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
-    const filename = match ? decodeURIComponent(match[1]) : `${item.id || item.result_id}.xlsx`
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    const res = await apiClient.get(`/export_result_xlsx/${item.result_id}`, {
+      responseType: 'blob',
+    })
+    // Nama file datang dari backend (ID_timestamp.xlsx); fallback bila tidak ada.
+    downloadBlob(res, `${item.id || item.result_id}.xlsx`)
   } catch {
     alert('Gagal export XLSX.')
   } finally {
@@ -844,10 +1150,68 @@ async function exportRow(item) {
   }
 }
 
+// Jenis dokumen yang dipicu tapi BELUM diunggah. Satu tiket bisa memicu dua
+// dokumen berbeda (mis. KTP karena alamat berubah + KK karena Nama Ibu Kandung
+// mirip 80–89%), dan boleh diunggah di kunjungan terpisah.
+function docMissing(item) {
+  if (item.document_missing_types) return item.document_missing_types
+  // Fallback untuk payload lama (tanpa field baru).
+  return item.has_documents ? [] : item.document_upload_types || []
+}
+
+// Kebutuhan dokumen yang masih HARUS dipenuhi, satu entri per dokumen dengan
+// alasannya digabung: { doc_type, doc_label, reason }. Satu dokumen bisa dipicu
+// lebih dari satu hal (mis. KTP karena Perubahan NIK sekaligus Perubahan Alamat
+// Rumah) — alasannya dirangkai dengan "dan" supaya tetap satu kalimat.
+function docNeeds(item) {
+  const missing = docMissing(item) || []
+  if (!missing.length) return []
+  const reqs = item.document_requirements || []
+  const byType = new Map()
+  for (const r of reqs) {
+    if (!missing.includes(r.doc_type)) continue
+    const hit = byType.get(r.doc_type)
+    if (hit) hit.reasons.push(r.reason)
+    else byType.set(r.doc_type, { doc_type: r.doc_type, doc_label: r.doc_label, reasons: [r.reason] })
+  }
+  return missing
+    .filter((t) => byType.has(t))
+    .map((t) => {
+      const e = byType.get(t)
+      return { doc_type: e.doc_type, doc_label: e.doc_label, reason: e.reasons.join(' dan ') }
+    })
+}
+
 function openDocModal(item) {
   docModalResultId.value = item.result_id
   docModalId.value = item.id || null
-  docModalTypes.value = item.document_upload_types || []
+  docModalTypes.value = docMissing(item)
+}
+
+function appealHistoryCount(item) {
+  return (item.appeal_summary?.history || []).length
+}
+function openAppealHistory(item) {
+  appealHistoryItem.value = item
+}
+function closeAppealHistory() {
+  appealHistoryItem.value = null
+}
+
+function openHistory(item) {
+  historyItem.value = item
+}
+
+function closeHistory() {
+  historyItem.value = null
+}
+
+function openViewDocModal(item) {
+  viewDocItem.value = item
+}
+
+function closeViewDocModal() {
+  viewDocItem.value = null
 }
 
 function closeDocModal() {
@@ -857,42 +1221,75 @@ function closeDocModal() {
 }
 
 function onDocUploaded(payload) {
-  const list = GROUPING_MODE === 'server' ? serverGroups.value.flatMap((g) => g.results) : rawItems.value
-  const target = list.find((it) => it.result_id === payload.resultId)
-  if (target) target.has_documents = true
+  // Mark the row as uploaded (button -> "Uploaded") and surface the documents in
+  // the expanded section if the row is open. Only the types just uploaded are
+  // cleared — a still-missing type keeps the button active.
+  // [FIX] dulu mencari di `items.value` yang sudah tidak ada; sekarang lewat
+  // findResult() supaya jalan di mode client maupun server.
+  const item = findResult(payload.resultId)
+  if (!item) return
+  item.has_documents = true
+  const uploaded = (payload.documents || []).map((d) => d.doc_type)
+  item.document_missing_types = (docMissing(item) || []).filter((t) => !uploaded.includes(t))
 }
 
-const MSTATUS_LABEL = { approve: 'Approve', reject: 'Reject', ditolak: 'Usulan Ditolak', pending: 'Pending' }
-const MSTATUS_CLASS = { approve: 'badge-green', reject: 'badge-red', ditolak: 'badge-gray', pending: 'badge-wait' }
-
+// --- Manual Status column (semua role) ---
+// Manual Status = VONIS HUMAN, nilainya sejajar AI Status (Qualified / Not
+// Qualified / Pending) dan berdiri sendiri — tidak pernah menimpa AI Status.
+const MSTATUS_LABEL = { PASS: 'QUALIFIED', FAIL: 'NOT QUALIFIED', PENDING: 'PENDING' }
+const MSTATUS_CLASS = { PASS: 'badge-green', FAIL: 'badge-red', PENDING: 'badge-wait' }
 function mStatusLabel(s) { return MSTATUS_LABEL[s] || s }
-function mStatusClass(s) { return MSTATUS_CLASS[s] || 'badge-gray' }
-function mStatusTitle(item) {
-  const s = item.manual_status
-  const req = item.qc_request
-  if (s === 'ditolak') {
-    const c = req?.review_comment || req?.tl_qc_comment
-    return c ? `Ditolak: ${c}` : 'Usulan ditolak oleh reviewer'
-  }
-  if (s === 'pending') return req ? 'Menunggu review hierarki' : 'Kekurangan dokumen — menunggu pemeriksaan QC'
-  if ((s === 'approve' || s === 'reject') && req?.reviewed_by_username) return `Oleh ${req.reviewed_by_username}`
-  return ''
+// Catatan SLA H+2 di kolom Manual Status: sebutkan dokumennya ("Cek Dokumen NPWP"),
+// bukan sekadar "Cek Dokumen" — QC perlu tahu apa yang harus dicek tanpa membuka baris.
+function missingDocNote(item) {
+  const labels = item.document_missing_labels || []
+  return labels.length ? `Cek Dokumen ${labels.join(', ')}` : 'Cek Dokumen'
 }
-
+function mStatusClass(s) { return MSTATUS_CLASS[s] || 'badge-gray' }
+// Keadaan ALUR KERJA-nya (menunggu review / usulan ditolak / perlu dicek) TIDAK
+// ditampilkan di kolom ini — tautan "Riwayat" sudah mewakilkannya, dan payload
+// masih membawa `manual_review_state` bila suatu saat dibutuhkan lagi.
+// Tooltip badge vonis: siapa yang menetapkannya + alasannya. (Cabang lama untuk
+// nilai 'approve'/'reject'/'ditolak' dihapus — manual_status kini PASS/FAIL/PENDING.)
+function mStatusTitle(item) {
+  if (!item.manual_status_by_human) return 'Mengikuti AI Status — belum diubah human'
+  const req = item.qc_request
+  if (!req) return ''
+  const who = req.tl_qc_status === 'escalated' ? req.reviewed_by_username : req.tl_qc_username
+  const parts = []
+  if (who) parts.push(`Ditetapkan oleh ${who}`)
+  if (req.reason) parts.push(`Alasan: ${req.reason}`)
+  return parts.join(' · ')
+}
+// Aksi per role: QC set/ubah verdict (ManualCheckModal); TL QC / SPQ Head review
+// sesuai tahap hierarki (QcApprovalModal, stage 'tl'/'spq').
+// Aksi utama per role. QC mengusulkan; TL QC & SPQ Head boleh MENETAPKAN sendiri
+// (tanpa approval) — jadi keduanya selalu punya tombol Set/Ubah, dan tombol Review
+// tambahan hanya muncul saat ada usulan QC yang menunggu giliran mereka.
 function manualStatusAction(item) {
   if (item.status !== 'done') return null
-  if (isQc.value) return item.qc_request ? 'Ubah' : 'Set'
+  if (canSetManualStatus.value) {
+    // "Ubah" hanya bila vonisnya memang sudah ditetapkan human; kalau masih
+    // mengikuti AI Status, ini penetapan pertama -> "Set".
+    return item.manual_status_by_human ? 'Ubah' : 'Set'
+  }
+  return null
+}
+function manualReviewAction(item) {
+  if (item.status !== 'done') return null
   const req = item.qc_request
   if (!req) return null
-  if (isTlQc.value && (req.tl_qc_status || 'pending') === 'pending') return 'Review'
-  if (isSpqHead.value && req.tl_qc_status === 'escalated' && req.approval_status === 'pending') return 'Review'
+  if (canReviewManualTl.value && (req.tl_qc_status || 'pending') === 'pending') return 'Review'
+  if (canReviewManualSpq.value && req.tl_qc_status === 'escalated' && req.approval_status === 'pending') return 'Review'
   return null
 }
 
 function onManualStatusAction(item) {
-  if (isQc.value) { manualCheckItem.value = item; return }
-  if (isTlQc.value) { approvalItem.value = { ...item, _stage: 'tl' }; return }
-  if (isSpqHead.value) { approvalItem.value = { ...item, _stage: 'spq' }; return }
+  manualCheckItem.value = item
+}
+function onManualReviewAction(item) {
+  if (canReviewManualTl.value) { approvalItem.value = { ...item, _stage: 'tl' }; return }
+  if (canReviewManualSpq.value) { approvalItem.value = { ...item, _stage: 'spq' }; return }
 }
 
 function onQcRequestChanged() {
@@ -912,6 +1309,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   stopPolling()
   if (slaTimer) clearInterval(slaTimer)
+  clearTimeout(debounceTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
 </script>
@@ -932,6 +1330,24 @@ onBeforeUnmount(() => {
   border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); transition: all 0.15s;
 }
 .btn-clear:hover { background: #e2e8f0; color: var(--text); }
+
+/* Pesan gagal muat data (fetchError). */
+.error-box {
+  padding: 10px 14px; margin-bottom: 12px; background: var(--red-bg); color: var(--red);
+  border: 1px solid var(--red); border-radius: 8px; font-size: 13px;
+}
+
+/* Export agregat per kategori verifikasi (baris sendiri di bawah filter). */
+.export-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.export-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.btn-export-agg {
+  padding: 8px 16px; background: var(--green-bg); border: 1.5px solid #16a34a;
+  border-radius: 8px; font-size: 13px; font-weight: 700; color: #16a34a; transition: all 0.15s;
+}
+.btn-export-agg:hover:not(:disabled) { background: #16a34a; color: #fff; }
+.btn-export-agg:disabled { opacity: 0.5; cursor: not-allowed; }
+.export-note { font-size: 12px; color: var(--text-muted); }
+
 .btn-export-row {
   padding: 5px 8px; background: var(--green-bg); border: 1.5px solid #16a34a;
   border-radius: 8px; font-size: 12px; font-weight: 700; color: #16a34a; transition: all 0.15s; white-space: nowrap;
@@ -949,7 +1365,17 @@ onBeforeUnmount(() => {
 .btn-doc-row:disabled { opacity: 0.5; cursor: not-allowed; }
 .cell-doc { text-align: left; }
 .doc-uploaded { display: block; font-size: 12px; font-weight: 700; color: #16a34a; white-space: nowrap; }
+/* Sebagian dokumen sudah masuk tapi masih ada yang kurang — amber, bukan hijau. */
+.doc-uploaded-partial { margin-top: 4px; font-size: 11px; color: #b45309; }
 .doc-time { display: block; font-size: 11px; color: var(--text-muted); white-space: nowrap; margin-top: 2px; }
+/* Kebutuhan dokumen + alasannya — tampil langsung, tanpa hover. Satu baris per
+   dokumen ("Perlu Dokumen NPWP karena Perubahan NPWP"). */
+.doc-reason { margin-top: 5px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.doc-reason-line {
+  font-size: 10.5px; font-weight: 600; color: var(--blue);
+  background: var(--blue-bg); border: 1px solid var(--blue);
+  border-radius: 6px; padding: 1px 6px; line-height: 1.35; white-space: normal;
+}
 .approval-approved { color: #16a34a; font-weight: 700; }
 .approval-rejected { color: var(--red); font-weight: 700; }
 .approval-pending { color: var(--yellow); font-weight: 700; }
@@ -987,18 +1413,25 @@ onBeforeUnmount(() => {
 .badge-green { background: var(--green-bg); color: #16a34a; }
 .badge-red { background: var(--red-bg); color: var(--red); }
 .badge-yellow { background: var(--yellow-bg); color: var(--yellow); }
+.status-badge.badge-wait { background: #fef3c7; color: #b45309; }
+
+/* Manual Status column (semua role): badge verdict + tombol aksi per role. */
 .cell-mstatus { white-space: nowrap; }
+/* Baris atas: badge vonis + tombol, berdampingan dan rata kiri. */
+.mstatus-top { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .mstatus-badge {
-  display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px;
-  border-radius: 999px; white-space: nowrap;
+  display: inline-block; font-size: 10px; font-weight: 800; padding: 3px 8px;
+  border-radius: 999px; white-space: nowrap; letter-spacing: 0.02em;
 }
 .mstatus-badge.badge-wait { background: #fef3c7; color: #b45309; }
-.mstatus-dash { color: var(--text-muted); }
 .btn-mstatus {
   margin-left: 6px; padding: 3px 9px; font-size: 11px; font-weight: 700; cursor: pointer;
   color: var(--blue); background: var(--blue-bg); border: 1px solid transparent; border-radius: 6px;
 }
 .btn-mstatus:hover { border-color: var(--blue); }
+
+/* Sisa gaya kolom audit "sudah dicek manual" yang sudah di-deprecate (digantikan
+   kolom Manual Status). Dipertahankan karena masih dipakai badge di sel banding. */
 .cell-mcheck { white-space: nowrap; }
 .btn-mcheck {
   padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer;
@@ -1117,4 +1550,20 @@ onBeforeUnmount(() => {
   border-radius: 8px; font-size: 13px; font-weight: 800; color: #fff; cursor: pointer;
 }
 .del-btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Kolom Document: dua aksi bertumpuk (atas-bawah) supaya tetap satu kolom. */
+.doc-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.btn-doc-view { background: transparent; }
+/* Tombol sekunder: bentuknya tetap tombol, tapi lebih redup daripada Set/Ubah. */
+.btn-mstatus-ghost {
+  display: block; margin-top: 4px; font-size: 10.5px; padding: 2px 8px;
+  color: var(--text-muted); border-color: var(--border);
+}
+.btn-mstatus-ghost:hover { color: var(--blue); border-color: var(--blue); }
+.mstatus-note { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 600; color: #b45309; white-space: normal; }
+/* Keterangan kenapa AI Status = PENDING (dokumen apa yang ditunggu + SLA H+2). */
+.ai-status-note { margin-top: 3px; font-size: 10.5px; font-weight: 600; color: #b45309; line-height: 1.3; white-space: normal; }
+/* Indikasi fraud dibedakan dari catatan Pending: merah, bukan amber. */
+.ai-status-note.note-fraud { color: var(--red); font-weight: 700; }
+/* Masih mengikuti AI Status (belum disentuh human) — dibuat lebih redup. */
+.mstatus-inherited { opacity: 0.55; font-weight: 600; }
 </style>

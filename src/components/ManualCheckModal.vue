@@ -4,9 +4,14 @@
       <div class="modal-card" role="dialog" aria-modal="true">
         <header class="modal-head">
           <div>
-            <h2 class="modal-title">Manual Check</h2>
+            <h2 class="modal-title">Manual Status</h2>
+            <!-- Manual Status = vonis HUMAN atas tiket ini. Berdiri sendiri: tidak
+                 pernah menimpa AI Status. QC mengUSULkan (lewat hierarki), TL QC &
+                 SPQ Head menetapkan langsung tanpa approval. -->
             <p class="modal-subtitle">
-              Ajukan perubahan AI Status untuk ditinjau oleh SPQ Head.
+              {{ isDirectSetter
+                ? 'Tetapkan Manual Status tiket ini. Berlaku langsung, tanpa approval.'
+                : 'Ajukan Manual Status untuk ditinjau Team Leader QC (bisa diteruskan ke SPQ Head).' }}
             </p>
           </div>
           <button class="close-x" aria-label="Tutup" @click="close">✕</button>
@@ -30,16 +35,31 @@
           </div>
 
           <div class="field">
-            <label class="field-label" for="mc-status">Ubah Status</label>
+            <label class="field-label" for="mc-status">Manual Status</label>
             <select id="mc-status" v-model="statusVal" class="select-input">
               <option value="" disabled>Pilih status…</option>
-              <option value="PASS">APPROVE</option>
-              <option value="FAIL">REJECT</option>
+              <option value="PASS">QUALIFIED</option>
+              <option value="FAIL">NOT QUALIFIED</option>
+              <option value="PENDING">PENDING</option>
             </select>
+            <p class="field-hint">
+              Pilih PENDING bila belum bisa diputuskan (mis. menunggu dokumen).
+            </p>
+            <!-- Penetapan pertama yang sama dengan AI Status tidak mengubah apa pun,
+                 jadi backend memfinalkannya tanpa hierarki. Katakan itu sebelum QC
+                 menekan Submit, bukan sesudahnya. -->
+            <p v-if="confirmsAiStatus" class="field-hint hint-ok">
+              Sama dengan AI Status ({{ aiStatusLabel(aiStatus) }}) — berlaku langsung,
+              tanpa approval Team Leader QC / SPQ Head.
+            </p>
+            <p v-else-if="willNeedApproval" class="field-hint">
+              Berbeda dari AI Status ({{ aiStatusLabel(aiStatus) }}) — usulan ini
+              ditinjau Team Leader QC (bisa diteruskan ke SPQ Head).
+            </p>
           </div>
 
           <div class="field">
-            <label class="field-label" for="mc-reason">Alasan Perubahan Status</label>
+            <label class="field-label" for="mc-reason">Alasan</label>
             <textarea
               id="mc-reason"
               v-model="reasonVal"
@@ -48,6 +68,8 @@
               placeholder="Tuliskan alasan perubahan status di sini…"
             ></textarea>
           </div>
+
+          <ManualStatusHistory :result-id="resultId" />
 
           <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
         </div>
@@ -67,19 +89,40 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import apiClient from '../api/client.js'
+import ManualStatusHistory from './ManualStatusHistory.vue'
+import { useAuthStore } from '../stores/auth.js'
+import { P } from '../permissions.js'
 import { aiStatusLabel } from '../utils/aiStatus.js'
 
 const props = defineProps({
   resultId: { type: String, required: true },
   displayId: { type: String, default: null },
   existing: { type: Object, default: null },
+  // AI Status tiket ini + apakah vonis human-nya sudah pernah ditetapkan. Dipakai
+  // HANYA untuk keterangan di bawah dropdown; yang memutuskan perlu-tidaknya
+  // approval tetap backend (_confirms_ai_status di api/routers/qc_status.py).
+  aiStatus: { type: String, default: null },
+  byHuman: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'submitted'])
+
+// Team Leader QC & SPQ Head menetapkan Manual Status LANGSUNG (tanpa approval);
+// QC hanya mengusulkan dan menunggu hierarki. Backend menegakkan hal yang sama.
+const auth = useAuthStore()
+const isDirectSetter = computed(() =>
+  auth.can(P.MANUAL_STATUS_DIRECT)
+)
 
 const statusVal = ref(props.existing?.requested_status || '')
 const reasonVal = ref(props.existing?.reason || '')
 const errorMsg = ref('')
 const submitting = ref(false)
+
+// Hanya berlaku untuk pengusul (QC) pada penetapan PERTAMA: sesudah ada vonis human,
+// setiap perubahan tetap lewat alur banding.
+const firstVerdict = computed(() => !isDirectSetter.value && !props.byHuman && !!props.aiStatus)
+const confirmsAiStatus = computed(() => firstVerdict.value && statusVal.value === props.aiStatus)
+const willNeedApproval = computed(() => !isDirectSetter.value && !!statusVal.value && !confirmsAiStatus.value)
 
 const canSubmit = computed(
   () => !!statusVal.value && reasonVal.value.trim().length > 0 && !submitting.value
@@ -206,4 +249,6 @@ code.id-value {
   border-radius: 50%; animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.field-hint { margin: 4px 0 0; font-size: 11px; color: var(--text-muted, #6b7280); }
+.hint-ok { color: #16a34a; font-weight: 600; }
 </style>

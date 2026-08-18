@@ -31,76 +31,83 @@
     <nav>
       <div class="menu-group">
         <div class="group-label">Dashboard</div>
-        <RouterLink v-if="!isQcSupport" to="/dashboard/stats" class="menu-item" active-class="active" :title="collapsed ? 'Stats' : ''">
-          <span class="icon">📊</span> <span class="label">Stats</span>
+        <RouterLink v-if="can(P.MENU_STATS)" to="/dashboard/stats" class="menu-item" active-class="active" :title="collapsed ? 'Stats' : ''">
+          <span class="icon">ST</span> <span class="label">Stats</span>
         </RouterLink>
-        <RouterLink to="/dashboard/results" class="menu-item" active-class="active" :title="collapsed ? 'Results' : ''">
-          <span class="icon">📄</span> <span class="label">Results</span>
+        <RouterLink v-if="can(P.MENU_RESULTS)" to="/dashboard/results" class="menu-item" active-class="active" :title="collapsed ? 'Results' : ''">
+          <span class="icon">RS</span> <span class="label">Results</span>
         </RouterLink>
-        <RouterLink v-if="isQcOrSpqHead" to="/dashboard/transcripts" class="menu-item" active-class="active" :title="collapsed ? 'Transkrip' : ''">
-          <span class="icon">🎙</span> <span class="label">Transkrip</span>
+        <RouterLink v-if="can(P.MENU_TRANSCRIPTS)" to="/dashboard/transcripts" class="menu-item" active-class="active" :title="collapsed ? 'Transkrip' : ''">
+          <span class="icon">TR</span> <span class="label">Transkrip</span>
         </RouterLink>
-        <RouterLink v-if="canAssignTickets" to="/qc/assign" class="menu-item" active-class="active" :title="collapsed ? 'Assign Ticket' : ''">
-          <span class="icon">🧑‍⚖️</span> <span class="label">Assign Ticket</span>
+        <RouterLink v-if="can(P.MENU_ASSIGN_TICKET)" to="/qc/assign" class="menu-item" active-class="active" :title="collapsed ? 'Assign Ticket' : ''">
+          <span class="icon">AT</span> <span class="label">Assign Ticket</span>
         </RouterLink>
-        <RouterLink v-if="canReviewBanding" to="/dashboard/banding-review" class="menu-item" active-class="active" :title="collapsed ? 'Manual Check' : ''">
-          <span class="icon">⚖️</span> <span class="label">Manual Check</span>
+        <RouterLink v-if="can(P.MENU_MANUAL_CHECK)" to="/dashboard/banding-review" class="menu-item" active-class="active" :title="collapsed ? 'Manual Check' : ''">
+          <span class="icon">MC</span> <span class="label">Manual Check</span>
         </RouterLink>
-        <RouterLink v-if="canPendingCheck" to="/dashboard/pending-check" class="menu-item" active-class="active" :title="collapsed ? 'Pending Check' : ''">
-          <span class="icon">⏳</span> <span class="label">Pending Check</span>
+        <RouterLink v-if="can(P.MENU_PENDING_CHECK)" to="/dashboard/pending-check" class="menu-item" active-class="active" :title="collapsed ? 'Pending Check' : ''">
+          <span class="icon">PC</span> <span class="label">Pending Check</span>
         </RouterLink>
-        <RouterLink v-if="(!isStatsResultsOnly && !isQcSupport) || isDemo" to="/dashboard/campaigns" class="menu-item" active-class="active" :title="collapsed ? 'Campaigns' : ''">
-          <span class="icon">📋</span> <span class="label">Campaigns</span>
+        <RouterLink v-if="can(P.MENU_CAMPAIGNS)" to="/dashboard/campaigns" class="menu-item" active-class="active" :title="collapsed ? 'Campaigns' : ''">
+          <span class="icon">CP</span> <span class="label">Campaigns</span>
         </RouterLink>
-        <RouterLink v-if="isSpqHead" to="/dashboard/sales-database" class="menu-item" active-class="active" :title="collapsed ? 'Database Sales' : ''">
-          <span class="icon">🗃</span> <span class="label">Database Sales</span>
+        <RouterLink v-if="can(P.MENU_SALES_DATABASE)" to="/dashboard/sales-database" class="menu-item" active-class="active" :title="collapsed ? 'Database Sales' : ''">
+          <span class="icon">DS</span> <span class="label">Database Sales</span>
         </RouterLink>
         <!-- qc-database dinonaktifkan (route + endpoint API sudah dimatikan)
-        <RouterLink v-if="isSpqHead" to="/dashboard/qc-database" class="menu-item" active-class="active" :title="collapsed ? 'Database QC' : ''">
-          <span class="icon">🗂</span> <span class="label">Database QC</span>
+        <RouterLink v-if="can(P.MENU_QC_DATABASE)" to="/dashboard/qc-database" class="menu-item" active-class="active" :title="collapsed ? 'Database QC' : ''">
+          <span class="icon">DQ</span> <span class="label">Database QC</span>
         </RouterLink>
         -->
       </div>
 
-      <div v-if="!isStatsResultsOnly || isQcSupport || isTlQc || isDemo" class="menu-group">
+      <div v-if="showUploadGroup" class="menu-group">
         <div class="group-label">Upload Data</div>
-        <RouterLink v-if="!isQcSupport && !isTlQc && !isDemo" to="/upload/campaign" class="menu-item" active-class="active" :title="collapsed ? 'Upload Campaign' : ''">
-          <span class="icon">📤</span> <span class="label">Upload Campaign</span>
+        <RouterLink v-if="can(P.MENU_UPLOAD_CAMPAIGN)" to="/upload/campaign" class="menu-item" active-class="active" :title="collapsed ? 'Upload Campaign' : ''">
+          <span class="icon">UC</span> <span class="label">Upload Campaign</span>
         </RouterLink>
-        <RouterLink v-if="isSpqHeadOrSalesAgent || isTlQc" to="/upload/audio" class="menu-item" active-class="active" :title="collapsed ? 'Upload Audio' : ''">
-          <span class="icon">🎵</span> <span class="label">Upload Audio</span>
+        <RouterLink v-if="can(P.MENU_UPLOAD_AUDIO)" to="/upload/audio" class="menu-item" active-class="active" :title="collapsed ? 'Upload Audio' : ''">
+          <span class="icon">UA</span> <span class="label">Upload Audio</span>
         </RouterLink>
-        <RouterLink to="/upload/transcript" class="menu-item" active-class="active" :title="collapsed ? 'Upload Transcript' : ''">
-          <span class="icon">⬆</span> <span class="label">Upload Transcript</span>
+        <RouterLink v-if="can(P.MENU_UPLOAD_TRANSCRIPT)" to="/upload/transcript" class="menu-item" active-class="active" :title="collapsed ? 'Upload Transcript' : ''">
+          <span class="icon">UT</span> <span class="label">Upload Transcript</span>
         </RouterLink>
-        <RouterLink v-if="!isQcSupport && !isTlQc && !isDemo" to="/upload/result" class="menu-item" active-class="active" :title="collapsed ? 'Get Result' : ''">
-          <span class="icon">🔍</span> <span class="label">Get Result</span>
+        <RouterLink v-if="can(P.MENU_GET_RESULT)" to="/upload/result" class="menu-item" active-class="active" :title="collapsed ? 'Get Result' : ''">
+          <span class="icon">GR</span> <span class="label">Get Result</span>
         </RouterLink>
-        <RouterLink v-if="isSpqHead" to="/upload/sales-database" class="menu-item" active-class="active" :title="collapsed ? 'Upload Database Sales' : ''">
-          <span class="icon">📥</span> <span class="label">Upload Database Sales</span>
+        <RouterLink v-if="can(P.MENU_UPLOAD_SALES_DATABASE)" to="/upload/sales-database" class="menu-item" active-class="active" :title="collapsed ? 'Upload Database Sales' : ''">
+          <span class="icon">US</span> <span class="label">Upload Database Sales</span>
         </RouterLink>
         <!-- qc-database dinonaktifkan (route + endpoint API sudah dimatikan)
-        <RouterLink v-if="isSpqHead" to="/upload/qc-database" class="menu-item" active-class="active" :title="collapsed ? 'Upload Database QC' : ''">
-          <span class="icon">📥</span> <span class="label">Upload Database QC</span>
+        <RouterLink v-if="can(P.MENU_UPLOAD_QC_DATABASE)" to="/upload/qc-database" class="menu-item" active-class="active" :title="collapsed ? 'Upload Database QC' : ''">
+          <span class="icon">UQ</span> <span class="label">Upload Database QC</span>
         </RouterLink>
         -->
       </div>
 
-      <div v-if="!isStatsResultsOnly && !isQcSupport" class="menu-group">
+      <div v-if="can(P.MENU_DELETE_CAMPAIGN)" class="menu-group">
         <div class="group-label">Delete Data</div>
         <RouterLink to="/delete/campaign" class="menu-item" active-class="active" :title="collapsed ? 'Delete Campaign' : ''">
-          <span class="icon">🗑</span> <span class="label">Campaign</span>
+          <span class="icon">DC</span> <span class="label">Campaign</span>
         </RouterLink>
       </div>
 
-      <div v-if="isSpqHead" class="menu-group">
+      <div v-if="showAdminGroup" class="menu-group">
         <div class="group-label">Administration</div>
-        <RouterLink to="/spq-head/users" class="menu-item" active-class="active" :title="collapsed ? 'Manage User' : ''">
-          <span class="icon">👥</span> <span class="label">Manage User</span>
+        <RouterLink v-if="can(P.MENU_MANAGE_USER)" to="/spq-head/users" class="menu-item" active-class="active" :title="collapsed ? 'Manage User' : ''">
+          <span class="icon">MU</span> <span class="label">Manage User</span>
         </RouterLink>
-        <RouterLink to="/spq-head/roles" class="menu-item" active-class="active" :title="collapsed ? 'Hierarki Role & Menu' : ''">
-          <span class="icon">🗂</span> <span class="label">Hierarki Role &amp; Menu</span>
+        <RouterLink v-if="can(P.MENU_MANAGE_ROLE)" to="/spq-head/manage-roles" class="menu-item" active-class="active" :title="collapsed ? 'Manage Role' : ''">
+          <span class="icon">MR</span> <span class="label">Manage Role</span>
         </RouterLink>
+        <!-- "Hierarki Role & Menu" disembunyikan dari sidebar (permintaan 10 Agustus
+             2026). Halamannya sendiri masih ada dan tetap dijaga MENU_ROLE_HIERARCHY,
+             jadi cukup hapus komentar ini untuk memunculkannya kembali.
+        <RouterLink v-if="can(P.MENU_ROLE_HIERARCHY)" to="/spq-head/roles" class="menu-item" active-class="active" :title="collapsed ? 'Hierarki Role & Menu' : ''">
+          <span class="icon">HR</span> <span class="label">Hierarki Role &amp; Menu</span>
+        </RouterLink>
+        -->
       </div>
     </nav>
   </aside>
@@ -110,35 +117,26 @@
 import { computed } from 'vue'
 import { useSidebar } from '../composables/useSidebar.js'
 import { useAuthStore } from '../stores/auth.js'
+import { P } from '../permissions.js'
 import logoFull from '../assets/brand/bank-mega-logo.png'
 import logoMark from '../assets/brand/bank-mega-mark.png'
 
 const { collapsed, toggle } = useSidebar()
 const auth = useAuthStore()
-const isQc = computed(() => auth.user?.role === 'qc')
-// "admin" mirrors SPQ Head permissions everywhere.
-const isSpqHeadOrSalesAgent = computed(() => ['spq_head', 'admin', 'sales_agent', 'qc_support'].includes(auth.user?.role))
-const isSpqHead = computed(() => ['spq_head', 'admin'].includes(auth.user?.role))
-const isSalesAgent = computed(() => auth.user?.role === 'sales_agent')
-const isQcSupport = computed(() => auth.user?.role === 'qc_support')
-// Team Leader QC is otherwise a Stats/Results-only role, but is allowed to upload
-// audio & transcript (only those two entries of the Upload Data group).
-const isTlQc = computed(() => auth.user?.role === 'team_leader_qc')
-// "demo" = read-only showcase role. Its menu is curated explicitly (Stats, Results,
-// Campaigns, Upload Transcript) rather than via the coarse group flags below.
-const isDemo = computed(() => auth.user?.role === 'demo')
-// Transkrip access: QC, Team Leader QC, QC Support, SPQ Head / Admin.
-const isQcOrSpqHead = computed(() => ['qc', 'spq_head', 'admin', 'team_leader_qc', 'qc_support'].includes(auth.user?.role))
-// Team Leader QC & SPQ Head / Admin manage QC ticket assignments.
-const canAssignTickets = computed(() => ['team_leader_qc', 'spq_head', 'admin'].includes(auth.user?.role))
-// Manual Check (banding) menu: QC melihat status banding-nya sendiri; TL QC / SPQ Head me-review.
-const canReviewBanding = computed(() => ['qc', 'team_leader_qc', 'spq_head', 'admin'].includes(auth.user?.role))
-// Pending Check menu (Manual Status pending queue): QC (tiket assigned-nya) + TL QC / SPQ Head.
-const canPendingCheck = computed(() => ['qc', 'team_leader_qc', 'spq_head', 'admin'].includes(auth.user?.role))
-// These roles only see Stats and Results (+ role-specific extras); everything else is SPQ-Head-only.
-// "demo" is here too: it hides Campaigns / Upload / Delete, leaving Stats + Results
-// (+ Transkrip via isQcOrSpqHead) — a read-only showcase menu.
-const isStatsResultsOnly = computed(() => ['qc', 'sales_agent', 'team_leader', 'area_manager', 'telesales_head', 'team_leader_qc', 'demo'].includes(auth.user?.role))
+const can = auth.can
+
+// Grup hanya dirender kalau ada isinya, supaya role yang cuma punya sebagian menu
+// tidak menampilkan judul grup kosong.
+const showUploadGroup = computed(() => auth.canAny(
+  P.MENU_UPLOAD_CAMPAIGN, P.MENU_UPLOAD_AUDIO, P.MENU_UPLOAD_TRANSCRIPT,
+  P.MENU_GET_RESULT, P.MENU_UPLOAD_SALES_DATABASE, P.MENU_UPLOAD_QC_DATABASE,
+))
+// MENU_ROLE_HIERARCHY sengaja tidak ikut di sini: link-nya disembunyikan (lihat
+// template), jadi kalau ia satu-satunya izin yang dimiliki, judul grup
+// "Administration" tidak boleh muncul kosong.
+const showAdminGroup = computed(() => auth.canAny(
+  P.MENU_MANAGE_USER, P.MENU_MANAGE_ROLE,
+))
 </script>
 
 <style scoped>
@@ -253,7 +251,10 @@ nav { padding: 12px 0; flex: 1; }
   font-weight: 600;
 }
 
-.icon { font-size: 15px; width: 18px; text-align: center; flex-shrink: 0; }
+/* Inisial teks, bukan emoji — inilah satu-satunya isi menu saat sidebar
+   di-collapse (.sidebar.collapsed .label { display: none }). */
+.icon { font-size: 10px; font-weight: 800; letter-spacing: 0.02em; width: 20px;
+        text-align: center; flex-shrink: 0; color: inherit; opacity: 0.85; }
 
 .label { white-space: nowrap; overflow: hidden; }
 

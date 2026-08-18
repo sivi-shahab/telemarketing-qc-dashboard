@@ -11,6 +11,37 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isLoggedIn = computed(() => !!accessToken.value)
 
+  // Capability yang dikirim /auth/me. Menu & guard router membacanya, bukan lagi
+  // daftar nama role yang di-hardcode — itulah yang membuat role buatan operator
+  // (menu Manage Role) langsung berfungsi tanpa mengubah kode frontend.
+  const permissions = computed(() => user.value?.permissions || [])
+  const campaigns = computed(() => user.value?.campaigns || [])
+  // Cakupan tiket: all | qc_assigned | qc_support_own | sales_am | sales_tl | sales_agent
+  const dataScope = computed(() => user.value?.data_scope || 'all')
+
+  /** Apakah user punya capability ini. */
+  function can(permission) {
+    return (user.value?.permissions || []).includes(permission)
+  }
+
+  /** Punya SALAH SATU dari capability berikut. */
+  function canAny(...list) {
+    const mine = user.value?.permissions || []
+    return list.some(p => mine.includes(p))
+  }
+
+  /** Ambil ulang profil + capability. Dipanggil saat aplikasi dimuat supaya
+   *  perubahan permission dari Manage Role terasa tanpa harus login ulang. */
+  async function reloadMe() {
+    if (!accessToken.value) return null
+    const res = await axios.get(`${BASE_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${accessToken.value}` },
+    })
+    user.value = res.data
+    localStorage.setItem('user', JSON.stringify(user.value))
+    return user.value
+  }
+
   async function login(username, password) {
     const params = new URLSearchParams()
     params.append('username', username)
@@ -51,5 +82,8 @@ export const useAuthStore = defineStore('auth', () => {
     return accessToken.value
   }
 
-  return { accessToken, refreshToken, user, isLoggedIn, login, logout, refreshAccessToken }
+  return {
+    accessToken, refreshToken, user, isLoggedIn, permissions, campaigns, dataScope,
+    can, canAny, reloadMe, login, logout, refreshAccessToken,
+  }
 })

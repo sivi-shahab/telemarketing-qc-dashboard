@@ -23,13 +23,11 @@
             @change="handleFileSelect"
           />
           <div v-if="!files.length" class="drop-placeholder">
-            <span class="drop-icon">📄</span>
             <p>Drag & drop file PDF di sini</p>
             <p class="drop-hint">atau klik untuk browse (multi-file)</p>
           </div>
           <div v-else class="file-list">
             <div v-for="(f, i) in files" :key="i" class="file-row">
-              <span class="file-icon">📄</span>
               <span class="file-name">{{ f.name }}</span>
               <span class="file-size">{{ formatSize(f.size) }}</span>
               <button class="remove-btn" @click.stop="removeFile(i)">✕</button>
@@ -47,7 +45,12 @@
             <option v-for="c in campaigns" :key="c.id" :value="c.name">{{ c.name }}</option>
           </select>
           <span v-if="!campaigns.length" class="field-hint">
-            Belum ada campaign. Upload dulu di <RouterLink to="/upload/campaign">Upload Campaign</RouterLink>.
+            <template v-if="campaignScoped">
+              Tidak ada campaign aktif dalam cakupan role Anda.
+            </template>
+            <template v-else>
+              Belum ada campaign. Upload dulu di <RouterLink to="/upload/campaign">Upload Campaign</RouterLink>.
+            </template>
           </span>
         </div>
 
@@ -60,7 +63,7 @@
               class="mode-option"
               :class="{ active: reuseMode }"
               @click="reuseMode = true"
-            >♻ Reuse hasil sebelumnya</button>
+            >Reuse hasil sebelumnya</button>
             <button
               type="button"
               class="mode-option"
@@ -102,7 +105,7 @@
           <div class="status-row">
             Status: <span class="status-badge" :class="result.status === 'done' ? 'badge-green' : 'badge-yellow'">{{ result.status }}</span>
             <span class="mode-badge" :class="result.reused ? 'badge-green' : 'badge-blue'">
-              {{ result.reused ? '♻ Di-reuse dari hasil sebelumnya' : '⟳ Diproses via LLM' }}
+              {{ result.reused ? 'Di-reuse dari hasil sebelumnya' : '⟳ Diproses via LLM' }}
             </span>
           </div>
           <p class="success-hint">
@@ -122,10 +125,12 @@ import { ref, computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
+import { campaignObjectsInScope, isCampaignScoped } from '../../utils/campaignScope.js'
 
 const fileInput = ref(null)
 const files = ref([])
 const campaigns = ref([])
+const campaignScoped = computed(() => isCampaignScoped())
 const campaign = ref('')
 const isDragging = ref(false)
 const uploading = ref(false)
@@ -203,10 +208,14 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Campaign aktif yang boleh diunggah login ini — lihat catatan yang sama di
+// UploadAudioView.
 onMounted(async () => {
   try {
     const res = await apiClient.get('/list_campaigns')
-    campaigns.value = (res.data.campaigns || []).filter(c => c.is_active)
+    campaigns.value = campaignObjectsInScope(
+      (res.data.campaigns || []).filter(c => c.is_active)
+    )
   } catch {
     campaigns.value = []
   }

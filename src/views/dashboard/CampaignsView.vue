@@ -10,13 +10,14 @@
           <tr>
             <th>Campaign</th>
             <th>Status</th>
+            <th>Kesiapan</th>
             <th>Dibuat</th>
             <th>Diperbarui</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="campaigns.length === 0">
-            <td colspan="4" class="empty">Belum ada campaign yang diupload.</td>
+            <td colspan="5" class="empty">Belum ada campaign yang diupload.</td>
           </tr>
           <template v-for="c in campaigns" :key="c.id">
             <tr
@@ -33,11 +34,42 @@
                   {{ c.is_active ? '✓ Active' : 'Inactive' }}
                 </span>
               </td>
+              <!-- Kesiapan: campaign yang baru dibuat langsung bisa dipilih di filter
+                   & saat membuat role, tapi itu belum berarti tiketnya akan muncul.
+                   Syarat yang kurang di bawah ini gagal secara DIAM-DIAM. -->
+              <td class="cell-ready" @click.stop>
+                <template v-if="ready[c.name]">
+                  <span class="rd" :class="ready[c.name].has_config ? 'ok' : 'bad'"
+                        :title="ready[c.name].has_config
+                          ? 'Prompt, scorecard, dan KB sudah terisi'
+                          : 'Kosong: ' + ready[c.name].missing_config.join(', ') + ' — transkrip campaign ini akan DITOLAK saat diproses'">
+                    {{ ready[c.name].has_config ? '✓' : '⚠' }} Config
+                  </span>
+                  <span class="rd" :class="ready[c.name].roster_people ? 'ok' : 'bad'"
+                        :title="ready[c.name].roster_people
+                          ? ready[c.name].roster_people + ' orang di Sales Database (kolom Dedicated), ' + ready[c.name].accounts + ' punya akun aktif'
+                          : 'Belum ada baris di kolom Dedicated Sales Database — role sisi sales yang dibatasi ke campaign ini tidak akan melihat tiket apa pun'">
+                    {{ ready[c.name].roster_people ? '✓' : '⚠' }} Roster
+                    <b v-if="ready[c.name].roster_people">{{ ready[c.name].accounts }}/{{ ready[c.name].roster_people }}</b>
+                  </span>
+                  <span class="rd" :class="ready[c.name].tickets_done ? 'ok' : 'idle'"
+                        :title="ready[c.name].tickets + ' tiket, ' + ready[c.name].tickets_done + ' selesai dinilai'">
+                    {{ ready[c.name].tickets_done ? '✓' : '·' }} Tiket
+                    <b>{{ ready[c.name].tickets_done }}</b>
+                  </span>
+                  <span v-if="ready[c.name].tickets_unmapped" class="rd bad"
+                        :title="'Customer id tiket ini tidak ada di data TMS, sehingga tidak bisa dipetakan ke agent dan masuk ke node (Tidak diketahui)'">
+                    ⚠ Tanpa TMS <b>{{ ready[c.name].tickets_unmapped }}</b>
+                  </span>
+                  <div v-if="readyHint(c.name)" class="rd-hint">{{ readyHint(c.name) }}</div>
+                </template>
+                <span v-else class="rd idle">—</span>
+              </td>
               <td class="cell-date">{{ formatDate(c.created_at) }}</td>
               <td class="cell-date">{{ formatDate(c.updated_at) }}</td>
             </tr>
             <tr v-if="expandedName === c.name" class="expand-row">
-              <td colspan="4">
+              <td colspan="5">
                 <div class="expand-content">
                   <div v-if="loadingDetail[c.name]" class="detail-loading">
                     <span class="spinner"></span> Memuat file...
@@ -86,11 +118,24 @@ function formatDate(iso) {
 }
 
 function fileBlocks(d) {
-  return [
-    { key: 'prompt', icon: '📝', label: 'Prompt', filename: d.prompt_filename || 'prompt.txt', content: d.prompt_text || '' },
-    { key: 'scorecard', icon: '✅', label: 'Scorecard', filename: d.scorecard_filename || 'scorecard.txt', content: d.scorecard_text || '' },
-    { key: 'kb', icon: '📚', label: 'Knowledge Base', filename: d.kb_filename || 'knowledge_base.txt', content: d.kb_text || '' },
+  const kbLabel = d.riplay_filename ? 'Knowledge Base (RIPLAY applied)' : 'Knowledge Base'
+  const blocks = [
+    { key: 'prompt', label: 'Prompt', filename: d.prompt_filename || 'prompt.txt', content: d.prompt_text || '' },
+    { key: 'scorecard', label: 'Scorecard', filename: d.scorecard_filename || 'scorecard.txt', content: d.scorecard_text || '' },
+    { key: 'kb', label: kbLabel, filename: d.kb_filename || 'knowledge_base.txt', content: d.kb_text || '' },
   ]
+  if (d.riplay_filename) {
+    // Hanya EMPAT blok yang ditampilkan: KB (RIPLAY applied), RIPLAY, Scorecard, Prompt.
+    // `kb_text_raw` (KB sebelum overlay) dan `riplay_applied` (daftar KB yang mengikuti
+    // RIPLAY) sengaja TIDAK ditampilkan — keduanya tetap tersimpan di DB & arsip MinIO
+    // untuk audit, hanya tidak lagi dimunculkan di dashboard.
+    blocks.push({
+      key: 'riplay', label: `RIPLAY — ${d.riplay_product_name || '?'} (match ${d.riplay_similarity ?? '?'}%)`,
+      filename: d.riplay_filename,
+      content: JSON.stringify(d.riplay_extraction || {}, null, 2),
+    })
+  }
+  return blocks
 }
 
 async function fetchDetail(name) {
@@ -117,7 +162,7 @@ async function toggleRow(c) {
 
 // Collapsible per-file viewer: filename header + on-demand <pre> content.
 const FileBlock = {
-  props: { icon: String, label: String, filename: String, content: String },
+  props: { label: String, filename: String, content: String },
   setup(p) {
     const open = ref(false)
     return () =>
@@ -138,10 +183,37 @@ const FileBlock = {
   },
 }
 
+// Kesiapan per campaign, dipetakan berdasarkan nama.
+const ready = ref({})
+
+// Keterangan singkat untuk penghalang yang PALING menghambat, satu saja — daftar
+// panjang di dalam sel tabel justru tidak terbaca.
+function readyHint(name) {
+  const r = ready.value[name]
+  if (!r) return ''
+  if (!r.has_config) {
+    return `${r.missing_config.join(', ')} masih kosong — transkrip campaign ini akan ditolak saat diproses.`
+  }
+  if (!r.roster_people) {
+    return 'Belum ada orang di kolom Dedicated Sales Database — role sisi sales tidak akan melihat tiket apa pun.'
+  }
+  if (r.tickets_unmapped) {
+    return `${r.tickets_unmapped} tiket tidak ada di data TMS — masuk ke "(Tidak diketahui)" dan tidak terlihat oleh user sisi sales.`
+  }
+  return ''
+}
+
 onMounted(async () => {
   try {
-    const res = await apiClient.get('/list_campaigns')
-    campaigns.value = res.data.campaigns || []
+    const [listRes, readyRes] = await Promise.all([
+      apiClient.get('/list_campaigns'),
+      // Gagal/ditolak (role tanpa izin) tidak boleh menjatuhkan daftar campaign-nya.
+      apiClient.get('/campaign_readiness').catch(() => ({ data: null })),
+    ])
+    campaigns.value = listRes.data.campaigns || []
+    if (readyRes.data) {
+      ready.value = Object.fromEntries((readyRes.data.items || []).map((i) => [i.name, i]))
+    }
   } finally {
     loading.value = false
   }
@@ -215,4 +287,15 @@ onMounted(async () => {
   background-size: 200%; border-radius: 8px; animation: shimmer 1.2s infinite;
 }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+.cell-ready { white-space: normal; }
+.rd {
+  display: inline-block; font-size: 10.5px; font-weight: 700; white-space: nowrap;
+  padding: 2px 7px; border-radius: 999px; margin: 1px 4px 1px 0; cursor: help;
+}
+.rd b { font-weight: 800; margin-left: 3px; }
+.rd.ok { background: var(--green-bg); color: #16a34a; }
+.rd.bad { background: var(--red-bg); color: var(--red); }
+.rd.idle { background: #f1f5f9; color: var(--text-muted); }
+.rd-hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-top: 4px; max-width: 340px; }
 </style>

@@ -1,6 +1,10 @@
 <template>
-  <div v-if="documents.length || loading" class="block docs-block">
-    <div class="block-title">📎 Documents ({{ documents.length }})</div>
+  <div v-if="documents.length || loading || showEmpty" class="block docs-block">
+    <div class="block-title">Documents ({{ documents.length }})</div>
+
+    <div v-if="showEmpty && !loading && !documents.length" class="docs-empty">
+      Belum ada dokumen yang diunggah untuk tiket ini.
+    </div>
 
     <div v-if="loading && !documents.length" class="docs-loading">
       <span class="spinner"></span> Memuat dokumen...
@@ -26,8 +30,12 @@
             <div v-else class="img-placeholder"><span class="spinner"></span></div>
           </div>
 
-          <!-- OCR + verification result -->
-          <div class="doc-ocr">
+          <!-- OCR + verification result. Hanya untuk divisi QC (QC / TL QC / SPQ
+               Head): tabel ini adalah PENILAIAN dokumen terhadap acuan TMS/Ascend,
+               bukan dokumennya. Role lain tetap bisa membuka dokumennya di atas.
+               Backend juga tidak mengirim ``ocr_json`` untuk mereka, jadi ini
+               bukan satu-satunya penjaga. -->
+          <div v-if="canViewVerification" class="doc-ocr">
             <div v-if="d.status === 'done' && verifications(d).length">
               <table class="verif-table">
                 <thead>
@@ -75,15 +83,29 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import apiClient from '../api/client.js'
+import { useAuthStore } from '../stores/auth.js'
+import { P } from '../permissions.js'
 
 const props = defineProps({
   resultId: { type: String, required: true },
   // Hasil evaluasi QC utama (result.evaluation) — sumber nilai kolom "Transkrip".
   // null saat hasil belum tersedia; kolom Transkrip lalu menampilkan "—".
   evaluation: { type: Object, default: null },
+  // Tampilkan blok beserta pesan kosong walau tidak ada dokumen. Dipakai modal
+  // "View Document"; pemakaian inline tetap menyembunyikan blok saat kosong.
+  showEmpty: { type: Boolean, default: false },
 })
+
+// Tabel perbandingan OCR vs acuan hanya untuk divisi QC. Diambil dari capability
+// login ini, bukan dari nama role, supaya role buatan operator (menu Manage Role)
+// ikut terurus. Nilainya dikonfirmasi ulang oleh respons ``/documents`` — kalau
+// backend menolak, tabelnya tetap tidak muncul walau capability-nya keliru terpasang.
+const auth = useAuthStore()
+const serverAllowsVerification = ref(null) // null = belum ada jawaban server
+const canViewVerification = computed(
+  () => auth.can(P.DOCUMENT_VERIFICATION_TABLE) && serverAllowsVerification.value !== false)
 
 // Sumber data acuan per jenis dokumen: KK dari ascend_custp (Ascend), sisanya
 // (ktp/npwp/cover_buku_tabungan) dari tms_cashline (TMS).
@@ -164,6 +186,9 @@ async function fetchDocuments() {
   try {
     const res = await apiClient.get(`/documents/${props.resultId}`)
     documents.value = res.data?.documents || []
+    if (typeof res.data?.can_view_verification === 'boolean') {
+      serverAllowsVerification.value = res.data.can_view_verification
+    }
     schedulePollIfNeeded()
   } catch {
     documents.value = []
@@ -249,4 +274,5 @@ onBeforeUnmount(() => {
   border-radius: 50%; animation: spin 0.7s linear infinite; flex-shrink: 0; display: inline-block;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.docs-empty { font-size: 12.5px; color: var(--text-muted, #6b7280); padding: 6px 0 2px; }
 </style>

@@ -4,7 +4,7 @@
       <div class="modal-card" role="dialog" aria-modal="true">
         <header class="modal-head">
           <div>
-            <h2 class="modal-title">{{ stage === 'tl' ? 'Manual Check by QC' : 'Review Banding' }}</h2>
+            <h2 class="modal-title">{{ stage === 'tl' ? 'Manual Check by QC' : 'Review Banding (Error Code)' }}</h2>
             <p class="modal-subtitle">
               {{ stage === 'tl'
                 ? 'Terima (final), tolak, atau teruskan ke SPQ Head.'
@@ -31,7 +31,7 @@
               <div class="detail-row"><span class="dk">Details Error</span><span class="dv">{{ row.details_error || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Reason</span><span class="dv">{{ row.reason || '—' }}</span></div>
               <template v-if="isVerification">
-                <div class="detail-row"><span class="dk">{{ referenceLabel }}</span><span class="dv">{{ row.reference_value ?? '—' }}</span></div>
+                <div class="detail-row"><span class="dk">{{ referenceLabel }}</span><span class="dv">{{ effectiveReference ?? '—' }}</span></div>
                 <div class="detail-row"><span class="dk">Transkrip</span><span class="dv">{{ row.extracted_value ?? '—' }}</span></div>
                 <div class="detail-row"><span class="dk">Match</span><span class="dv">{{ row.match || '—' }}</span></div>
               </template>
@@ -70,7 +70,7 @@
           </div>
 
           <div v-if="blockedByTl" class="tl-warn">
-            ⏳ Banding ini belum diteruskan Team Leader QC. SPQ Head hanya memutuskan
+            Banding ini belum diteruskan Team Leader QC. SPQ Head hanya memutuskan
             banding yang di-<b>escalate</b> oleh Team Leader QC.
           </div>
 
@@ -197,10 +197,19 @@ const blockedByTl = computed(() => props.stage === 'spq' && latest.value.tl_qc_s
 // Verification, "Ascend" for Card Holder Verification (matches the QC modal).
 const referenceLabel = computed(() => {
   const s = (props.row?.sumber || '').toLowerCase()
-  if (s.includes('cashline')) return 'TMS'
+  // With an empty TMS column the verdict was made against the product T&C
+  // from the RIPLAY, so name that column instead.
+  if (s.includes('cashline')) {
+    return props.row?.reference_value == null && props.row?.tnc_product != null
+      ? 'TnC Product' : 'TMS'
+  }
   if (s.includes('card holder') || s.includes('card_holder')) return 'Ascend'
   return 'Reference Value'
 })
+
+// The reference actually used for the verdict.
+const effectiveReference = computed(() =>
+  props.row?.reference_value ?? props.row?.tnc_product ?? null)
 
 const kindLabel = computed(() => ({
   change: 'Ubah Error Code', add: 'Tambah Error Code',

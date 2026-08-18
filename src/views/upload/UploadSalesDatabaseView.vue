@@ -25,12 +25,10 @@
             @change="handleFileSelect"
           />
           <div v-if="!file" class="drop-placeholder">
-            <span class="drop-icon">📊</span>
             <p>Drag &amp; drop file .xlsx di sini</p>
             <p class="drop-hint">atau klik untuk browse</p>
           </div>
           <div v-else class="file-row">
-            <span class="file-icon">📊</span>
             <span class="file-name">{{ file.name }}</span>
             <span class="file-size">{{ formatSize(file.size) }}</span>
             <button class="remove-btn" @click.stop="clearFile">✕</button>

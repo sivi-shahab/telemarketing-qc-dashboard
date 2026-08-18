@@ -17,7 +17,7 @@
           <!-- Satu panel: KPI cards + grafik AI Status. Filter tanggal di atas ikut
                meng-apply ke KPI karena semuanya diturunkan dari time series yang sama. -->
           <div class="panel">
-            <div class="panel-title">AI Status (Approve / Reject) — per waktu</div>
+            <div class="panel-title">AI Status — per waktu</div>
             <div class="chart-filter">
               <div class="gran-group">
                 <button v-for="g in GRANULARITIES" :key="g.key"
@@ -40,21 +40,26 @@
               </div>
             </div>
 
-            <div class="kpis">
+            <div class="kpis kpis-5">
               <div class="kpi" style="--accent: var(--m-info)">
-                <div class="kpi-label">Total Submisi Tiket</div>
+                <div class="kpi-label">Total Submission</div>
                 <div class="kpi-value mono">{{ fmt(myDonutSubmissions) }}</div>
                 <div class="kpi-sub">{{ fmt(myDonutDone) }} selesai · {{ fmt(myDonutInProgress) }} diproses</div>
               </div>
               <div class="kpi" style="--accent: var(--m-success)">
-                <div class="kpi-label">Tiket Approve</div>
-                <div class="kpi-value mono">{{ fmt(myDonutApprove) }}</div>
-                <div class="kpi-sub">approve dari {{ fmt(myDonutTotal) }} dinilai</div>
+                <div class="kpi-label">Total Qualified</div>
+                <div class="kpi-value mono">{{ fmt(myDonutApprove) }} <span class="kpi-pct">({{ myDonutApprovePct }}%)</span></div>
+                <div class="kpi-sub">dari {{ fmt(myDonutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: var(--m-danger)">
-                <div class="kpi-label">Tiket Reject</div>
-                <div class="kpi-value mono">{{ fmt(myDonutReturn) }}</div>
-                <div class="kpi-sub">reject dari {{ fmt(myDonutTotal) }} dinilai</div>
+                <div class="kpi-label">Total Not Qualified</div>
+                <div class="kpi-value mono">{{ fmt(myDonutReturn) }} <span class="kpi-pct">({{ myDonutReturnPct }}%)</span></div>
+                <div class="kpi-sub">dari {{ fmt(myDonutTotal) }} dinilai</div>
+              </div>
+              <div class="kpi" style="--accent: #D97706">
+                <div class="kpi-label">Total Pending</div>
+                <div class="kpi-value mono">{{ fmt(myDonutPending) }} <span class="kpi-pct">({{ myDonutPendingPct }}%)</span></div>
+                <div class="kpi-sub">butuh dokumen (H+2)</div>
               </div>
               <div class="kpi" :style="{ '--accent': rateColor(myDonutErrorRate) }">
                 <div class="kpi-label">Error Rate</div>
@@ -63,13 +68,14 @@
               </div>
             </div>
 
+            <div class="chart-sub-title">AI Status (Qualify / Not Qualify / Pending) — per waktu</div>
             <div class="stack-row">
               <div class="stack-wrap">
                 <Bar :data="scopedChartData" :options="stackedOptions" :plugins="[barPct]" />
               </div>
               <div class="legend">
                 <div class="legend-title">Persentase Hasil Penilaian AI</div>
-                <div class="legend-caption">Perbandingan approve vs reject ({{ granularityLabel }}) · angka di atas batang = total submisi</div>
+                <div class="legend-caption">Qualified vs Not Qualified vs Pending ({{ granularityLabel }}) · angka di atas batang = total dinilai</div>
                 <div class="legend-item legend-cols">
                   <span class="legend-dot" style="background: transparent"></span>
                   <span class="legend-label legend-cap">Status</span>
@@ -95,21 +101,25 @@
           <!-- Team Leader: daftar sales agent yang di-assign; Sales Agent: daftar tiket -->
           <div v-if="isTeamLeader" class="panel">
             <div class="panel-title">Daftar Sales Agent Tim Anda</div>
+            <TblToolbar :v="teamView" label="Daftar Sales Agent Tim Anda" :modes="AGENT_MODES"
+                        placeholder="Cari nama sales agent atau NIP…" />
             <div class="table-scroll">
               <table class="mtable">
                 <thead>
                   <tr>
-                    <th>Sales Agent</th>
-                    <th>NIP</th>
-                    <th class="num">Submissions</th>
-                    <th class="num">Errors</th>
-                    <th class="rate-col">Error Rate</th>
+                    <th class="sortable" @click="teamView.sortBy('name')">Sales Agent <span class="sort-ind">{{ teamView.indicator('name') }}</span></th>
+                    <th class="sortable" @click="teamView.sortBy('nip_baru')">NIP <span class="sort-ind">{{ teamView.indicator('nip_baru') }}</span></th>
+                    <th class="num sortable" @click="teamView.sortBy('submissions')">Submissions <span class="sort-ind">{{ teamView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="teamView.sortBy('errors')">Errors <span class="sort-ind">{{ teamView.indicator('errors') }}</span></th>
+                    <th class="rate-col sortable" @click="teamView.sortBy('error_rate')">Error Rate <span class="sort-ind">{{ teamView.indicator('error_rate') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="loadingMine"><td colspan="5" class="empty"><span class="spin-inline"></span> Memuat...</td></tr>
-                  <tr v-else-if="!teamAgents.length"><td colspan="5" class="empty">Belum ada sales agent di tim Anda.</td></tr>
-                  <tr v-for="a in teamAgents" :key="a.agent_id" :class="{ risky: a.error_rate >= 10 }">
+                  <tr v-else-if="!teamView.total"><td colspan="5" class="empty">
+                    {{ teamAgents.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : 'Belum ada sales agent di tim Anda.' }}
+                  </td></tr>
+                  <tr v-for="a in teamView.rows" :key="a.agent_id" :class="{ risky: a.submissions && a.error_rate >= 10 }">
                     <td>
                       <span class="cell-agent">
                         <span class="avatar sm" :style="{ background: 'var(--m-gray-150)', color: 'var(--m-gray-700)' }">{{ initials(a.name) }}</span>
@@ -120,38 +130,43 @@
                     <td class="num mono">{{ fmt(a.submissions) }}</td>
                     <td class="num mono" :style="{ color: a.errors ? 'var(--m-danger)' : 'var(--m-gray-400)' }">{{ fmt(a.errors) }}</td>
                     <td class="rate-col">
-                      <span class="rate-badge mono" :class="rateClass(a.error_rate)">{{ a.error_rate }}%</span>
+                      <span class="rate-badge mono" :class="rateClassOf(a.error_rate, a.submissions)">{{ rateText(a.error_rate, a.submissions) }}</span>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            <Pager :v="teamView" label="agent" />
           </div>
 
           <div v-else class="panel">
             <div class="panel-title">{{ scopeListTitle }}</div>
+            <TblToolbar :v="myTicketsView" label="Daftar Ticket ID Anda" :modes="TICKET_MODES"
+                        placeholder="Cari Ticket ID, campaign, status, atau AI Status…" />
             <div class="table-scroll">
               <table class="mtable">
                 <thead>
                   <tr>
-                    <th>Ticket ID</th>
-                    <th>Campaign</th>
-                    <th class="num">Calls</th>
-                    <th>Status</th>
-                    <th>AI Status</th>
-                    <th>Tanggal Upload</th>
+                    <th class="sortable" @click="myTicketsView.sortBy('id')">Ticket ID <span class="sort-ind">{{ myTicketsView.indicator('id') }}</span></th>
+                    <th class="sortable" @click="myTicketsView.sortBy('campaign')">Campaign <span class="sort-ind">{{ myTicketsView.indicator('campaign') }}</span></th>
+                    <th class="num sortable" @click="myTicketsView.sortBy('num_calls')">Calls <span class="sort-ind">{{ myTicketsView.indicator('num_calls') }}</span></th>
+                    <th class="sortable" @click="myTicketsView.sortBy('status')">Status <span class="sort-ind">{{ myTicketsView.indicator('status') }}</span></th>
+                    <th class="sortable" @click="myTicketsView.sortBy('ai_status')">AI Status <span class="sort-ind">{{ myTicketsView.indicator('ai_status') }}</span></th>
+                    <th class="sortable" @click="myTicketsView.sortBy('uploaded_at')">Tanggal Upload <span class="sort-ind">{{ myTicketsView.indicator('uploaded_at') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="loadingTickets"><td colspan="6" class="empty"><span class="spin-inline"></span> Memuat...</td></tr>
-                  <tr v-else-if="!tickets.length"><td colspan="6" class="empty">{{ scopeEmpty }}</td></tr>
-                  <tr v-for="t in tickets" :key="t.result_id">
+                  <tr v-else-if="!myTicketsView.total"><td colspan="6" class="empty">
+                    {{ tickets.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : scopeEmpty }}
+                  </td></tr>
+                  <tr v-for="t in myTicketsView.rows" :key="t.result_id">
                     <td class="campaign-name">{{ t.id || '—' }}</td>
                     <td>{{ t.campaign || '—' }}</td>
                     <td class="num mono">{{ t.num_calls ?? '—' }}</td>
                     <td><span class="pill" :class="statusPill(t.status)">{{ t.status }}</span></td>
                     <td>
-                      <span v-if="t.ai_status" class="pill" :class="t.ai_status === 'PASS' ? 'ok' : 'bad'">{{ aiStatusLabel(t.ai_status) }}</span>
+                      <span v-if="t.ai_status" class="pill" :class="t.ai_status === 'PASS' ? 'ok' : (t.ai_status === 'PENDING' ? 'warn' : 'bad')">{{ aiStatusLabel(t.ai_status) }}</span>
                       <span v-else>—</span>
                     </td>
                     <td>{{ fmtDate(t.uploaded_at) }}</td>
@@ -159,7 +174,13 @@
                 </tbody>
               </table>
             </div>
-            <div class="note">Menampilkan {{ tickets.length }} dari {{ fmt(ticketsTotal) }} tiket. Detail lengkap ada di menu <b>Results</b>.</div>
+            <Pager :v="myTicketsView" label="tiket" />
+            <div class="note">
+              Memuat {{ fmt(tickets.length) }} tiket terbaru dari total {{ fmt(ticketsTotal) }} —
+              pencarian dan urutan berlaku pada {{ fmt(tickets.length) }} tiket itu saja.
+              <template v-if="ticketsTotal > tickets.length">Tiket yang lebih lama ada di menu <b>Results</b>.</template>
+              <template v-else>Detail lengkap ada di menu <b>Results</b>.</template>
+            </div>
           </div>
         </template>
       </template>
@@ -172,8 +193,23 @@
         <div class="tab-group">
           <button :class="['tab', { active: tab === 'overview' }]" @click="tab = 'overview'">Overview</button>
           <button :class="['tab', { active: tab === 'hierarchy' }]" @click="openHierarchy">Hierarki Error Rate</button>
+          <button v-if="canSeeFailureReasons" :class="['tab', { active: tab === 'failure' }]" @click="openFailure">Failure Reason</button>
         </div>
         <span class="refresh-hint">Update otomatis saat ada data baru · auto-refresh 30 detik</span>
+      </div>
+
+      <!-- Filter campaign — SATU kontrol untuk ketiga tab (Overview, Hierarki Error
+           Rate, Failure Reason) supaya angka yang dibandingkan selalu berasal dari
+           cakupan yang sama. Kosong = seluruh campaign. -->
+      <div class="cf-row">
+        <label class="cf-label">Campaign</label>
+        <select v-model="campaignFilter" class="month-select">
+          <option value="">Semua Campaign</option>
+          <option v-for="c in campaignOptions" :key="c" :value="c">{{ c }}</option>
+        </select>
+        <span v-if="campaignFilter" class="cf-note">
+          Semua angka di tab ini dibatasi ke campaign <b>{{ campaignFilter }}</b>.
+        </span>
       </div>
 
       <!-- ============================ OVERVIEW ============================ -->
@@ -183,21 +219,11 @@
         </div>
 
         <template v-else-if="overview">
-          <!-- Campaign filter: slices KPI cards, donut, dan tabel Performa Sales
-               per campaign (kosong = seluruh campaign). -->
-          <div class="cf-row">
-            <label class="cf-label">Campaign</label>
-            <select v-model="campaignFilter" class="month-select">
-              <option value="">Semua Campaign</option>
-              <option v-for="c in campaignOptions" :key="c" :value="c">{{ c }}</option>
-            </select>
-          </div>
-
-          <!-- Satu panel: KPI cards (Total Submissions/Approve/Reject/Error Rate) +
-               grafik AI Status. Filter tanggal di atas ikut meng-apply ke KPI karena
-               semuanya diturunkan dari time series yang sama (bukan snapshot). -->
+          <!-- Satu panel: KPI cards (Total Submission/Qualified/Not Qualified/Pending/
+               Error Rate) + grafik AI Status. Filter tanggal di atas ikut meng-apply ke
+               KPI karena semuanya diturunkan dari time series yang sama (bukan snapshot). -->
           <div class="panel">
-            <div class="panel-title">AI Status (Approve / Reject) — per waktu</div>
+            <div class="panel-title">AI Status — per waktu</div>
             <div class="chart-filter">
               <div class="gran-group">
                 <button v-for="g in GRANULARITIES" :key="g.key"
@@ -220,21 +246,26 @@
               </div>
             </div>
 
-            <div class="kpis">
+            <div class="kpis kpis-5">
               <div class="kpi" style="--accent: var(--m-info)">
-                <div class="kpi-label">Total Submissions</div>
+                <div class="kpi-label">Total Submission</div>
                 <div class="kpi-value mono">{{ fmt(donutSubmissions) }}</div>
                 <div class="kpi-sub">{{ fmt(donutDone) }} selesai · {{ fmt(donutInProgress) }} diproses</div>
               </div>
               <div class="kpi" style="--accent: var(--m-success)">
-                <div class="kpi-label">Total Approve</div>
-                <div class="kpi-value mono">{{ fmt(donutApprove) }}</div>
-                <div class="kpi-sub">approve dari {{ fmt(donutTotal) }} dinilai</div>
+                <div class="kpi-label">Total Qualified</div>
+                <div class="kpi-value mono">{{ fmt(donutApprove) }} <span class="kpi-pct">({{ donutApprovePct }}%)</span></div>
+                <div class="kpi-sub">dari {{ fmt(donutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: var(--m-danger)">
-                <div class="kpi-label">Total Reject</div>
-                <div class="kpi-value mono">{{ fmt(donutReturn) }}</div>
-                <div class="kpi-sub">reject dari {{ fmt(donutTotal) }} dinilai</div>
+                <div class="kpi-label">Total Not Qualified</div>
+                <div class="kpi-value mono">{{ fmt(donutReturn) }} <span class="kpi-pct">({{ donutReturnPct }}%)</span></div>
+                <div class="kpi-sub">dari {{ fmt(donutTotal) }} dinilai</div>
+              </div>
+              <div class="kpi" style="--accent: #D97706">
+                <div class="kpi-label">Total Pending</div>
+                <div class="kpi-value mono">{{ fmt(donutPending) }} <span class="kpi-pct">({{ donutPendingPct }}%)</span></div>
+                <div class="kpi-sub">butuh dokumen (H+2)</div>
               </div>
               <div class="kpi" :style="{ '--accent': rateColor(donutErrorRate) }">
                 <div class="kpi-label">Error Rate</div>
@@ -243,13 +274,17 @@
               </div>
             </div>
 
+            <!-- Vonis HUMAN, dihitung TERPISAH dari vonis AI di atas: Manual Status
+                 tidak pernah menimpa AI Status, jadi angkanya berdiri sendiri dan
+                 penyebutnya adalah tiket yang sudah dinilai human. -->
+            <div class="chart-sub-title">AI Status (Qualify / Not Qualify / Pending) — per waktu</div>
             <div class="stack-row">
               <div class="stack-wrap">
                 <Bar :data="globalChartData" :options="stackedOptions" :plugins="[barPct]" />
               </div>
               <div class="legend">
                 <div class="legend-title">Persentase Hasil Penilaian AI</div>
-                <div class="legend-caption">Perbandingan approve vs reject ({{ granularityLabel }}) · angka di atas batang = total submisi</div>
+                <div class="legend-caption">Qualified vs Not Qualified vs Pending ({{ granularityLabel }}) · angka di atas batang = total dinilai</div>
                 <div class="legend-item legend-cols">
                   <span class="legend-dot" style="background: transparent"></span>
                   <span class="legend-label legend-cap">Status</span>
@@ -284,25 +319,29 @@
                 <option v-for="m in campaignData.months" :key="m" :value="m">{{ monthLabel(m) }}</option>
               </select>
             </div>
+            <TblToolbar :v="campaignView" label="Performa Campaign"
+                        placeholder="Cari campaign atau bulan…" />
             <div class="table-scroll">
               <table class="mtable">
                 <thead>
                   <tr>
-                    <th>Bulan</th>
-                    <th>Campaign</th>
-                    <th class="num">Submission</th>
-                    <th class="num">High</th>
-                    <th class="num">Medium</th>
-                    <th class="num">Low</th>
-                    <th v-if="showRiskSystemNew" class="num">System</th>
-                    <th v-if="showRiskSystemNew" class="num">New</th>
-                    <th class="num">Total Risk (H+M+L)</th>
-                    <th class="rate-col">Error Rate</th>
+                    <th class="sortable" @click="campaignView.sortBy('month')">Bulan <span class="sort-ind">{{ campaignView.indicator('month') }}</span></th>
+                    <th class="sortable" @click="campaignView.sortBy('campaign')">Campaign <span class="sort-ind">{{ campaignView.indicator('campaign') }}</span></th>
+                    <th class="num sortable" @click="campaignView.sortBy('submissions')">Submission <span class="sort-ind">{{ campaignView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="campaignView.sortBy('high')">High <span class="sort-ind">{{ campaignView.indicator('high') }}</span></th>
+                    <th class="num sortable" @click="campaignView.sortBy('medium')">Medium <span class="sort-ind">{{ campaignView.indicator('medium') }}</span></th>
+                    <th class="num sortable" @click="campaignView.sortBy('low')">Low <span class="sort-ind">{{ campaignView.indicator('low') }}</span></th>
+                    <th v-if="showRiskSystemNew" class="num sortable" @click="campaignView.sortBy('system')">System <span class="sort-ind">{{ campaignView.indicator('system') }}</span></th>
+                    <th v-if="showRiskSystemNew" class="num sortable" @click="campaignView.sortBy('new')">New <span class="sort-ind">{{ campaignView.indicator('new') }}</span></th>
+                    <th class="num sortable" @click="campaignView.sortBy('total_risk')">Total Risk (H+M+L) <span class="sort-ind">{{ campaignView.indicator('total_risk') }}</span></th>
+                    <th class="rate-col sortable" @click="campaignView.sortBy('error_rate')">Error Rate <span class="sort-ind">{{ campaignView.indicator('error_rate') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!campaignRows.length"><td :colspan="showRiskSystemNew ? 10 : 8" class="empty">Belum ada data.</td></tr>
-                  <tr v-for="row in campaignRows" :key="row.campaign + row.month">
+                  <tr v-if="!campaignView.total"><td :colspan="showRiskSystemNew ? 10 : 8" class="empty">
+                    {{ campaignRows.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : 'Belum ada data.' }}
+                  </td></tr>
+                  <tr v-for="row in campaignView.rows" :key="row.campaign + row.month">
                     <td class="mono">{{ monthLabel(row.month) }}</td>
                     <td class="campaign-name">{{ row.campaign }}</td>
                     <td class="num mono">{{ fmt(row.submissions) }}</td>
@@ -319,6 +358,7 @@
                 </tbody>
               </table>
             </div>
+            <Pager :v="campaignView" label="baris" />
             <div class="note">
               Tiap tiket dihitung <b>satu</b> Risk Base tertinggi saja (urutan H &gt; M &gt; L &gt; N &gt; O).
               <b>High</b>/<b>Medium</b>/<b>Low</b> = jumlah tiket dengan risk tertinggi H/M/L<template v-if="showRiskSystemNew"> ·
@@ -331,22 +371,31 @@
           <!-- Sales performance table -->
           <div class="panel">
             <div class="panel-title">Performa Sales</div>
+            <div class="panel-hint">
+              Memuat seluruh agent yang punya akun aktif — termasuk yang belum punya
+              submission. Error Rate <b>—</b> berarti belum ada tiket yang dinilai,
+              bukan 0% error.
+            </div>
+            <TblToolbar :v="salesView" label="Performa Sales" :modes="AGENT_MODES"
+                        :placeholder="salesSearchHint" />
             <div class="table-scroll">
               <table class="mtable">
                 <thead>
                   <tr>
-                    <th>Sales Agent</th>
-                    <th v-if="showTeamLeaderCol">Team Leader</th>
-                    <th v-if="showAreaManagerCol">Area Manager</th>
-                    <th>Campaign</th>
-                    <th class="num">Submissions</th>
-                    <th class="num">Errors</th>
-                    <th class="rate-col">Error Rate</th>
+                    <th class="sortable" @click="salesView.sortBy('name')">Sales Agent <span class="sort-ind">{{ salesView.indicator('name') }}</span></th>
+                    <th v-if="showTeamLeaderCol" class="sortable" @click="salesView.sortBy('team_leader')">Team Leader <span class="sort-ind">{{ salesView.indicator('team_leader') }}</span></th>
+                    <th v-if="showAreaManagerCol" class="sortable" @click="salesView.sortBy('area_manager')">Area Manager <span class="sort-ind">{{ salesView.indicator('area_manager') }}</span></th>
+                    <th class="sortable" @click="salesView.sortBy('campaign')">Campaign <span class="sort-ind">{{ salesView.indicator('campaign') }}</span></th>
+                    <th class="num sortable" @click="salesView.sortBy('submissions')">Submissions <span class="sort-ind">{{ salesView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="salesView.sortBy('errors')">Errors <span class="sort-ind">{{ salesView.indicator('errors') }}</span></th>
+                    <th class="rate-col sortable" @click="salesView.sortBy('error_rate')">Error Rate <span class="sort-ind">{{ salesView.indicator('error_rate') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!agents.length"><td :colspan="salesColCount" class="empty">Belum ada data.</td></tr>
-                  <tr v-for="a in agents" :key="a.agent_id + a.name" :class="{ risky: a.error_rate >= 10 }">
+                  <tr v-if="!salesView.total"><td :colspan="salesColCount" class="empty">
+                    {{ agents.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : 'Belum ada data.' }}
+                  </td></tr>
+                  <tr v-for="a in salesView.rows" :key="a.agent_id + a.name" :class="{ risky: a.submissions && a.error_rate >= 10 }">
                     <td>
                       <span class="cell-agent">
                         <span class="avatar sm" :style="{ background: 'var(--m-gray-150)', color: 'var(--m-gray-700)' }">{{ initials(a.name) }}</span>
@@ -359,12 +408,13 @@
                     <td class="num mono">{{ fmt(a.submissions) }}</td>
                     <td class="num mono" :style="{ color: a.errors ? 'var(--m-danger)' : 'var(--m-gray-400)' }">{{ fmt(a.errors) }}</td>
                     <td class="rate-col">
-                      <span class="rate-badge mono" :class="rateClass(a.error_rate)">{{ a.error_rate }}%</span>
+                      <span class="rate-badge mono" :class="rateClassOf(a.error_rate, a.submissions)">{{ rateText(a.error_rate, a.submissions) }}</span>
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            <Pager :v="salesView" label="agent" />
           </div>
         </template>
       </template>
@@ -382,8 +432,8 @@
             </div>
             <div class="kpi" :style="{ '--accent': rateColor(hierarchy.all_telesales.error_rate) }">
               <div class="kpi-label">All Telesales — Error Rate</div>
-              <div class="kpi-value mono" :style="{ color: rateColor(hierarchy.all_telesales.error_rate) }">{{ hierarchy.all_telesales.error_rate }}%</div>
-              <div class="kpi-sub">{{ fmt(hierarchy.all_telesales.errors) }} reject / {{ fmt(hierarchy.all_telesales.submissions) }} submissions</div>
+              <div class="kpi-value mono" :style="{ color: hierarchy.all_telesales.submissions ? rateColor(hierarchy.all_telesales.error_rate) : null }">{{ rateText(hierarchy.all_telesales.error_rate, hierarchy.all_telesales.submissions) }}</div>
+              <div class="kpi-sub">{{ fmt(hierarchy.all_telesales.errors) }} not qualified / {{ fmt(hierarchy.all_telesales.submissions) }} submissions</div>
             </div>
           </div>
 
@@ -420,8 +470,8 @@
                   <tr>
                     <th :rowspan="showRiskBase ? 2 : 1">Nama</th>
                     <th :rowspan="showRiskBase ? 2 : 1" class="num col-n">Submissions</th>
-                    <th v-if="showRiskBase" rowspan="2" class="num col-n">Approve</th>
-                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n">{{ showRiskBase ? 'Reject' : 'Errors' }}</th>
+                    <th v-if="showRiskBase" rowspan="2" class="num col-n">Qualified</th>
+                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n">{{ showRiskBase ? 'Not Qualified' : 'Errors' }}</th>
                     <th v-if="showRiskBase" :colspan="showRiskSystemNew ? 5 : 3" class="grp-head">Risk Base</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Total Risk</th>
                     <th :rowspan="showRiskBase ? 2 : 1" class="num rate-col">Error Rate</th>
@@ -466,7 +516,7 @@
               </table>
             </div>
             <div v-if="showRiskBase" class="note">
-              <b>Error Rate</b> = tiket <b>Reject</b> ÷ Submissions. Kolom Risk Base
+              <b>Error Rate</b> = tiket <b>Not Qualified</b> ÷ Submissions. Kolom Risk Base
               ({{ showRiskSystemNew ? 'High/Medium/Low/System/New' : 'High/Medium/Low' }}) bersifat konteks dan <b>tidak</b> membentuk Error Rate —
               tiap tiket dihitung satu Risk Base tertinggi saja (urutan H &gt; M &gt; L &gt; N &gt; O).
               <b>Total Risk</b> = High + Medium + Low saja<template v-if="showRiskSystemNew">; System dan New tidak ikut dijumlahkan</template>.
@@ -480,20 +530,24 @@
           <!-- Daftar QC — hanya untuk pengelola divisi QC (TL QC / SPQ Head / Admin). -->
           <div v-if="canSeeQcTable" class="panel">
             <div class="panel-title">Daftar QC</div>
+            <TblToolbar :v="qcView" label="Daftar QC" :modes="QC_MODES"
+                        placeholder="Cari nama atau NIP QC…" />
             <div class="table-scroll">
               <table class="mtable tree">
                 <thead>
                   <tr>
-                    <th>QC</th>
-                    <th class="num col-n">Assigned</th>
-                    <th class="num col-n">Approved</th>
-                    <th class="num rate-col">Approve Rate</th>
+                    <th class="sortable" @click="qcView.sortBy('name')">QC <span class="sort-ind">{{ qcView.indicator('name') }}</span></th>
+                    <th class="num col-n sortable" @click="qcView.sortBy('assigned')">Assigned <span class="sort-ind">{{ qcView.indicator('assigned') }}</span></th>
+                    <th class="num col-n sortable" @click="qcView.sortBy('approved')">Approved <span class="sort-ind">{{ qcView.indicator('approved') }}</span></th>
+                    <th class="num rate-col sortable" @click="qcView.sortBy('approve_rate')">Approve Rate <span class="sort-ind">{{ qcView.indicator('approve_rate') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="loadingQcPerf"><td colspan="4" class="empty"><span class="spin-inline"></span> Memuat...</td></tr>
-                  <tr v-else-if="!qcPerformance.length"><td colspan="4" class="empty">Belum ada akun QC.</td></tr>
-                  <tr v-for="q in qcPerformance" :key="q.qc_username" class="lvl-ag">
+                  <tr v-else-if="!qcView.total"><td colspan="4" class="empty">
+                    {{ qcPerformance.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : 'Belum ada akun QC.' }}
+                  </td></tr>
+                  <tr v-for="q in qcView.rows" :key="q.qc_username" class="lvl-ag">
                     <td><span class="lvl-tag qc">QC</span> {{ q.name }}</td>
                     <td class="num mono col-n" :class="{ zero: !q.assigned }">{{ fmt(q.assigned) }}</td>
                     <td class="num mono col-n" :class="{ zero: !q.approved }" :style="q.approved ? { color: 'var(--m-success)' } : null">{{ fmt(q.approved) }}</td>
@@ -504,12 +558,228 @@
                 </tbody>
               </table>
             </div>
+            <Pager :v="qcView" label="QC" />
             <div class="note">
               <b>Assigned</b> = tiket yang ditugaskan ke QC tersebut · <b>Approved</b> = tiket yang sudah
               ditandai dicek manual olehnya · <b>Approve Rate</b> = Approved ÷ Assigned. Tiket yang
               dipindah ke QC lain tidak lagi dihitung untuk pemilik lama.
             </div>
           </div>
+        </template>
+      </template>
+
+      <!-- ========================= FAILURE REASON ========================= -->
+      <!-- Hanya SPQ Head & Admin: kategori scorecard yang paling sering gagal + alasannya. -->
+      <template v-else-if="tab === 'failure'">
+        <!-- Dua sub-tab dengan pertanyaan berbeda: "Agregat" = kategori apa yang
+             paling sering gagal secara keseluruhan; "Hierarki Based" = kegagalan
+             terbesar TIAP orang (AM/TL/TLO) ada di kategori apa. -->
+        <div class="subtab-group">
+          <button :class="['subtab', { active: failureMode === 'aggregate' }]"
+                  @click="openFailureMode('aggregate')">Agregat</button>
+          <button :class="['subtab', { active: failureMode === 'hierarchy' }]"
+                  @click="openFailureMode('hierarchy')">Hierarki Based</button>
+        </div>
+
+        <!-- ------------------------- 1. AGREGAT ------------------------- -->
+        <template v-if="failureMode === 'aggregate'">
+        <div v-if="loadingFailure && !failureData" class="skeleton-wrap">
+          <div class="skeleton" v-for="i in 5" :key="i" style="height:44px"></div>
+        </div>
+        <template v-else-if="failureData">
+          <div class="kpis">
+            <div class="kpi" style="--accent: var(--m-info)">
+              <div class="kpi-label">Total Tiket Dinilai</div>
+              <div class="kpi-value mono">{{ fmt(failureData.total_evaluated) }}</div>
+              <div class="kpi-sub">basis persentase kegagalan kategori</div>
+            </div>
+            <div class="kpi" style="--accent: var(--m-danger)">
+              <div class="kpi-label">Kategori Bermasalah</div>
+              <div class="kpi-value mono">{{ fmt(failureData.categories.length) }}</div>
+              <div class="kpi-sub">kategori dengan ≥1 tiket gagal</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Kategori Scorecard yang Sering Gagal</div>
+            <TblToolbar :v="failureView" label="Kategori Scorecard yang Sering Gagal"
+                        placeholder="Cari kategori atau alasan…" />
+            <div class="table-scroll">
+              <table class="mtable">
+                <thead>
+                  <tr>
+                    <th class="sortable" @click="failureView.sortBy('category')">Kategori <span class="sort-ind">{{ failureView.indicator('category') }}</span></th>
+                    <th class="num sortable" @click="failureView.sortBy('fail_count')">Tiket Gagal <span class="sort-ind">{{ failureView.indicator('fail_count') }}</span></th>
+                    <th class="rate-col sortable" @click="failureView.sortBy('pct')">% <span class="sort-ind">{{ failureView.indicator('pct') }}</span></th>
+                    <th>Alasan Teratas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!failureView.total"><td colspan="4" class="empty">
+                    {{ failureCategories.length ? 'Tidak ada yang cocok dengan pencarian.' : 'Belum ada kegagalan tercatat.' }}
+                  </td></tr>
+                  <tr v-for="c in failureView.rows" :key="c.category">
+                    <td class="campaign-name">{{ c.category }}</td>
+                    <td class="num mono">{{ fmt(c.fail_count) }}</td>
+                    <td class="rate-col"><span class="rate-badge mono" :class="rateClass(c.pct)">{{ c.pct }}%</span></td>
+                    <td>
+                      <ul class="reason-list">
+                        <li v-for="(rr, i) in c.top_reasons" :key="i">
+                          <span class="reason-req">{{ rr.requirement }}</span>
+                          <span class="reason-count">×{{ rr.count }}</span>
+                          <span v-if="rr.example" class="reason-example" :title="rr.example">— {{ rr.example }}</span>
+                        </li>
+                        <li v-if="!c.top_reasons.length" class="reason-empty">—</li>
+                      </ul>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <Pager :v="failureView" label="kategori" />
+            <div class="note">
+              <b>Tiket Gagal</b> = jumlah tiket dengan ≥1 item scorecard <b>BELUM_SESUAI</b> pada kategori itu ·
+              <b>%</b> = Tiket Gagal ÷ Total Tiket Dinilai · <b>Alasan Teratas</b> = requirement item yang paling sering gagal.
+            </div>
+          </div>
+        </template>
+        </template>
+
+        <!-- --------------------- 2. HIERARKI BASED --------------------- -->
+        <template v-else>
+        <div v-if="loadingFailureHier && !failureHier" class="skeleton-wrap">
+          <div class="skeleton" v-for="i in 5" :key="i" style="height:44px"></div>
+        </div>
+        <template v-else-if="failureHier">
+          <div class="kpis">
+            <div class="kpi" style="--accent: var(--m-info)">
+              <div class="kpi-label">Total Tiket Dinilai</div>
+              <div class="kpi-value mono">{{ fmt(failureHier.all_telesales.evaluated) }}</div>
+              <div class="kpi-sub">seluruh telesales</div>
+            </div>
+            <div class="kpi" style="--accent: var(--m-danger)">
+              <div class="kpi-label">Tiket dengan Kegagalan</div>
+              <div class="kpi-value mono">{{ fmt(failureHier.all_telesales.fail_tickets) }}
+                <span class="kpi-pct">({{ failureHier.all_telesales.fail_rate }}%)</span>
+              </div>
+              <div class="kpi-sub">≥1 item scorecard BELUM_SESUAI</div>
+            </div>
+            <div class="kpi" style="--accent: var(--m-warning, #D97706)">
+              <div class="kpi-label">Kategori Terbesar — All Telesales</div>
+              <div class="kpi-value">{{ topCategoryOf(failureHier.all_telesales) }}</div>
+              <div class="kpi-sub">{{ topCategorySubOf(failureHier.all_telesales) }}</div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-title">Failure Reason per Hierarki — Area Manager → Team Leader → Agent</div>
+            <div class="table-scroll">
+              <table class="mtable tree hier">
+                <colgroup>
+                  <col />
+                  <col style="width: 96px" />
+                  <col style="width: 104px" />
+                  <col style="width: 42%" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>Nama</th>
+                    <th class="num col-n">Tiket Dinilai</th>
+                    <th class="num rate-col">Fail Rate</th>
+                    <th>Kegagalan Terbesar — 3 Kategori Teratas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="!failureHier.area_managers.length"><td colspan="4" class="empty">Belum ada kegagalan tercatat.</td></tr>
+                  <template v-for="am in failureHier.area_managers" :key="'fam'+am.name">
+                    <tr class="lvl-am" @click="toggle('fam', am.name)">
+                      <td>
+                        <span class="twist">{{ isOpen('fam', am.name) ? '▾' : '▸' }}</span>
+                        <span class="lvl-tag am">AM</span> {{ am.name }}
+                      </td>
+                      <FailCells :n="am" />
+                    </tr>
+                    <template v-if="isOpen('fam', am.name)">
+                      <template v-for="tl in am.team_leaders" :key="'ftl'+am.name+tl.name">
+                        <tr class="lvl-tl" @click="toggle('ftl', am.name + '|' + tl.name)">
+                          <td class="pad-1">
+                            <span class="twist">{{ isOpen('ftl', am.name + '|' + tl.name) ? '▾' : '▸' }}</span>
+                            <span class="lvl-tag tl">TL</span> {{ tl.name }}
+                          </td>
+                          <FailCells :n="tl" />
+                        </tr>
+                        <template v-if="isOpen('ftl', am.name + '|' + tl.name)">
+                          <!-- Baris TLO ikut bisa dibuka: isinya tabel rincian per
+                               kategori untuk agent ITU SAJA, bentuknya sama dengan
+                               tabel di sub-tab Agregat. -->
+                          <template v-for="ag in tl.agents" :key="'fag'+ag.agent_id+ag.name">
+                            <tr class="lvl-ag" @click="toggle('fag', agentKey(am, tl, ag))">
+                              <td class="pad-2">
+                                <span class="twist">{{ isOpen('fag', agentKey(am, tl, ag)) ? '▾' : '▸' }}</span>
+                                <span class="lvl-tag tlo">TLO</span> {{ ag.name }}
+                              </td>
+                              <FailCells :n="ag" />
+                            </tr>
+                            <tr v-if="isOpen('fag', agentKey(am, tl, ag))" class="fail-detail-row">
+                              <td colspan="4">
+                                <div class="fail-detail">
+                                  <div class="fail-detail-title">
+                                    Kategori Scorecard yang Sering Gagal — {{ ag.name }}
+                                    <span class="fail-detail-sub">
+                                      {{ fmt(ag.fail_tickets) }} dari {{ fmt(ag.evaluated) }} tiket dinilai punya ≥1 kegagalan
+                                    </span>
+                                  </div>
+                                  <!-- Sengaja TANPA kolom "Alasan Teratas": rincian per
+                                       sales agent berhenti di tingkat KATEGORI — requirement
+                                       KB-nya tidak boleh sampai ke sisi sales. Backend pun
+                                       tidak mengirim top_reasons untuk simpul agent. -->
+                                  <table class="mtable inner">
+                                    <colgroup>
+                                      <col />
+                                      <col style="width: 110px" />
+                                      <col style="width: 90px" />
+                                    </colgroup>
+                                    <thead>
+                                      <tr>
+                                        <th>Kategori</th>
+                                        <th class="num col-n">Tiket Gagal</th>
+                                        <th class="rate-col">%</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      <tr v-if="!ag.categories.length">
+                                        <td colspan="3" class="empty">Tidak ada kegagalan untuk agent ini.</td>
+                                      </tr>
+                                      <tr v-for="c in ag.categories" :key="c.category">
+                                        <td class="campaign-name">{{ c.category }}</td>
+                                        <td class="num mono col-n">{{ fmt(c.fail_count) }}</td>
+                                        <td class="rate-col"><span class="rate-badge mono" :class="rateClass(c.pct)">{{ c.pct }}%</span></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          </template>
+                        </template>
+                      </template>
+                    </template>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <div class="note">
+              Klik baris AM atau TL untuk membuka level di bawahnya, lalu klik baris
+              <b>TLO</b> untuk melihat rincian kategorinya (bentuknya sama dengan sub-tab
+              <b>Agregat</b>, tapi hanya untuk agent itu). <b>Fail Rate</b> = tiket dengan
+              ≥1 item scorecard <b>BELUM_SESUAI</b> ÷ tiket dinilai <b>milik simpul itu</b> —
+              persentase kategori juga memakai penyebut simpulnya sendiri, jadi bisa dibandingkan
+              antar-orang. Kolom kanan menampilkan 3 kategori terbesar; rincian TLO memuat
+              <b>seluruh</b> kategori yang gagal untuk agent tersebut, berhenti di tingkat
+              kategori.
+            </div>
+          </div>
+        </template>
         </template>
       </template>
 
@@ -525,17 +795,24 @@ import { ref, reactive, computed, watch, onMounted, onUnmounted, h } from 'vue'
 import { Bar } from 'vue-chartjs'
 import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js'
 import SidebarLayout from '../../components/SidebarLayout.vue'
+// Diimpor dengan nama TblToolbar/Pager — nama yang sudah dipakai template di atas.
+import TblToolbar from '../../components/TableToolbar.vue'
+import Pager from '../../components/TablePager.vue'
 import { useDataStore } from '../../stores/data.js'
 import { useAuthStore } from '../../stores/auth.js'
+import { P } from '../../permissions.js'
 import { aiStatusLabel } from '../../utils/aiStatus.js'
+import { campaignsInScope } from '../../utils/campaignScope.js'
 import '../../assets/mega.css'
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
 const dataStore = useDataStore()
 const auth = useAuthStore()
-const isSalesAgent = computed(() => auth.user?.role === 'sales_agent')
-const isTeamLeader = computed(() => auth.user?.role === 'team_leader')
+// Posisi di hierarki sales = data_scope, bukan nama role. Role turunan per campaign
+// (mis. tl_ntb dengan cakupan sales_tl) otomatis mendapat panel & judul yang sama.
+const isSalesAgent = computed(() => auth.dataScope === 'sales_agent')
+const isTeamLeader = computed(() => auth.dataScope === 'sales_tl')
 // Team Leader (team) & Sales Agent (own) get the scoped view; only labels differ.
 // Area Manager & Telesales Head memakai dashboard global (Overview + tab Hierarki
 // Error Rate) seperti spq_head/qc — bedanya pohon hierarki untuk AM sudah difilter
@@ -552,22 +829,129 @@ const scopeEmpty = computed(() => (isTeamLeader.value ? 'Belum ada tiket untuk t
 // detail internal QC — sisi sales hanya melihat Submissions, Errors, Error Rate
 // (sama seperti tampilan TLO). Berlaku juga untuk Telesales Head, yang scope-nya
 // global tapi tetap sisi sales.
-const SALES_SIDE_ROLES = ['sales_agent', 'team_leader', 'area_manager', 'telesales_head']
-const showRiskBase = computed(() => !SALES_SIDE_ROLES.includes(auth.user?.role))
+const showRiskBase = computed(() => auth.can(P.STATS_RISK_BASE))
 
 // Risk Base "System" (kode O) & "New" (kode N) adalah detail internal scoring —
 // hanya untuk SPQ Head/Admin dan Team Leader QC. QC biasa dan QC Support melihat
 // High/Medium/Low + Total Risk saja. Total Risk = H+M+L, jadi angkanya tetap utuh
 // tanpa kedua kolom ini.
 // "demo" (read-only showcase) mirrors the SPQ dashboard, incl. System/New risk cols.
-const RISK_SYSTEM_NEW_ROLES = ['spq_head', 'admin', 'team_leader_qc', 'demo']
-const showRiskSystemNew = computed(() => RISK_SYSTEM_NEW_ROLES.includes(auth.user?.role))
+const showRiskSystemNew = computed(() => auth.can(P.STATS_RISK_SYSTEM_NEW))
+
+// Toolbar (cari/saring/Reset) dan navigasi halaman dipakai SEMUA tabel di halaman ini,
+// jadi keduanya tinggal di berkas komponennya sendiri. Sempat ditulis sebagai
+// render-function di berkas INI, tetapi style di bawah bersifat `scoped`: elemen yang
+// dibuat di dalam sebuah functional component tidak menerima atribut `data-v-…` milik
+// induknya (hanya elemen akarnya yang menerima), sehingga kotak cari, dropdown, tombol
+// Reset, dan tombol halaman kehilangan seluruh style-nya dan jatuh ke tampilan bawaan
+// browser. Sebagai komponen berkas sendiri, style-nya ikut pindah dan pasti kena.
+
+// --- Kendali tabel bersama: cari / saring / urutkan / halaman -------------
+// Dipakai SEMUA tabel datar di halaman ini — Performa Sales, Daftar QC, Performa
+// Campaign, Failure Reason, dan kedua tabel pada tampilan scoped (Daftar Sales
+// Agent Tim Anda & Daftar Ticket ID Anda). Ditulis sekali sebagai factory supaya
+// perilakunya tidak menyimpang antar tabel — mis. lupa mereset halaman ke 1
+// setelah mencari, yang membuat tabel tampak kosong padahal datanya ada.
+//
+// ``extra`` menyambungkan kontrol yang HIDUP DI LUAR factory (mis. dropdown bulan
+// pada Performa Campaign) ke tombol Reset. Tanpa itu Reset akan mengaku
+// "mengembalikan semuanya" padahal menyisakan satu filter yang masih aktif.
+function useTableView(source, { fields, sortKey, sortDir = 'desc', perPage = 10, filterFn, extra }) {
+  const search = ref('')
+  const mode = ref('')            // filter tambahan; '' = semua
+  const key = ref(sortKey)
+  const dir = ref(sortDir)
+  const page = ref(1)
+  // Nilai awal disimpan supaya Reset benar-benar mengembalikan SEMUANYA — termasuk
+  // urutan kolom, yang gampang terlupa kalau reset hanya mengosongkan kotak cari.
+  const initial = { key: sortKey, dir: sortDir }
+
+  const filtered = computed(() => {
+    let list = source.value || []
+    if (filterFn && mode.value) list = list.filter((r) => filterFn(r, mode.value))
+    const q = search.value.trim().toLowerCase()
+    if (q) {
+      // ``fields`` boleh berupa fungsi supaya kolom yang dicari mengikuti kolom yang
+      // benar-benar TAMPIL. Mencari nama Team Leader padahal kolomnya disembunyikan
+      // hanya menghasilkan baris yang tak jelas kenapa cocok.
+      const fs = typeof fields === 'function' ? fields() : fields
+      // Tiap entri boleh berupa nama kolom ATAU fungsi (r) => teks — dipakai saat yang
+      // dicari adalah teks yang TAMPIL, bukan nilai mentahnya (mis. AI Status tampil
+      // "Qualified" padahal datanya "PASS", dan bulan tampil "Agustus 2026" dari "2026-08").
+      list = list.filter((r) => fs.some((f) => String(
+        (typeof f === 'function' ? f(r) : r[f]) ?? '').toLowerCase().includes(q)))
+    }
+    const sign = dir.value === 'asc' ? 1 : -1
+    return [...list].sort((a, b) => {
+      const va = a[key.value]
+      const vb = b[key.value]
+      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sign
+      return String(va ?? '').localeCompare(String(vb ?? ''), 'id') * sign
+    })
+  })
+
+  const total = computed(() => filtered.value.length)
+  const pageCount = computed(() => Math.max(1, Math.ceil(total.value / perPage)))
+  const rows = computed(() => {
+    const p = Math.min(page.value, pageCount.value)
+    return filtered.value.slice((p - 1) * perPage, p * perPage)
+  })
+  const from = computed(() => (total.value ? (Math.min(page.value, pageCount.value) - 1) * perPage + 1 : 0))
+  const to = computed(() => Math.min(from.value + perPage - 1, total.value))
+
+  function sortBy(k) {
+    if (key.value === k) dir.value = dir.value === 'asc' ? 'desc' : 'asc'
+    else {
+      key.value = k
+      dir.value = 'desc'
+    }
+    page.value = 1
+  }
+  function indicator(k) {
+    if (key.value !== k) return '⇅'
+    return dir.value === 'asc' ? '▲' : '▼'
+  }
+  function go(p) {
+    page.value = Math.min(Math.max(1, p), pageCount.value)
+  }
+
+  // Tombol Reset SELALU tampil (dinonaktifkan saat bersih). Versi sebelumnya
+  // menyembunyikannya sampai ada filter aktif — hasilnya tidak pernah ditemukan orang,
+  // karena fitur yang hanya muncul setelah dipakai tidak bisa ditemukan sebelum dipakai.
+  const isDirty = computed(
+    () => !!search.value || !!mode.value || key.value !== initial.key || dir.value !== initial.dir
+      || (extra ? extra.isDirty() : false))
+  function reset() {
+    search.value = ''
+    mode.value = ''
+    key.value = initial.key
+    dir.value = initial.dir
+    page.value = 1
+    extra?.reset()
+  }
+
+  // Mencari/menyaring selalu kembali ke halaman 1; kalau datanya menyusut sampai
+  // halaman aktif tidak ada lagi, mundur ke halaman terakhir yang masih ada.
+  watch([search, mode, source], () => { page.value = 1 })
+  watch(pageCount, (n) => { if (page.value > n) page.value = n })
+
+  // reactive(): ref di dalamnya ikut ter-unwrap, sehingga template cukup menulis
+  // ``salesView.search`` (termasuk untuk v-model) tanpa ``.value`` di mana-mana.
+  return reactive({
+    search, mode, page, pageCount, rows, total, from, to,
+    sortBy, indicator, go, isDirty, reset,
+  })
+}
 
 // Performa Sales: atasan perlu tahu agent ini di bawah siapa. Area Manager
 // melihat kolom Team Leader (satu tingkat di bawahnya); Telesales Head melihat
 // kolom Area Manager karena cakupannya lintas area.
-const showTeamLeaderCol = computed(() => auth.user?.role === 'area_manager')
-const showAreaManagerCol = computed(() => auth.user?.role === 'telesales_head')
+const showTeamLeaderCol = computed(() => auth.dataScope === 'sales_am')
+// Kolom Area Manager untuk pengawas sisi sales yang melihat SELURUH organisasi
+// (Telesales Head): cakupannya 'all' tetapi tidak memegang detail evaluasi seperti
+// sisi QC. Dinyatakan lewat capability supaya role sejenis ikut tercakup.
+const showAreaManagerCol = computed(
+  () => auth.dataScope === 'all' && !auth.can(P.RESULTS_EVALUATION_DETAIL))
 const salesColCount = computed(
   () => 5 + (showTeamLeaderCol.value ? 1 : 0) + (showAreaManagerCol.value ? 1 : 0))
 
@@ -588,6 +972,38 @@ const ticketsTotal = ref(0)
 const loadingTickets = ref(false)
 const teamAgents = ref([]) // Team Leader: roster of their sales agents + per-agent stats
 
+// Daftar Sales Agent Tim Anda (Team Leader). Filternya sengaja sama persis dengan
+// Performa Sales — pertanyaannya juga sama: dari sekian agent, siapa yang belum
+// menghasilkan satu tiket pun.
+const teamView = useTableView(teamAgents, {
+  fields: ['name', 'nip_baru'],
+  sortKey: 'submissions',
+  filterFn: (r, m) => (m === 'has' ? r.submissions > 0 : !r.submissions),
+})
+// Dipakai Daftar Sales Agent Tim Anda DAN Performa Sales: keduanya berisi sales agent
+// dan menjawab pertanyaan yang sama, jadi pilihan filternya tidak boleh berbeda bunyi.
+const AGENT_MODES = [
+  { value: '', label: 'Semua Agent' },
+  { value: 'has', label: 'Sudah ada submission' },
+  { value: 'none', label: 'Belum ada submission' },
+]
+
+// Daftar Ticket ID Anda (Sales Agent). Dicari lewat teks yang TAMPIL: AI Status
+// tersimpan sebagai PASS/FAIL/PENDING tetapi yang dibaca orang adalah
+// "Qualified"/"Not Qualified"/"Pending", jadi itulah yang harus cocok saat diketik.
+const myTicketsView = useTableView(tickets, {
+  fields: ['id', 'campaign', 'status', (r) => (r.ai_status ? aiStatusLabel(r.ai_status) : '')],
+  sortKey: 'uploaded_at',
+  filterFn: (r, m) => (m === 'none' ? !r.ai_status : r.ai_status === m),
+})
+const TICKET_MODES = [
+  { value: '', label: 'Semua AI Status' },
+  { value: 'PASS', label: 'Qualified' },
+  { value: 'FAIL', label: 'Not Qualified' },
+  { value: 'PENDING', label: 'Pending' },
+  { value: 'none', label: 'Belum dinilai' },
+]
+
 const tab = ref('overview')
 // Full /stats/overview payload; overview/agents are derived from it so the
 // campaign filter can slice per-campaign without a refetch.
@@ -602,7 +1018,8 @@ const EMPTY_OVERVIEW = {
   total_submissions: 0, done: 0, processing: 0, pending: 0, failed: 0,
   evaluated: 0, error_count: 0, error_rate: 0,
   status_breakdown: { done: 0, in_progress: 0, failed: 0 },
-  ai_status_breakdown: { approve: 0, return: 0 },
+  ai_status_breakdown: { approve: 0, return: 0, pending: 0 },
+  manual_status_breakdown: { approve: 0, return: 0, pending: 0, decided: 0, belum_dinilai: 0, error_rate: 0 },
 }
 // Look up a per-campaign entry by name. The snapshot keys come from Result.campaign
 // (trimmed) while the dropdown value comes from the campaign list, so match exactly
@@ -625,6 +1042,29 @@ const agents = computed(() => {
   if (!s) return []
   if (campaignFilter.value) return pickByCampaign(s.agents_by_campaign, campaignFilter.value) || []
   return s.agents || []
+})
+
+// Performa Sales: cari nama/TL/AM/campaign, saring berdasarkan ada-tidaknya
+// submission (baris nol kini banyak setelah tabel di-seed dari roster).
+const salesView = useTableView(agents, {
+  fields: () => [
+    'name',
+    ...(showTeamLeaderCol.value ? ['team_leader'] : []),
+    ...(showAreaManagerCol.value ? ['area_manager'] : []),
+    'campaign',
+  ],
+  sortKey: 'submissions',
+  filterFn: (r, m) => (m === 'has' ? r.submissions > 0 : r.submissions === 0),
+})
+
+// Placeholder menyebutkan HANYA kolom yang tampil. Tabel ini berisi sales agent;
+// kolom Team Leader hanya muncul untuk Area Manager, dan kolom Area Manager hanya
+// untuk Telesales Head — menjanjikan keduanya ke semua orang itu menyesatkan.
+const salesSearchHint = computed(() => {
+  const extra = []
+  if (showTeamLeaderCol.value) extra.push('Team Leader')
+  if (showAreaManagerCol.value) extra.push('Area Manager')
+  return `Cari nama sales agent${extra.length ? ', ' + extra.join(', ') : ''}, atau campaign…`
 })
 const campaignData = ref(null)
 const hierarchy = ref(null)
@@ -653,27 +1093,34 @@ const loadingHierarchy = ref(false)
 let timer = null
 
 const STATUS_COLORS = { done: '#1F8A4C', in_progress: '#C98A00', failed: '#C73838' }
-// AI status donut: PASS = Approve (green), FAIL = Return (red).
-const AI_COLORS = { approve: '#1F8A4C', return: '#C73838' }
+// AI status donut: PASS = Qualified (green), FAIL = Not Qualified (red),
+// PENDING = butuh dokumen dalam tenggat H+2 (amber).
+const AI_COLORS = { approve: '#1F8A4C', return: '#C73838', pending: '#D97706' }
 
-// Build a 100% stacked column: X = time buckets, Y = 0–100%, two stacked series
-// (Approve green / Reject red). Percentages are precomputed per bucket; the raw
-// counts ride along on ``_counts`` for the tooltip.
-function stackedData(series) {
+// Build a 100% stacked column: X = time buckets, Y = 0–100%, three stacked series
+// (Qualified green / Not Qualified red / Pending amber). Percentages are precomputed
+// per bucket over the total dinilai (a+r+p); raw counts ride along on ``_counts``.
+// `prefix` memilih sisi mana yang digambar: '' = AI Status, 'manual_' = Manual Status.
+// Keduanya memakai bucket yang SAMA dari satu respons, jadi kedua grafik sejajar
+// sumbu waktunya dan bisa dibandingkan batang per batang.
+function stackedData(series, prefix = '') {
   const buckets = series?.buckets || []
   const labels = buckets.map((b) => b.label)
-  const approvePct = [], returnPct = [], approveCnt = [], returnCnt = []
+  const approvePct = [], returnPct = [], pendingPct = [], approveCnt = [], returnCnt = [], pendingCnt = []
   for (const b of buckets) {
-    const a = b.approve || 0, r = b.return || 0, t = a + r
-    approveCnt.push(a); returnCnt.push(r)
+    const a = b[`${prefix}approve`] || 0, r = b[`${prefix}return`] || 0, p = b[`${prefix}pending`] || 0
+    const t = a + r + p
+    approveCnt.push(a); returnCnt.push(r); pendingCnt.push(p)
     approvePct.push(t ? (a / t) * 100 : 0)
     returnPct.push(t ? (r / t) * 100 : 0)
+    pendingPct.push(t ? (p / t) * 100 : 0)
   }
   return {
     labels,
     datasets: [
-      { label: 'Approve', data: approvePct, backgroundColor: AI_COLORS.approve, stack: 'ai', _counts: approveCnt, maxBarThickness: 46 },
-      { label: 'Reject', data: returnPct, backgroundColor: AI_COLORS.return, stack: 'ai', _counts: returnCnt, maxBarThickness: 46 },
+      { label: 'Qualified', data: approvePct, backgroundColor: AI_COLORS.approve, stack: 'ai', _counts: approveCnt, maxBarThickness: 46 },
+      { label: 'Not Qualified', data: returnPct, backgroundColor: AI_COLORS.return, stack: 'ai', _counts: returnCnt, maxBarThickness: 46 },
+      { label: 'Pending', data: pendingPct, backgroundColor: AI_COLORS.pending, stack: 'ai', _counts: pendingCnt, maxBarThickness: 46 },
     ],
   }
 }
@@ -722,16 +1169,17 @@ const barPct = {
         ctx.fillText(`${Math.round(v)}%`, bar.x, (bar.y + bar.base) / 2)
       })
     })
-    // 2) total submissions (approve + reject) above each column
+    // 2) total dinilai (qualified + not qualified + pending) above each column
     const meta0 = chart.getDatasetMeta(0)
     const cA = chart.data.datasets[0]?._counts || []
     const cR = chart.data.datasets[1]?._counts || []
+    const cP = chart.data.datasets[2]?._counts || []
     const yTop = chart.chartArea.top - 9
     ctx.shadowBlur = 0
     ctx.fillStyle = '#334155'
     ctx.font = '800 12px "Plus Jakarta Sans", Inter, system-ui, -apple-system, sans-serif'
     meta0.data.forEach((bar, i) => {
-      const total = (Number(cA[i]) || 0) + (Number(cR[i]) || 0)
+      const total = (Number(cA[i]) || 0) + (Number(cR[i]) || 0) + (Number(cP[i]) || 0)
       if (!total || bar.width < 14) return
       ctx.fillText(total.toLocaleString('id-ID'), bar.x, yTop)
     })
@@ -741,25 +1189,29 @@ const barPct = {
 
 // Totals across all buckets in the current range — feeds the KPI cards + legend.
 function seriesTotals(series) {
-  let a = 0, r = 0, s = 0, dn = 0, ip = 0
+  let a = 0, r = 0, p = 0, s = 0, dn = 0, ip = 0
   for (const b of series?.buckets || []) {
-    a += b.approve || 0; r += b.return || 0
+    a += b.approve || 0; r += b.return || 0; p += b.pending || 0
     s += b.submissions || 0; dn += b.done || 0; ip += b.in_progress || 0
   }
-  return { approve: a, return: r, total: a + r, submissions: s, done: dn, in_progress: ip }
+  // total = Total Dinilai (Qualified + Not Qualified + Pending)
+  return { approve: a, return: r, pending: p, total: a + r + p, submissions: s, done: dn, in_progress: ip }
 }
 function aiDonutLegend(b) {
-  const a = b?.approve || 0, r = b?.return || 0
-  const total = (a + r) || 1
+  const a = b?.approve || 0, r = b?.return || 0, p = b?.pending || 0
+  const total = (a + r + p) || 1
   const pct = v => ((v / total) * 100).toFixed(1)
   return [
-    { label: 'Approve', value: a, color: AI_COLORS.approve, pct: pct(a) },
-    { label: 'Reject', value: r, color: AI_COLORS.return, pct: pct(r) },
+    { label: 'Qualified', value: a, color: AI_COLORS.approve, pct: pct(a) },
+    { label: 'Not Qualified', value: r, color: AI_COLORS.return, pct: pct(r) },
+    { label: 'Pending', value: p, color: AI_COLORS.pending, pct: pct(p) },
   ]
 }
 
 // ---- formatting / color helpers ----
 function fmt(n) { return (n ?? 0).toLocaleString('id-ID') }
+// Persentase 1 desimal dari bagian/total (0 bila total 0).
+function pctOf(part, total) { return total ? +(part / total * 100).toFixed(1) : 0 }
 
 function initials(name) {
   if (!name) return '?'
@@ -773,6 +1225,15 @@ function rateColor(r) {
   if (r >= 3) return 'var(--m-warning)'
   return 'var(--m-success)'
 }
+// Belum ada submission bukan berarti "0% error". Membedakan keduanya penting:
+// 0% terbaca sebagai prestasi, padahal orangnya belum dinilai sama sekali.
+function rateText(rate, submissions) {
+  return submissions ? `${rate}%` : '—'
+}
+function rateClassOf(rate, submissions) {
+  return submissions ? rateClass(rate) : 'muted'
+}
+
 function rateClass(r) {
   if (r > 6) return 'danger'
   if (r >= 3) return 'warning'
@@ -798,24 +1259,33 @@ const globalTotals = computed(() => seriesTotals(globalSeries.value))
 const donutTotal = computed(() => globalTotals.value.total)
 const donutApprove = computed(() => globalTotals.value.approve)
 const donutReturn = computed(() => globalTotals.value.return)
+const donutPending = computed(() => globalTotals.value.pending)
 const donutSubmissions = computed(() => globalTotals.value.submissions)
 const donutDone = computed(() => globalTotals.value.done)
 const donutInProgress = computed(() => globalTotals.value.in_progress)
 const donutErrorRate = computed(() =>
   donutTotal.value ? +(donutReturn.value / donutTotal.value * 100).toFixed(1) : 0)
-const donutLegend = computed(() => aiDonutLegend({ approve: donutApprove.value, return: donutReturn.value }))
+// Persentase tiap bucket AI Status atas Total Dinilai (untuk KPI cards).
+const donutApprovePct = computed(() => pctOf(donutApprove.value, donutTotal.value))
+const donutReturnPct = computed(() => pctOf(donutReturn.value, donutTotal.value))
+const donutPendingPct = computed(() => pctOf(donutPending.value, donutTotal.value))
+const donutLegend = computed(() => aiDonutLegend({ approve: donutApprove.value, return: donutReturn.value, pending: donutPending.value }))
 
 // ---- scoped (Sales Agent / Team Leader) KPI + legend totals ----
 const scopedTotals = computed(() => seriesTotals(myScopedSeries.value))
 const myDonutTotal = computed(() => scopedTotals.value.total)
 const myDonutApprove = computed(() => scopedTotals.value.approve)
 const myDonutReturn = computed(() => scopedTotals.value.return)
+const myDonutPending = computed(() => scopedTotals.value.pending)
 const myDonutSubmissions = computed(() => scopedTotals.value.submissions)
 const myDonutDone = computed(() => scopedTotals.value.done)
 const myDonutInProgress = computed(() => scopedTotals.value.in_progress)
 const myDonutErrorRate = computed(() =>
   myDonutTotal.value ? +(myDonutReturn.value / myDonutTotal.value * 100).toFixed(1) : 0)
-const myDonutLegend = computed(() => aiDonutLegend({ approve: myDonutApprove.value, return: myDonutReturn.value }))
+const myDonutApprovePct = computed(() => pctOf(myDonutApprove.value, myDonutTotal.value))
+const myDonutReturnPct = computed(() => pctOf(myDonutReturn.value, myDonutTotal.value))
+const myDonutPendingPct = computed(() => pctOf(myDonutPending.value, myDonutTotal.value))
+const myDonutLegend = computed(() => aiDonutLegend({ approve: myDonutApprove.value, return: myDonutReturn.value, pending: myDonutPending.value }))
 function statusPill(s) {
   return { done: 'ok', processing: 'info', pending: 'warn', failed: 'bad' }[s] || 'muted'
 }
@@ -827,9 +1297,36 @@ function fmtDate(v) {
 
 // ---- campaign performance (Submission / Risk Base breakdown / Error Rate), month-to-month ----
 const filterMonth = ref('') // '' = "Semua Bulan"; defaults to the latest month once loaded
+// Bulan yang dipilih otomatis saat data selesai dimuat. Disimpan supaya tombol Reset
+// mengembalikan dropdown bulan ke kondisi AWAL (bulan terbaru), bukan ke "Semua Bulan"
+// yang tidak pernah jadi tampilan awal tabel ini.
+const defaultMonth = ref('')
 const campaignRows = computed(() => {
-  const rows = campaignData.value?.rows || []
-  return filterMonth.value ? rows.filter((r) => r.month === filterMonth.value) : rows
+  let rows = campaignData.value?.rows || []
+  if (filterMonth.value) rows = rows.filter((r) => r.month === filterMonth.value)
+  // Ikut filter campaign global supaya tabel ini sejalan dengan KPI & donut di
+  // atasnya — sebelumnya ia satu-satunya tabel di Overview yang mengabaikannya.
+  if (campaignFilter.value) {
+    const want = campaignFilter.value.trim().toLowerCase()
+    rows = rows.filter((r) => (r.campaign || '').trim().toLowerCase() === want)
+  }
+  return rows
+})
+
+// Performa Campaign. Dropdown bulan yang sudah ada TETAP di tempatnya (ia memilih
+// cakupan data, bukan menyaring baris yang tampil), tetapi disambungkan ke Reset
+// lewat ``extra`` supaya tombol itu benar-benar mengembalikan semuanya.
+// Urutan awal sengaja 'month' menurun, bukan 'submissions': tabel ini terbuka pada
+// SATU bulan (bulan terbaru), sehingga mengurutkan per bulan tidak mengubah apa pun —
+// tampilan awalnya persis seperti sebelum ada fitur urut. Memilih 'submissions' akan
+// diam-diam menata ulang tabel yang sudah dikenal orang.
+const campaignView = useTableView(campaignRows, {
+  fields: ['campaign', (r) => monthLabel(r.month)],
+  sortKey: 'month',
+  extra: {
+    isDirty: () => filterMonth.value !== defaultMonth.value,
+    reset: () => { filterMonth.value = defaultMonth.value },
+  },
 })
 
 // Shared numeric cells for every level of the Hierarki Error Rate tree
@@ -845,7 +1342,8 @@ const RiskCells = (p) => {
     fmt(v),
   )
   const rate = h('td', { class: 'rate-col' }, [
-    h('span', { class: ['rate-badge', 'mono', rateClass(n.error_rate)] }, `${n.error_rate}%`),
+    h('span', { class: ['rate-badge', 'mono', rateClassOf(n.error_rate, n.submissions)] },
+      rateText(n.error_rate, n.submissions)),
   ])
   // Sisi sales: cukup Submissions / Errors / Error Rate — lihat showRiskBase.
   if (!showRiskBase.value) {
@@ -869,11 +1367,91 @@ const RiskCells = (p) => {
   ]
 }
 
+// ---- Failure Reason tab (SPQ Head & Admin only) ----
+const canSeeFailureReasons = computed(() => auth.can(P.STATS_FAILURE_REASON))
+const failureData = ref(null)
+const loadingFailure = ref(false)
+// Campaign yang datanya sedang tersimpan. Tanpa penanda ini, cache "sudah ada data"
+// akan menahan hasil campaign lama saat filternya diganti.
+const failureCampaign = ref(null)
+async function loadFailure(force = false) {
+  if (!force && failureData.value && failureCampaign.value === campaignFilter.value) return
+  loadingFailure.value = true
+  try {
+    failureData.value = await dataStore.fetchFailureReasons(campaignFilter.value)
+    failureCampaign.value = campaignFilter.value
+  } finally {
+    loadingFailure.value = false
+  }
+}
+function openFailure() {
+  tab.value = 'failure'
+  loadFailureMode()
+}
+
+// ---- Failure Reason: sub-tab Agregat vs Hierarki Based ----
+// 'aggregate' = kategori tersering gagal secara keseluruhan (tampilan lama);
+// 'hierarchy' = pohon AM -> TL -> Agent, kategori terbesar per orang.
+const failureMode = ref('aggregate')
+const failureHier = ref(null)
+const loadingFailureHier = ref(false)
+const failureHierCampaign = ref(null)
+
+async function loadFailureHier(force = false) {
+  if (!force && failureHier.value && failureHierCampaign.value === campaignFilter.value) return
+  loadingFailureHier.value = true
+  try {
+    failureHier.value = await dataStore.fetchFailureReasonsHierarchy(campaignFilter.value)
+    failureHierCampaign.value = campaignFilter.value
+  } finally {
+    loadingFailureHier.value = false
+  }
+}
+
+// Hanya sub-tab yang sedang dibuka yang di-fetch — pohon hierarki jauh lebih mahal
+// daripada agregatnya, dan tidak semua orang membukanya.
+function loadFailureMode(force = false) {
+  return failureMode.value === 'hierarchy' ? loadFailureHier(force) : loadFailure(force)
+}
+
+function openFailureMode(mode) {
+  failureMode.value = mode
+  loadFailureMode()
+}
+
+// Kategori terbesar sebuah simpul, untuk KPI "Kategori Terbesar".
+function topCategoryOf(node) {
+  return (node?.categories || [])[0]?.category || '—'
+}
+function topCategorySubOf(node) {
+  const c = (node?.categories || [])[0]
+  return c ? `${fmt(c.fail_count)} tiket · ${c.pct}% dari yang dinilai` : 'belum ada kegagalan'
+}
+
+// Failure Reason: dicari lewat nama kategori DAN teks requirement-nya, karena yang
+// diingat orang biasanya bunyi alasannya ("provisi", "bunga"), bukan nama kategorinya.
+const failureCategories = computed(() => failureData.value?.categories || [])
+const failureView = useTableView(failureCategories, {
+  fields: ['category', (r) => (r.top_reasons || []).map((x) => x.requirement).join(' ')],
+  sortKey: 'fail_count',
+})
+
 // ---- QC table (Hierarki Error Rate, QC-division managers only) ----
-const canSeeQcTable = computed(() =>
-  ['team_leader_qc', 'spq_head', 'admin'].includes(auth.user?.role))
+const canSeeQcTable = computed(() => auth.can(P.STATS_QC_PERFORMANCE))
 const qcPerformance = ref([])
 const loadingQcPerf = ref(false)
+
+// Daftar QC: cari nama/username, saring berdasarkan ada-tidaknya tiket assigned.
+const qcView = useTableView(qcPerformance, {
+  fields: ['name', 'qc_username'],
+  sortKey: 'assigned',
+  filterFn: (r, m) => (m === 'has' ? r.assigned > 0 : r.assigned === 0),
+})
+const QC_MODES = [
+  { value: '', label: 'Semua QC' },
+  { value: 'has', label: 'Sudah ada tiket assigned' },
+  { value: 'none', label: 'Belum ada tiket assigned' },
+]
 
 // Approve Rate reads the OPPOSITE way to Error Rate: higher is better, so it
 // cannot reuse rateClass() (which paints high values red).
@@ -888,7 +1466,7 @@ async function loadQcPerformance() {
   if (!canSeeQcTable.value) return
   loadingQcPerf.value = true
   try {
-    qcPerformance.value = await dataStore.fetchQcPerformance()
+    qcPerformance.value = await dataStore.fetchQcPerformance(campaignFilter.value)
   } catch {
     qcPerformance.value = []
   } finally {
@@ -896,8 +1474,44 @@ async function loadQcPerformance() {
   }
 }
 
+// Tiga sel kanan pada pohon Failure Reason: tiket dinilai, fail rate, dan kegagalan
+// terbesar milik simpul itu. Fungsi render, sama seperti RiskCells, supaya <tr> tetap
+// satu baris tanpa komponen pembungkus.
+//
+// Kolom kegagalan = bullet list "Kategori - xx Tiket - yy %", 3 teratas. Jumlah yang
+// ditampilkan sudah disebut di header kolom, jadi sisanya TIDAK ditulis sebagai
+// "+N kategori lain" — rinciannya lengkap ada di baris TLO yang dibuka.
+const FAIL_CELL_TOP = 3
+const FailCells = (p) => {
+  const n = p.n || {}
+  // Simpul agent membawa SELURUH kategorinya (baris rinciannya butuh itu); kolom
+  // ringkasan ini tetap memotong beberapa teratas saja.
+  const cats = (n.categories || []).slice(0, FAIL_CELL_TOP)
+  return [
+    h('td', { class: ['num', 'mono', 'col-n', !n.evaluated ? 'zero' : ''] }, fmt(n.evaluated)),
+    h('td', { class: 'rate-col' }, [
+      h('span', { class: ['rate-badge', 'mono', rateClassOf(n.fail_rate, n.evaluated)] },
+        rateText(n.fail_rate, n.evaluated)),
+    ]),
+    h('td', {}, cats.length
+      ? [h('ul', { class: 'fc-list' }, cats.map((c) => h('li', { class: 'fc-item' }, [
+        h('span', { class: 'fc-name' }, c.category),
+        h('span', { class: 'fc-num mono' }, ` - ${fmt(c.fail_count)} Tiket - ${c.pct}%`),
+      ])))]
+      : [h('span', { class: 'zero' }, '—')]),
+  ]
+}
+
 // ---- hierarchy expand state ----
-const openState = reactive({ am: {}, tl: {} })
+// fam/ftl/fag = pohon Failure Reason (sub-tab Hierarki Based); am/tl = Hierarki Error
+// Rate. Dipisah supaya membuka satu pohon tidak ikut membuka pohon yang lain.
+const openState = reactive({ am: {}, tl: {}, fam: {}, ftl: {}, fag: {} })
+// Kunci baris agent pada pohon Failure Reason. Menyertakan AM & TL karena agent_id
+// bisa kosong (agent tak dikenal jatuh ke "(Tidak diketahui)"), dan nama saja tidak
+// dijamin unik antar-tim — tanpa ini, membuka satu baris bisa ikut membuka baris lain.
+function agentKey(am, tl, ag) {
+  return `${am.name}|${tl.name}|${ag.agent_id || ''}|${ag.name}`
+}
 function toggle(level, key) { openState[level][key] = !openState[level][key] }
 function isOpen(level, key) { return !!openState[level][key] }
 
@@ -964,7 +1578,17 @@ watch([granularity, dateStart, dateEnd, periodOffset], () => {
   if (isScopedRole.value) loadMyTimeseries()
   else loadTimeseries()
 })
-watch(campaignFilter, () => { if (!isScopedRole.value) loadTimeseries() })
+watch(campaignFilter, () => {
+  if (!isScopedRole.value) loadTimeseries()
+  // Overview & Performa Campaign memakai data yang sudah ada di memori (di-slice di
+  // sisi klien), tetapi dua tab ini dihitung di server jadi harus diambil ulang.
+  if (tab.value === 'hierarchy') {
+    loadHierarchy(true)
+    loadQcPerformance()
+  } else if (tab.value === 'failure') {
+    loadFailureMode(true)
+  }
+})
 // Performa Campaign kini tampil inline di bawah pie chart Overview (bukan tab
 // tersendiri), jadi datanya di-load bersamaan dengan overview saat mount.
 async function loadCampaignMonthly() {
@@ -974,9 +1598,22 @@ async function loadCampaignMonthly() {
     campaignData.value = await dataStore.fetchCampaignMonthly()
     // Default to the most recent month so the table opens on a manageable slice.
     const months = campaignData.value?.months || []
-    filterMonth.value = months[months.length - 1] || ''
+    defaultMonth.value = months[months.length - 1] || ''
+    filterMonth.value = defaultMonth.value
   } finally {
     loadingCampaign.value = false
+  }
+}
+// Campaign yang pohonnya sedang tersimpan (lihat catatan di failureCampaign).
+const hierarchyCampaign = ref(null)
+async function loadHierarchy(force = false) {
+  if (!force && hierarchy.value && hierarchyCampaign.value === campaignFilter.value) return
+  loadingHierarchy.value = true
+  try {
+    hierarchy.value = await dataStore.fetchHierarchy(campaignFilter.value)
+    hierarchyCampaign.value = campaignFilter.value
+  } finally {
+    loadingHierarchy.value = false
   }
 }
 async function openHierarchy() {
@@ -984,17 +1621,18 @@ async function openHierarchy() {
   // The QC table is refetched every visit: unlike the snapshot-backed tree it is
   // computed live, and an approval made minutes ago should show up.
   loadQcPerformance()
-  if (hierarchy.value) return
-  loadingHierarchy.value = true
-  try { hierarchy.value = await dataStore.fetchHierarchy() } finally { loadingHierarchy.value = false }
+  loadHierarchy()
 }
 
 // Active campaign names for the Overview filter dropdown (source of truth =
-// /list_campaigns, filtered to is_active).
+// /list_campaigns, filtered to is_active), lalu dipersempit ke cakupan campaign
+// login ini — lihat campaignsInScope().
 async function loadCampaigns() {
   try {
     const list = await dataStore.fetchCampaigns()
-    campaignOptions.value = (list || []).filter((c) => c.is_active).map((c) => c.name)
+    campaignOptions.value = campaignsInScope(
+      (list || []).filter((c) => c.is_active).map((c) => c.name)
+    )
   } catch {
     campaignOptions.value = []
   }
@@ -1010,10 +1648,16 @@ async function loadMine() {
     loadingMine.value = false
   }
 }
+// Daftar tiket ini kini bisa dicari & diurutkan, dan keduanya bekerja pada data yang
+// SUDAH dimuat — dengan 20 baris, mencari tiket yang ada di posisi ke-25 akan menjawab
+// "tidak ditemukan" padahal tiketnya ada. Diambil sebanyak yang diizinkan endpoint
+// (``/list_results`` membatasi limit maksimum 100); sisanya dijelaskan di catatan bawah
+// tabel supaya batasnya terlihat, bukan disembunyikan.
+const MY_TICKETS_LIMIT = 100
 async function loadTickets() {
   loadingTickets.value = true
   try {
-    const d = await dataStore.fetchResults({ page: 1, limit: 20 })
+    const d = await dataStore.fetchResults({ page: 1, limit: MY_TICKETS_LIMIT })
     tickets.value = d.items || []
     ticketsTotal.value = d.total || 0
   } catch {
@@ -1069,13 +1713,54 @@ onUnmounted(() => clearInterval(timer))
 
 /* KPI cards */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+/* Baris 5 metrik (Total Submission/Qualified/Not Qualified/Pending/Error Rate):
+   kartu lebih ramping supaya kelimanya muat sebaris di layar lebar. */
+.kpis-5 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .kpi {
   background: var(--m-bg-surface); border: 1px solid var(--m-border-1); border-radius: var(--m-r-md);
   padding: 18px 20px; border-top: 3px solid var(--accent, var(--m-gray-300)); box-shadow: var(--m-shadow-card);
 }
 .kpi-label { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--m-gray-700); }
 .kpi-value { font-size: 32px; font-weight: 800; color: var(--m-gray-900); margin-top: 6px; }
+.kpi-pct { font-size: 15px; font-weight: 700; color: var(--m-fg-2); }
 .kpi-sub { font-size: 12.5px; font-weight: 600; color: var(--m-fg-2); margin-top: 4px; }
+/* Failure Reason: daftar alasan teratas per kategori */
+.reason-list { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.reason-list li { font-size: 12.5px; line-height: 1.35; }
+.reason-req { font-weight: 700; color: var(--m-gray-900); }
+.reason-count { font-weight: 700; color: var(--m-danger); margin-left: 4px; }
+.reason-example { color: var(--m-fg-2); margin-left: 4px; }
+.reason-empty { color: var(--m-gray-400); }
+
+/* Failure Reason: sub-tab Agregat / Hierarki Based. Sengaja lebih kecil dari .tab
+   di atasnya supaya jelas ini tingkat kedua, bukan tab sejajar Overview. */
+.subtab-group { display: inline-flex; gap: 4px; padding: 3px; border-radius: var(--m-r-pill); background: var(--m-gray-150); }
+.subtab {
+  padding: 5px 14px; border: none; background: none; border-radius: var(--m-r-pill);
+  font-size: 12.5px; font-weight: 600; color: var(--m-fg-2); cursor: pointer; transition: all .15s;
+  font-family: var(--m-font-sans);
+}
+.subtab.active { background: #fff; color: var(--m-gray-900); box-shadow: var(--m-shadow-sm); }
+
+/* Kegagalan terbesar per simpul hierarki: bullet list
+   "Kategori - xx Tiket - yy %". Angkanya menempel pada nama kategori (bukan kolom
+   terpisah) supaya tetap terbaca sebagai satu kalimat saat namanya membungkus. */
+.fc-list { margin: 0; padding-left: 16px; list-style: disc; }
+.fc-list li::marker { color: var(--m-gray-400); }
+.fc-item { font-size: 12px; line-height: 1.45; }
+.fc-item + .fc-item { margin-top: 3px; }
+.fc-name { font-weight: 700; color: var(--m-gray-900); }
+.fc-num { font-weight: 700; color: var(--m-danger); white-space: nowrap; }
+
+/* Rincian per kategori milik SATU agent (baris TLO yang dibuka). */
+.fail-detail-row td { background: var(--m-gray-50); padding: 0 !important; }
+.fail-detail { padding: 12px 12px 12px 52px; }
+.fail-detail-title { font-size: 12.5px; font-weight: 700; color: var(--m-gray-900); margin-bottom: 8px; }
+.fail-detail-sub { font-weight: 500; color: var(--m-fg-3); margin-left: 8px; }
+.mtable.inner { background: #fff; border: 1px solid var(--m-gray-150); border-radius: var(--m-r-md, 8px); table-layout: fixed; }
+.mtable.inner th { font-size: 10.5px; }
+.mtable.inner td { padding: 8px 12px; font-size: 12.5px; vertical-align: top; }
+.mtable.inner .campaign-name { white-space: normal; }
 
 /* Panels */
 .grid-2 { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(340px, 1.2fr); gap: 16px; }
@@ -1092,7 +1777,7 @@ onUnmounted(() => clearInterval(timer))
 .month-select:focus { border-color: var(--m-info); }
 
 /* Overview campaign filter */
-.cf-row { display: flex; align-items: center; gap: 10px; }
+.cf-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
 
 /* --- 100% stacked column chart + date filter --- */
 .chart-filter { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
@@ -1133,12 +1818,13 @@ onUnmounted(() => clearInterval(timer))
   .stack-wrap { width: 100%; flex: none; }
 }
 .cf-label { font-size: 13px; font-weight: 600; color: var(--m-fg-2); }
+.cf-note { font-size: 12px; color: var(--m-fg-2); }
 
 /* Pie */
 .donut-row { display: flex; align-items: center; gap: 28px; }
 .donut-wrap { position: relative; width: 168px; height: 168px; flex-shrink: 0; }
 .legend { display: flex; flex-direction: column; gap: 12px; flex: 1; }
-.legend-title { font-size: 14px; font-weight: 800; color: var(--m-gray-900); letter-spacing: -.01em; }
+.legend-title { font-size: 14px; font-weight: 800; color: var(--m-gray-900); letter-spacing: -.01em; margin-top: 50px; }
 .legend-caption { font-size: 12px; font-weight: 500; color: var(--m-fg-2); margin-top: -8px; }
 .legend-cols { padding-bottom: 8px; border-bottom: 1px solid var(--m-gray-150); }
 .legend-cap { font-size: 11px !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: .05em; color: var(--m-fg-3) !important; }
@@ -1203,6 +1889,9 @@ onUnmounted(() => clearInterval(timer))
 .mtable.tree tr.lvl-tl td { background: #fff; font-weight: 600; }
 .mtable.tree tr.lvl-tl:hover td { background: var(--m-gray-50); }
 .mtable.tree tr.lvl-ag td { background: #fff; color: var(--m-gray-700); }
+/* Baris TLO pada pohon Failure Reason ikut bisa diklik (membuka rincian kategori). */
+.mtable.tree tr.lvl-ag:has(.twist) { cursor: pointer; }
+.mtable.tree tr.lvl-ag:has(.twist):hover td { background: var(--m-gray-50); }
 .twist { display: inline-block; width: 16px; color: var(--m-fg-3); }
 .pad-1 { padding-left: 30px !important; }
 .pad-2 { padding-left: 52px !important; }
@@ -1280,4 +1969,17 @@ onUnmounted(() => clearInterval(timer))
 .skeleton-wrap { display: flex; flex-direction: column; gap: 12px; }
 .skeleton { background: linear-gradient(90deg, var(--m-gray-100) 25%, var(--m-gray-150) 50%, var(--m-gray-100) 75%); background-size: 200%; height: 84px; border-radius: var(--m-r-md); animation: shimmer 1.2s infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.ms-block { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border, #e5e7eb); }
+.ms-title { font-size: 12px; font-weight: 700; color: var(--text-muted, #6b7280); margin-bottom: 8px; }
+.chart-sub-title { font-size: 12.5px; font-weight: 700; color: var(--text-muted); margin: 18px 0 6px; }
+.chart-sub-first { margin-top: 8px; }
+.panel-hint { font-size: 11.5px; color: var(--m-fg-2); line-height: 1.45; margin: -2px 0 8px; }
+
+/* --- toolbar & pagination tabel --- */
+.mtable th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.mtable th.sortable:hover { color: var(--m-fg-1); }
+.sort-ind { font-size: 9px; opacity: 0.55; margin-left: 2px; }
+
+/* Style toolbar (.tbl-*) dan pager (.pg-*) ikut pindah ke
+   components/TableToolbar.vue & components/TablePager.vue. */
 </style>

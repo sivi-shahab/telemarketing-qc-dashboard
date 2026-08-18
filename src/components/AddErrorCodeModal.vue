@@ -6,7 +6,9 @@
           <div>
             <h2 class="modal-title">Tambah Error Code</h2>
             <p class="modal-subtitle">
-              Usulkan error code baru untuk ditinjau berjenjang (Team Leader QC → SPQ Head).
+              {{ direct
+                ? 'Tambah error code baru — berlaku langsung tanpa persetujuan.'
+                : 'Usulkan error code baru untuk ditinjau berjenjang (Team Leader QC → SPQ Head).' }}
             </p>
           </div>
           <button class="close-x" aria-label="Tutup" @click="close">✕</button>
@@ -117,7 +119,7 @@
           <button class="btn-cancel" @click="close">Cancel</button>
           <button class="btn-submit" :disabled="!canSubmit" @click="submit">
             <span v-if="submitting" class="spinner"></span>
-            {{ submitting ? 'Mengirim…' : 'Submit' }}
+            {{ submitting ? (direct ? 'Menerapkan…' : 'Mengirim…') : (direct ? 'Terapkan' : 'Submit') }}
           </button>
         </footer>
       </div>
@@ -134,6 +136,9 @@ const props = defineProps({
   displayId: { type: String, default: null },
   // The (appeal-adjusted) evaluation object — provides the attach targets.
   evaluation: { type: Object, default: null },
+  // Direct edit by TL QC / SPQ Head — POST /error_code_appeal/direct (applies at
+  // once, no hierarchy) instead of the QC submit endpoint.
+  direct: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'submitted'])
 
@@ -159,7 +164,12 @@ const errorMsg = ref('')
 const submitting = ref(false)
 
 const isVerification = computed(() => ['cashline_data', 'card_holder'].includes(source.value))
-const referenceLabel = computed(() => (source.value === 'cashline_data' ? 'TMS' : 'Ascend'))
+const referenceLabel = computed(() => {
+  if (source.value !== 'cashline_data') return 'Ascend'
+  // provisi / penalti are referenced against the RIPLAY product terms, not TMS.
+  const hit = verificationOptions.value.find((v) => v.field === targetField.value)
+  return hit && hit.reference_value == null && hit.tnc_product != null ? 'TnC Product' : 'TMS'
+})
 const sourceHint = computed(() => {
   if (source.value === 'others') return 'Error di luar sumber terstruktur — tampil di tabel, tidak mengubah skor.'
   if (source.value === 'scorecard') return 'Menandai item scorecard SESUAI menjadi error (skor turun sebesar bobot item).'
@@ -183,7 +193,9 @@ const verificationOptions = computed(() => {
 watch(targetField, (f) => {
   const hit = verificationOptions.value.find((v) => v.field === f)
   if (hit) {
-    referenceVal.value = hit.reference_value != null ? String(hit.reference_value) : ''
+    // An empty TMS column means the reference used was the RIPLAY term.
+    const ref = hit.reference_value ?? hit.tnc_product
+    referenceVal.value = ref != null ? String(ref) : ''
     extractedVal.value = hit.extracted_value != null ? String(hit.extracted_value) : ''
   }
 })
@@ -253,7 +265,7 @@ async function submit() {
       form.append('qc_reference_value', referenceVal.value.trim())
       form.append('qc_extracted_value', extractedVal.value.trim())
     }
-    const res = await apiClient.post('/error_code_appeal', form)
+    const res = await apiClient.post(props.direct ? '/error_code_appeal/direct' : '/error_code_appeal', form)
     emit('submitted', { resultId: props.resultId, appeal: res.data })
     close()
   } catch (e) {
@@ -262,7 +274,7 @@ async function submit() {
     } else if (e.response?.status === 422 || e.response?.status === 404) {
       errorMsg.value = e.response.data?.detail || 'Input tidak valid.'
     } else if (e.response?.status === 403) {
-      errorMsg.value = 'Akses hanya untuk QC.'
+      errorMsg.value = props.direct ? 'Akses hanya untuk TL QC atau SPQ Head.' : 'Akses hanya untuk QC.'
     } else {
       errorMsg.value = 'Gagal mengirim. Coba lagi.'
     }

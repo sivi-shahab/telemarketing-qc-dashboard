@@ -6,7 +6,8 @@
           <div>
             <h2 class="modal-title">Upload Document</h2>
             <p class="modal-subtitle">
-              Verifikasi perubahan data — unggah dokumen yang relevan (boleh sebagian saja).
+              Dokumen pendukung yang diminta untuk tiket ini — unggah yang relevan
+              (boleh sebagian saja, sisanya bisa menyusul).
             </p>
           </div>
           <button class="close-x" aria-label="Tutup" @click="close">✕</button>
@@ -38,7 +39,6 @@
 
               <!-- Empty state -->
               <button v-if="!files[d.key]" class="pick-btn" @click="openPicker(d.key)">
-                <span class="pick-icon">📄</span>
                 <span>Pilih file</span>
               </button>
 
@@ -80,8 +80,9 @@ import apiClient from '../api/client.js'
 const props = defineProps({
   resultId: { type: String, required: true },
   docId: { type: String, default: null },
-  // Document types allowed for this result (from the TMS data changes). When null,
-  // all types are shown (backward compatible).
+  // Document types still required for this result (TMS data changes, limit >= 50jt,
+  // or a card-holder similarity band). When null, all types are shown (backward
+  // compatible).
   allowedTypes: { type: Array, default: null },
 })
 const emit = defineEmits(['close', 'uploaded'])

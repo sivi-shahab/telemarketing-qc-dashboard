@@ -1,18 +1,23 @@
 <template>
   <div class="account-panel" @click.stop>
     <button class="account-btn" @click="open = !open">
-      <span class="avatar">👤</span>
       <span class="account-info">
         <span class="username">{{ user?.username || 'User' }}</span>
         <span class="fullname">{{ user?.name || '—' }}</span>
         <span class="badge" :class="roleBadgeClass">{{ roleLabel }}</span>
+        <!-- Tag campaign milik user. Untuk sisi sales nilainya datang dari kolom
+             Dedicated di Sales Database — kolom itu menentukan tiket siapa yang
+             terlihat, jadi harus bisa diperiksa tanpa membuka berkas roster. -->
+        <span v-if="campaigns.length" class="campaign-tags">
+          <span v-for="c in campaigns" :key="c" class="campaign-pill">{{ c }}</span>
+        </span>
       </span>
       <span class="chevron" :class="{ rotated: open }">▾</span>
     </button>
 
     <div v-if="open" class="dropdown">
       <div class="dropdown-item" @click="handleLogout">
-        <span>🚪</span> Logout
+        Logout
       </div>
     </div>
   </div>
@@ -23,35 +28,22 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth.js'
 import { storeToRefs } from 'pinia'
+import { roleBadgeClass as sharedBadgeClass, roleLabel as sharedRoleLabel } from '../utils/roleBadge.js'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const { user } = storeToRefs(authStore)
 const open = ref(false)
 
-const roleBadgeClass = computed(() => {
-  const role = (user.value?.role || 'sales_agent').toLowerCase()
-  if (role === 'spq_head' || role === 'admin' || role === 'telesales_head') return 'badge-red'
-  if (role === 'qc' || role === 'team_leader_qc' || role === 'qc_support') return 'badge-yellow'
-  if (role === 'team_leader' || role === 'area_manager') return 'badge-green'
-  if (role === 'demo') return 'badge-gray'
-  return 'badge-blue'
-})
+const roleBadgeClass = computed(() => sharedBadgeClass(user.value?.role))
 
-const roleLabel = computed(() => {
-  const role = (user.value?.role || 'sales_agent').toLowerCase()
-  if (role === 'spq_head') return 'SPQ Head'
-  if (role === 'admin') return 'Admin'
-  if (role === 'telesales_head') return 'Telesales Head'
-  if (role === 'team_leader_qc') return 'Team Leader QC'
-  if (role === 'qc_support') return 'QC Support'
-  if (role === 'area_manager') return 'Area Manager'
-  if (role === 'team_leader') return 'Team Leader Sales'
-  if (role === 'sales_agent') return 'Sales Agent'
-  if (role === 'qc') return 'QC'
-  if (role === 'demo') return 'Demo'
-  return role
-})
+// Daftar kosong = tidak dibatasi campaign (sisi QC & role bercakupan penuh), jadi
+// tidak perlu ditampilkan apa pun.
+const campaigns = computed(() => user.value?.campaigns || [])
+
+// Role buatan operator memakai label dari /auth/me; util bersama menangani role bawaan.
+const roleLabel = computed(
+  () => user.value?.role_label || sharedRoleLabel(user.value?.role || 'sales_agent'))
 
 function handleLogout() {
   authStore.logout()
@@ -133,4 +125,17 @@ window.addEventListener('click', () => { open.value = false })
 }
 
 .dropdown-item:hover { background: #f8f9fa; }
+
+.campaign-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.campaign-pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
 </style>

@@ -1,6 +1,6 @@
 <template>
   <div class="agent-summary">
-    <div class="as-title">📋 Agent Error Summary</div>
+    <div class="as-title">Agent Error Summary</div>
     <div class="table-wrap">
       <table class="as-table">
         <thead>

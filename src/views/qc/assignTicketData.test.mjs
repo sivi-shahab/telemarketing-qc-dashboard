@@ -122,3 +122,42 @@ test('joinLocalResults tetap jalan bila daftar lokal kosong atau null', () => {
   assert.equal(joinLocalResults(groups, null)[0].assigned_qc, null)
   assert.equal(joinLocalResults(groups, [])[0].status, 'done')
 })
+
+test('joinLocalResults memakai /qc_assignments untuk ticket yang belum punya baris result', () => {
+  // Regresi: assignment tersimpan di tabel qc_assignments, tapi /list_results
+  // hanya beriterasi per baris `results`. Ticket yang belum diproses tidak
+  // muncul di sana, sehingga assignment "hilang" setelah reload.
+  const groups = groupTickets([
+    { id: '131133DNTr', context: 'card', created_time: '2026-08-15T10:00:00', processed_at: null },
+  ])
+  const [row] = joinLocalResults(groups, [], [
+    { ticket_id: '131133DNTr', qc_username: 'H21120266', assigned_at: '2026-08-15T07:53:04' },
+  ])
+  assert.equal(row.assigned_qc, 'H21120266')
+  assert.equal(row.assigned_at, '2026-08-15T07:53:04')
+})
+
+test('joinLocalResults: qc_assignments menang atas snapshot /list_results', () => {
+  const groups = groupTickets([
+    { id: 'A1', context: 'card', created_time: '2026-07-28T10:00:00', processed_at: 1 },
+  ])
+  const [row] = joinLocalResults(
+    groups,
+    [{ id: 'A1', assigned_qc: 'qc_lama', assigned_at: '2026-07-01T00:00:00', qc_checked_at: '2026-07-30T04:00:00', qc_checked_by: 'qc01' }],
+    [{ ticket_id: 'A1', qc_username: 'qc_baru', assigned_at: '2026-07-29T03:00:00' }],
+  )
+  assert.equal(row.assigned_qc, 'qc_baru')
+  assert.equal(row.assigned_at, '2026-07-29T03:00:00')
+  // kolom pemeriksaan QC tetap dari /list_results
+  assert.equal(row.qc_checked_at, '2026-07-30T04:00:00')
+  assert.equal(row.qc_checked_by, 'qc01')
+})
+
+test('joinLocalResults: ticket tanpa assignment tetap null', () => {
+  const groups = groupTickets([
+    { id: 'BARU', context: 'ntb', created_time: '2026-07-28T10:00:00', processed_at: 1 },
+  ])
+  const [row] = joinLocalResults(groups, [], [{ ticket_id: 'LAIN', qc_username: 'qc01' }])
+  assert.equal(row.assigned_qc, null)
+  assert.equal(row.assigned_at, null)
+})
