@@ -47,6 +47,7 @@ export const P = {
   QC_MANUAL_CHECK_APPROVE: 'results.manual_check.approve',
   RESULTS_FILTER_QC_SIDE: 'results.filter.qc_side',
   RESULTS_EXPORT_VERIFICATION: 'results.export.verification',
+  RESULTS_EXPORT_TICKETS: 'results.export.tickets',
 
   // Fitur di halaman Stats
   STATS_FAILURE_REASON: 'stats.failure_reason',

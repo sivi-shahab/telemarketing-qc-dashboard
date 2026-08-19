@@ -127,6 +127,8 @@
           <tr>
             <th>Sumber</th>
             <th>Error Code</th>
+            <th>Error Type</th>
+            <th>Error Category</th>
             <th>Details Error</th>
             <th>Reason</th>
             <th>Evidence</th>
@@ -136,11 +138,13 @@
         <tbody>
           <template v-for="(group, gi) in errorCodeGroups" :key="gi">
             <tr class="group-row">
-              <td colspan="6">{{ group.sumber }} ({{ group.rows.length }})</td>
+              <td colspan="8">{{ group.sumber }} ({{ group.rows.length }})</td>
             </tr>
             <tr v-for="(row, i) in group.rows" :key="gi + '-' + i">
               <td class="src-cell">{{ row.sumber || '—' }}</td>
               <td><span class="badge badge-red">{{ row.error_code || '—' }}</span></td>
+              <td>{{ row.error_type || '—' }}</td>
+              <td>{{ row.error_category || '—' }}</td>
               <td>{{ row.details_error || '—' }}</td>
               <td class="reason">{{ row.reason || '—' }}</td>
               <td class="exec-evidence">{{ row.evidence || '—' }}</td>
@@ -212,6 +216,14 @@
               <th v-if="showCategoryScore" class="num">Skor</th>
               <th>Hasil</th>
               <th>Item Belum Sesuai</th>
+              <!-- Kosakata sheet QC per item yang gagal: kategori scorecard
+                   ("Greeting") menjawab DI MANA gagalnya, Error Type/Category
+                   ("Error - Human" / "Probbing") menjawab kesalahan JENIS apa itu
+                   menurut sheet. Ditambahkan, bukan menggantikan judul kategori —
+                   beberapa kategori scorecard memetakan ke error category yang sama,
+                   jadi menggantinya justru menghapus pembeda (14 Agustus 2026). -->
+              <th>Error Type</th>
+              <th>Error Category</th>
               <th>Requirement</th>
               <th>Alasan</th>
             </tr>
@@ -232,6 +244,8 @@
                   </span>
                 </td>
                 <td class="strong">{{ it?.item_code || '—' }}</td>
+                <td>{{ it ? scorecardErrorType(it) : '—' }}</td>
+                <td>{{ it ? scorecardErrorCategory(it) : '—' }}</td>
                 <td>{{ it?.requirement || '—' }}</td>
                 <td v-if="j === 0" :rowspan="c.rowspan" class="muted reason">{{ c.fail_reason || '—' }}</td>
               </tr>
@@ -367,6 +381,11 @@
             <tr>
               <th>Sumber</th>
               <th>Error Code</th>
+              <!-- Kosakata sheet QC ("Error Reason - Telemarketing QC"), dibawa apa
+                   adanya oleh backend. Ditambahkan sebagai pembeda antar kode, bukan
+                   pengganti Details Error (permintaan 14 Agustus 2026). -->
+              <th>Error Type</th>
+              <th>Error Category</th>
               <th>Risk Base</th>
               <th>Item Code</th>
               <th>Details Error</th>
@@ -388,6 +407,8 @@
               <tr>
                 <td class="src-cell">{{ row.sumber || '—' }}</td>
                 <td><span class="badge badge-red">{{ row.error_code || '—' }}</span></td>
+                <td>{{ row.error_type || '—' }}</td>
+                <td>{{ row.error_category || '—' }}</td>
                 <td>{{ row.risk_base || '—' }}</td>
                 <td class="strong">{{ row.item_code || '—' }}</td>
                 <td>{{ row.details_error || '—' }}</td>
@@ -730,12 +751,14 @@ const reviewStage = computed(() => (canReviewTl.value ? 'tl' : 'spq'))
 // from the Review Banding column (which acts on QC-submitted appeals).
 const showDirectEditCol = computed(() => canDirectEdit.value && !!props.resultId)
 
-// Error Code table column count (base 8 + Riwayat + role-specific action columns).
+// Error Code table column count (base 10 + Riwayat + role-specific action columns).
+// Base 10 = Sumber, Error Code, Error Type, Error Category, Risk Base, Item Code,
+// Details Error, Reason, Evidence, Ticket ID.
 // QC: [Manual Check]. Reviewer: [Manual Check (direct)] + [Review Banding].
 const showHistoryCol = computed(
   () => showManualCheckCol.value || showReviewCol.value || showDirectEditCol.value)
 const errorColCount = computed(() =>
-  8 + (showHistoryCol.value ? 1 : 0)
+  10 + (showHistoryCol.value ? 1 : 0)
     + (showManualCheckCol.value ? 1 : 0)
     + (showDirectEditCol.value ? 1 : 0)
     + (showReviewCol.value ? 1 : 0))
@@ -990,6 +1013,26 @@ function scorecardErrorCode(it) {
   const row = (ev.value?.error_code_table || []).find((r) => r.item_code && r.item_code === it?.item_code)
   return row?.error_code || '—'
 }
+// Error Type / Error Category (kosakata sheet QC) untuk sebuah item scorecard yang
+// BELUM_SESUAI. Diambil dari baris error_code_table yang dibangun backend — bukan
+// dipetakan ulang di sini — supaya hanya ada SATU tempat yang tahu kode mana masuk
+// kategori apa (compliance/error_codes.py). Dicari lewat item_code dulu; item yang
+// kodenya diturunkan per kategori (B10/B12/B18) bisa saja tidak punya baris
+// ber-item_code, jadi ada cadangan pencarian lewat error_code-nya.
+function errorMetaOf(it) {
+  const table = ev.value?.error_code_table || []
+  const byItem = table.find((r) => r.item_code && r.item_code === it?.item_code)
+  if (byItem) return byItem
+  const code = scorecardErrorCode(it)
+  return table.find((r) => r.error_code === code) || {}
+}
+function scorecardErrorType(it) {
+  return errorMetaOf(it).error_type || '—'
+}
+function scorecardErrorCategory(it) {
+  return errorMetaOf(it).error_category || '—'
+}
+
 // Display category for a scorecard-deduction row: verification-linked items show
 // "Verifikasi Statik/Dinamis"; everything else keeps its scorecard category.
 function deductionCategory(it) {

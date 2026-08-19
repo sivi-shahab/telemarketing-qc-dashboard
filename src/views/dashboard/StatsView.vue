@@ -64,7 +64,7 @@
               <div class="kpi" :style="{ '--accent': rateColor(myDonutErrorRate) }">
                 <div class="kpi-label">Error Rate</div>
                 <div class="kpi-value mono" :style="{ color: rateColor(myDonutErrorRate) }">{{ myDonutErrorRate }}%</div>
-                <div class="kpi-sub">{{ fmt(myDonutReturn) }} / {{ fmt(myDonutTotal) }} dinilai</div>
+                <div class="kpi-sub">{{ fmt(myDonutTotalRisk) }} total risk / {{ fmt(myDonutTotal) }} dinilai</div>
               </div>
             </div>
 
@@ -117,7 +117,7 @@
                 <tbody>
                   <tr v-if="loadingMine"><td colspan="5" class="empty"><span class="spin-inline"></span> Memuat...</td></tr>
                   <tr v-else-if="!teamView.total"><td colspan="5" class="empty">
-                    {{ teamAgents.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : 'Belum ada sales agent di tim Anda.' }}
+                    {{ agentEmptyText(teamView, teamAgents, 'Belum ada sales agent di tim Anda.') }}
                   </td></tr>
                   <tr v-for="a in teamView.rows" :key="a.agent_id" :class="{ risky: a.submissions && a.error_rate >= 10 }">
                     <td>
@@ -270,7 +270,7 @@
               <div class="kpi" :style="{ '--accent': rateColor(donutErrorRate) }">
                 <div class="kpi-label">Error Rate</div>
                 <div class="kpi-value mono" :style="{ color: rateColor(donutErrorRate) }">{{ donutErrorRate }}%</div>
-                <div class="kpi-sub">{{ fmt(donutReturn) }} / {{ fmt(donutTotal) }} dinilai</div>
+                <div class="kpi-sub">{{ fmt(donutTotalRisk) }} total risk / {{ fmt(donutTotal) }} dinilai</div>
               </div>
             </div>
 
@@ -364,7 +364,10 @@
               <b>High</b>/<b>Medium</b>/<b>Low</b> = jumlah tiket dengan risk tertinggi H/M/L<template v-if="showRiskSystemNew"> ·
               <b>System</b> = kode O ·
               <b>New</b> = kode N (Risk Base L/M yang disoftening untuk agent baru, hanya saat grace period)</template> ·
-              <b>Total Risk</b> = High + Medium + Low.
+              <b>Total Risk</b> = High + Medium + Low ·
+              <b>Error Rate</b> = Total Risk ÷ Submission.
+              Tiket <b>Qualified</b> yang error code-nya hanya Risk Base L pada item scorecard
+              <i>tolerable</i> tidak ikut dihitung ke Total Risk.
             </div>
           </div>
 
@@ -373,8 +376,8 @@
             <div class="panel-title">Performa Sales</div>
             <div class="panel-hint">
               Memuat seluruh agent yang punya akun aktif — termasuk yang belum punya
-              submission. Error Rate <b>—</b> berarti belum ada tiket yang dinilai,
-              bukan 0% error.
+              submission. Error Rate = <b>Total Risk</b> ÷ Submissions; <b>—</b> berarti
+              belum ada tiket yang dinilai, bukan 0% error.
             </div>
             <TblToolbar :v="salesView" label="Performa Sales" :modes="AGENT_MODES"
                         :placeholder="salesSearchHint" />
@@ -393,7 +396,7 @@
                 </thead>
                 <tbody>
                   <tr v-if="!salesView.total"><td :colspan="salesColCount" class="empty">
-                    {{ agents.length ? 'Tidak ada yang cocok dengan pencarian/filter.' : 'Belum ada data.' }}
+                    {{ agentEmptyText(salesView, agents, 'Belum ada data.') }}
                   </td></tr>
                   <tr v-for="a in salesView.rows" :key="a.agent_id + a.name" :class="{ risky: a.submissions && a.error_rate >= 10 }">
                     <td>
@@ -516,14 +519,14 @@
               </table>
             </div>
             <div v-if="showRiskBase" class="note">
-              <b>Error Rate</b> = tiket <b>Not Qualified</b> ÷ Submissions. Kolom Risk Base
-              ({{ showRiskSystemNew ? 'High/Medium/Low/System/New' : 'High/Medium/Low' }}) bersifat konteks dan <b>tidak</b> membentuk Error Rate —
-              tiap tiket dihitung satu Risk Base tertinggi saja (urutan H &gt; M &gt; L &gt; N &gt; O).
+              <b>Error Rate</b> = <b>Total Risk</b> ÷ Submissions — rumus yang sama di
+              seluruh halaman ini, termasuk KPI di tab Overview dan tabel <b>Performa Campaign</b>.
+              Tiap tiket dihitung satu Risk Base tertinggi saja (urutan H &gt; M &gt; L &gt; N &gt; O).
               <b>Total Risk</b> = High + Medium + Low saja<template v-if="showRiskSystemNew">; System dan New tidak ikut dijumlahkan</template>.
-              Rumus Total Risk ÷ Submission dipakai di tabel <b>Performa Campaign</b>, bukan di sini.
+              Kolom <b>Errors</b> (tiket Not Qualified) ditampilkan sebagai konteks dan bukan pembilang Error Rate.
             </div>
             <div v-else class="note">
-              <b>Error Rate</b> = <b>Errors</b> ÷ Submissions. Klik baris AM atau TL untuk membuka level di bawahnya.
+              <b>Error Rate</b> = <b>Total Risk</b> ÷ Submissions. Klik baris AM atau TL untuk membuka level di bawahnya.
             </div>
           </div>
 
@@ -589,14 +592,16 @@
         <template v-else-if="failureData">
           <div class="kpis">
             <div class="kpi" style="--accent: var(--m-info)">
-              <div class="kpi-label">Total Tiket Dinilai</div>
+              <div class="kpi-label">Total Tiket Checked</div>
               <div class="kpi-value mono">{{ fmt(failureData.total_evaluated) }}</div>
               <div class="kpi-sub">basis persentase kegagalan kategori</div>
             </div>
+            <!-- Menghitung TIKET, bukan kategori — angka & definisinya sama persis
+                 dengan KPI Not Qualified di Overview (permintaan 14 Agustus 2026). -->
             <div class="kpi" style="--accent: var(--m-danger)">
-              <div class="kpi-label">Kategori Bermasalah</div>
-              <div class="kpi-value mono">{{ fmt(failureData.categories.length) }}</div>
-              <div class="kpi-sub">kategori dengan ≥1 tiket gagal</div>
+              <div class="kpi-label">Not Qualified</div>
+              <div class="kpi-value mono">{{ fmt(failureData.not_qualified) }}</div>
+              <div class="kpi-sub">dari {{ fmt(failureData.total_evaluated) }} tiket checked</div>
             </div>
           </div>
 
@@ -639,7 +644,7 @@
             <Pager :v="failureView" label="kategori" />
             <div class="note">
               <b>Tiket Gagal</b> = jumlah tiket dengan ≥1 item scorecard <b>BELUM_SESUAI</b> pada kategori itu ·
-              <b>%</b> = Tiket Gagal ÷ Total Tiket Dinilai · <b>Alasan Teratas</b> = requirement item yang paling sering gagal.
+              <b>%</b> = Tiket Gagal ÷ Total Tiket Checked · <b>Alasan Teratas</b> = requirement item yang paling sering gagal.
             </div>
           </div>
         </template>
@@ -988,6 +993,23 @@ const AGENT_MODES = [
   { value: 'none', label: 'Belum ada submission' },
 ]
 
+// Kalimat kosong untuk tabel yang memakai AGENT_MODES. Dulu semuanya berbunyi
+// "Tidak ada yang cocok dengan pencarian/filter" — benar tetapi tidak menjawab
+// apa pun: pembaca sudah tahu filternya tidak menghasilkan apa-apa, yang ingin ia
+// tahu adalah KENYATAAN apa yang membuatnya kosong. Dengan dropdown "Belum ada
+// submission" yang kosong, kenyataannya justru kabar baik — semua agent sudah
+// submit — dan itu yang sekarang tertulis (permintaan 14 Agustus 2026).
+//
+// Pencarian teks tetap menang: kalau kotak cari terisi, yang mengosongkan tabel
+// bisa jadi kata kuncinya, bukan mode-nya.
+function agentEmptyText(view, source, emptySource) {
+  if (!source.length) return emptySource
+  if (view.search.trim()) return 'Tidak ada yang cocok dengan pencarian.'
+  if (view.mode === 'none') return 'Tidak ditemukan agent yang belum melakukan submisi'
+  if (view.mode === 'has') return 'Belum ada agent yang melakukan submisi'
+  return 'Tidak ada yang cocok dengan pencarian/filter.'
+}
+
 // Daftar Ticket ID Anda (Sales Agent). Dicari lewat teks yang TAMPIL: AI Status
 // tersimpan sebagai PASS/FAIL/PENDING tetapi yang dibaca orang adalah
 // "Qualified"/"Not Qualified"/"Pending", jadi itulah yang harus cocok saat diketik.
@@ -1189,13 +1211,15 @@ const barPct = {
 
 // Totals across all buckets in the current range — feeds the KPI cards + legend.
 function seriesTotals(series) {
-  let a = 0, r = 0, p = 0, s = 0, dn = 0, ip = 0
+  let a = 0, r = 0, p = 0, s = 0, dn = 0, ip = 0, tr = 0
   for (const b of series?.buckets || []) {
     a += b.approve || 0; r += b.return || 0; p += b.pending || 0
     s += b.submissions || 0; dn += b.done || 0; ip += b.in_progress || 0
+    tr += b.total_risk || 0
   }
   // total = Total Dinilai (Qualified + Not Qualified + Pending)
-  return { approve: a, return: r, pending: p, total: a + r + p, submissions: s, done: dn, in_progress: ip }
+  // total_risk = pembilang Error Rate (H+M+L, satu risk base tertinggi per tiket)
+  return { approve: a, return: r, pending: p, total: a + r + p, submissions: s, done: dn, in_progress: ip, total_risk: tr }
 }
 function aiDonutLegend(b) {
   const a = b?.approve || 0, r = b?.return || 0, p = b?.pending || 0
@@ -1263,8 +1287,12 @@ const donutPending = computed(() => globalTotals.value.pending)
 const donutSubmissions = computed(() => globalTotals.value.submissions)
 const donutDone = computed(() => globalTotals.value.done)
 const donutInProgress = computed(() => globalTotals.value.in_progress)
+const donutTotalRisk = computed(() => globalTotals.value.total_risk)
+// Error Rate = Total Risk ÷ Total Dinilai — rumus tunggal seluruh halaman ini
+// (14 Agustus 2026). Sebelumnya Not Qualified ÷ Total Dinilai, sehingga KPI ini
+// tidak pernah cocok dengan tabel Performa Campaign di bawahnya.
 const donutErrorRate = computed(() =>
-  donutTotal.value ? +(donutReturn.value / donutTotal.value * 100).toFixed(1) : 0)
+  donutTotal.value ? +(donutTotalRisk.value / donutTotal.value * 100).toFixed(1) : 0)
 // Persentase tiap bucket AI Status atas Total Dinilai (untuk KPI cards).
 const donutApprovePct = computed(() => pctOf(donutApprove.value, donutTotal.value))
 const donutReturnPct = computed(() => pctOf(donutReturn.value, donutTotal.value))
@@ -1280,8 +1308,9 @@ const myDonutPending = computed(() => scopedTotals.value.pending)
 const myDonutSubmissions = computed(() => scopedTotals.value.submissions)
 const myDonutDone = computed(() => scopedTotals.value.done)
 const myDonutInProgress = computed(() => scopedTotals.value.in_progress)
+const myDonutTotalRisk = computed(() => scopedTotals.value.total_risk)
 const myDonutErrorRate = computed(() =>
-  myDonutTotal.value ? +(myDonutReturn.value / myDonutTotal.value * 100).toFixed(1) : 0)
+  myDonutTotal.value ? +(myDonutTotalRisk.value / myDonutTotal.value * 100).toFixed(1) : 0)
 const myDonutApprovePct = computed(() => pctOf(myDonutApprove.value, myDonutTotal.value))
 const myDonutReturnPct = computed(() => pctOf(myDonutReturn.value, myDonutTotal.value))
 const myDonutPendingPct = computed(() => pctOf(myDonutPending.value, myDonutTotal.value))

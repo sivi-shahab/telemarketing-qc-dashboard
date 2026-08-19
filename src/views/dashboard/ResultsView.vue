@@ -53,7 +53,7 @@
       <button class="btn-clear" @click="clearFilters">Reset</button>
     </div>
 
-    <!-- Export agregat per kategori verifikasi (SPQ Head & Admin). Berbeda dengan
+    <!-- Export agregat per kategori verifikasi (Admin). Berbeda dengan
          tombol XLSX per baris: ini menarik SEMUA tiket Not Qualified & Pending yang
          punya temuan pada kategori terpilih, satu baris per parameter. Filter
          Campaign di atas ikut berlaku supaya hasilnya sama dengan yang terlihat. -->
@@ -70,6 +70,22 @@
       </span>
     </div>
 
+    <!-- Export SEMUA tiket pada rentang & filter yang dipilih (SPQ Head & Admin):
+         satu baris per tiket, Qualified sekalipun. Tarikan periode, bukan daftar
+         tindak lanjut — karena itu terpisah dari Export Agregat di atas. -->
+    <div v-if="canExportTickets" class="export-bar">
+      <span class="export-label">Export Tiket</span>
+      <button class="btn-export-agg" :disabled="exportingTickets" @click="exportTickets">
+        {{ exportingTickets ? 'Menyiapkan…' : 'Export XLSX' }}
+      </button>
+      <span class="export-note">
+        <template v-if="filterDateStart || filterDateEnd">
+          {{ filterDateStart || 'awal' }} s/d {{ filterDateEnd || 'akhir' }}
+        </template>
+        <template v-else>semua tanggal</template>
+        · mengikuti filter yang sedang aktif
+      </span>
+    </div>
     <!-- [FIX] `fetchError` sebelumnya di-set tapi tidak pernah ditampilkan: kalau
          /list_results gagal, tabel hanya tampak kosong tanpa keterangan. -->
     <div v-if="fetchError" class="error-box">{{ fetchError }}</div>
@@ -93,7 +109,7 @@
           <col style="width: 8%" />
           <col v-if="showManualStatus" style="width: 10%" />
           <col v-if="!isSimpleViewer" style="width: 7%" />
-          <col style="width: 9%" />
+          <col v-if="showDocumentColumn" style="width: 9%" />
           <col v-if="canAppealErrorCode" style="width: 12%" />
           <col v-if="canReviewBandingSpq" style="width: 12%" />
           <col v-if="canDeleteTicket" style="width: 8%" />
@@ -115,7 +131,7 @@
             <th>AI Status</th>
             <th v-if="showManualStatus">Manual Status</th>
             <th v-if="!isSimpleViewer">Export</th>
-            <th>Document</th>
+            <th v-if="showDocumentColumn">Document</th>
             <!-- Kolom ini SEMATA-MATA tentang banding Error Code (sumbernya
                  error_code_appeals), tidak ada hubungannya dengan Manual Status. -->
             <th v-if="canAppealErrorCode">Manual Check</th>
@@ -227,7 +243,7 @@
               </td>
               <!-- Satu kolom untuk kedua aksi: yang bisa upload DAN view mendapat dua
                    tombol bertumpuk (atas-bawah), bukan dua kolom. -->
-              <td class="cell-doc" @click.stop>
+              <td v-if="showDocumentColumn" class="cell-doc" @click.stop>
                 <div class="doc-actions">
                   <!-- Upload — hanya Team Leader Sales & Admin. -->
                   <template v-if="canUploadDocument">
@@ -245,8 +261,10 @@
                       <span>Document</span>
                     </button>
                   </template>
-                  <!-- View — semua role, mati bila belum ada dokumen sama sekali. -->
+                  <!-- View — role ber-capability DOCUMENT_VIEW, mati bila belum ada
+                       dokumen sama sekali. -->
                   <button
+                      v-if="canViewDocument"
                     class="btn-doc-row btn-doc-view"
                     :disabled="!group.primary.has_documents"
                     :title="group.primary.has_documents ? 'Lihat dokumen yang sudah diunggah' : 'Belum ada dokumen yang diunggah'"
@@ -341,10 +359,14 @@
                     <div v-if="loadingAgent[group.primary.result_id]" class="result-loading">
                       <span class="spinner"></span> Memuat agent summary...
                     </div>
-                    <AgentErrorTable
-                      v-else-if="agentSummary[group.primary.result_id]"
-                      :summary="agentSummary[group.primary.result_id]"
-                    />
+                    <template v-else-if="agentSummary[group.primary.result_id]">
+                      <AgentErrorTable :summary="agentSummary[group.primary.result_id]" />
+                      <!-- Badword Summary: ucapan agent bersentimen negatif kepada
+                           nasabah (satu temuan = AI Status Not Qualified). -->
+                      <BadwordTable :summary="agentSummary[group.primary.result_id]" />
+                    </template>
+                    <!-- Approved QC note (Sales Agent role): the QC reason behind an
+                         SPQ-Head-approved AI-status change, shown under the summary. -->
                     <div
                       v-if="isSimpleViewer && group.primary.qc_request?.approval_status === 'approved'"
                       class="qc-approval-note"
@@ -506,6 +528,7 @@ import ManualCheckModal from '../../components/ManualCheckModal.vue'
 import QcApprovalModal from '../../components/QcApprovalModal.vue'
 import DocumentsSection from '../../components/DocumentsSection.vue'
 import AgentErrorTable from '../../components/AgentErrorTable.vue'
+import BadwordTable from '../../components/BadwordTable.vue'
 import apiClient from '../../api/client.js'
 import { useAuthStore } from '../../stores/auth.js'
 import { P } from '../../permissions.js'
@@ -613,10 +636,17 @@ const showEvaluationDetail = computed(() => auth.can(P.RESULTS_EVALUATION_DETAIL
 // get_document_uploader_user in api/dependencies.py. (Viewing reuses showEvaluationDetail,
 // the same role set as get_document_viewer_user, so document cards only render for those.)
 const canUploadDocument = computed(() => auth.can(P.DOCUMENT_UPLOAD))
-// MELIHAT dokumen terbuka untuk SEMUA role — yang membatasi bukan role melainkan
-// tiketnya: backend memeriksa setiap permintaan dengan ensure_can_view_result
-// (api/qc_scope.py), yang meniru cakupan daftar Results. Jadi seorang Team Leader
-// hanya bisa membuka dokumen tiket timnya sendiri.
+// MELIHAT dokumen: sejak 14 Agustus 2026 sebuah capability, bukan lagi terbuka untuk
+// semua role — Sales Agent tidak boleh membuka dokumen pendukung. Harus sama dengan
+// get_document_viewer_user di api/dependencies.py; tanpa gate ini tombolnya tetap
+// tampil dan yang didapat pengguna hanyalah 403 saat mengkliknya.
+//
+// Capability menentukan BOLEH-TIDAKNYA, cakupan tiket tetap ditegakkan backend lewat
+// ensure_can_view_result (api/qc_scope.py) — jadi Team Leader yang boleh melihat
+// dokumen pun hanya bisa membuka dokumen tiket timnya sendiri.
+const canViewDocument = computed(() => auth.can(P.DOCUMENT_VIEW))
+// Kolom Document baru berguna kalau ada setidaknya satu aksi di dalamnya.
+const showDocumentColumn = computed(() => canUploadDocument.value || canViewDocument.value)
 // Aksi Manual Status & banding kini murni capability. Ini juga yang membuat
 // pembatasan role "admin" (menu sama dengan SPQ Head, tanpa aksi QC) berlaku di
 // SATU tempat, bukan tersebar sebagai perbandingan nama role.
@@ -643,8 +673,8 @@ const showNonTolerable = false
 //   5 base columns: ID, Number of Calls, Call Duration, Campaign Interest, AI Status
 //   + Customer Name, Nomor Kartu, Limit Sebelumnya (simple viewer only)
 //   + Passing Grade, Export (non-simple-viewer)
-//   + Document (SEMUA role — View Document terbuka untuk semua; Upload menumpuk di
-//     sel yang sama untuk TL Sales / Admin)
+//   + Document (role yang boleh View dan/atau Upload; keduanya menumpuk di sel yang
+//     sama. Sales Agent tidak punya keduanya, jadi kolomnya hilang sama sekali)
 //   + Manual Check (QC / TL QC / SPQ Head) — ringkasan banding Error Code
 const colCount = computed(() => {
   let n = 5 // ID, Number of Calls, Call Duration, Campaign Interest, AI Status
@@ -653,7 +683,7 @@ const colCount = computed(() => {
   if (showCriticalFailure.value) n += 1 // Critical Failure(s)
   if (showNonTolerable) n += 1 // Non-Tolerable
   if (!isSimpleViewer.value) n += 2 // Passing Grade, Export
-  n += 1 // kolom Document (Upload dan/atau View) — selalu ada
+  if (showDocumentColumn.value) n += 1 // kolom Document (Upload dan/atau View)
   if (canAppealErrorCode.value) n += 1 // Manual Check — pengaju banding
   if (canReviewBandingSpq.value) n += 1 // Banding Review tahap SPQ Head
   if (canDeleteTicket.value) n += 1 // Delete Record
@@ -1087,7 +1117,10 @@ function reloadResult() {
   }
 }
 
-// --- Export agregat per kategori verifikasi (SPQ Head & Admin) -------------
+// --- Export agregat per kategori verifikasi (Admin) ------------------------
+// Sejak 14 Agustus 2026 hanya Admin: export ini menjawab "tunjukkan semua temuan
+// pada satu kategori verifikasi", pekerjaan pengurusan data. SPQ Head memakai
+// Export Tiket di bawah.
 const canExportVerification = computed(() => auth.can(P.RESULTS_EXPORT_VERIFICATION))
 // Key-nya harus sama persis dengan VERIFICATION_EXPORT_CATEGORIES di
 // compliance/stats_aggregate.py — backend menolak key yang tidak dikenal (422).
@@ -1133,6 +1166,37 @@ function downloadBlob(res, fallbackName) {
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+// --- Export SEMUA tiket pada rentang yang dipilih (SPQ Head & Admin) -------
+// Filter yang sedang aktif ikut dikirim supaya isi file sama dengan yang terlihat
+// di tabel — bukan hanya rentang tanggalnya. Backend menerapkan cakupan role di
+// atas itu, jadi export tidak pernah lebih longgar daripada tabelnya.
+const canExportTickets = computed(() => auth.can(P.RESULTS_EXPORT_TICKETS))
+const exportingTickets = ref(false)
+
+async function exportTickets() {
+  if (exportingTickets.value) return
+  exportingTickets.value = true
+  try {
+    const params = {}
+    if (filterCampaign.value) params.campaign = filterCampaign.value
+    if (filterAiStatus.value) params.ai_status = filterAiStatus.value
+    if (filterManualStatus.value) params.manual_status = filterManualStatus.value
+    if (filterTicketId.value) params.ticket_id = filterTicketId.value
+    if (filterAm.value) params.am_nip = filterAm.value
+    if (filterTl.value) params.tl_nip = filterTl.value
+    if (filterAgent.value) params.agent_nip = filterAgent.value
+    if (filterDateStart.value) params.date_start = filterDateStart.value
+    if (filterDateEnd.value) params.date_end = filterDateEnd.value
+    const res = await apiClient.get('/export_tickets_xlsx', { params, responseType: 'blob' })
+    downloadBlob(res, 'tickets.xlsx')
+  } catch {
+    alert('Gagal export XLSX tiket.')
+  } finally {
+    exportingTickets.value = false
+  }
+}
+
 
 async function exportRow(item) {
   if (exportingId.value) return
