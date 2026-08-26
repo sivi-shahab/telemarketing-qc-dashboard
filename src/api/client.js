@@ -1,4 +1,10 @@
 import axios from 'axios'
+import { useAuthStore } from '../stores/auth.js'
+
+// Store dipanggil lazy — modul ini ikut ter-import sebelum `app.use(createPinia())`
+// jalan, jadi useAuthStore() hanya boleh disentuh saat interceptor benar-benar
+// dieksekusi (selalu sesudah aplikasi mount).
+const auth = () => useAuthStore()
 
 const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_URL || 'http://10.158.32.26:4000',
@@ -17,7 +23,7 @@ function processQueue(error, token) {
 }
 
 apiClient.interceptors.request.use(config => {
-  const token = localStorage.getItem('access_token')
+  const token = auth().accessToken
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -38,7 +44,7 @@ apiClient.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    const refreshToken = localStorage.getItem('refresh_token')
+    const refreshToken = auth().refreshToken
     if (!refreshToken) {
       _forceLogout()
       return Promise.reject(error)
@@ -57,12 +63,9 @@ apiClient.interceptors.response.use(
     _isRefreshing = true
 
     try {
-      const res = await axios.post(
-        `${apiClient.defaults.baseURL}/auth/refresh`,
-        { refresh_token: refreshToken }
-      )
-      const newToken = res.data.access_token
-      localStorage.setItem('access_token', newToken)
+      // Refresh dijalankan store supaya token baru masuk ke ref DAN localStorage
+      // sekaligus; menulis localStorage dari sini membuat ref store basi.
+      const newToken = await auth().refreshAccessToken()
       processQueue(null, newToken)
       original.headers.Authorization = `Bearer ${newToken}`
       return apiClient(original)
@@ -77,9 +80,7 @@ apiClient.interceptors.response.use(
 )
 
 function _forceLogout() {
-  localStorage.removeItem('access_token')
-  localStorage.removeItem('refresh_token')
-  localStorage.removeItem('user')
+  auth().logout()
   window.location.href = `${import.meta.env.BASE_URL}login`
 }
 

@@ -44,15 +44,16 @@ export const useDataStore = defineStore('data', () => {
     return res.data // { granularity, start, end, buckets: [{ key, label, approve, return }] }
   }
 
-  async function fetchHierarchy() {
-    const res = await apiClient.get('/stats/hierarchy')
+  // `campaign` kosong = seluruh campaign (filter di tab Hierarki Error Rate).
+  async function fetchHierarchy(campaign = '') {
+    const res = await apiClient.get('/stats/hierarchy', { params: campaign ? { campaign } : {} })
     return res.data // { all_telesales, area_managers }
   }
 
   // Per-QC assigned / approved / approve-rate. 403 for roles other than
   // Team Leader QC / SPQ Head / Admin.
-  async function fetchQcPerformance() {
-    const res = await apiClient.get('/stats/qc_performance')
+  async function fetchQcPerformance(campaign = '') {
+    const res = await apiClient.get('/stats/qc_performance', { params: campaign ? { campaign } : {} })
     return res.data // [{ qc_username, name, assigned, approved, approve_rate }]
   }
 
@@ -60,6 +61,20 @@ export const useDataStore = defineStore('data', () => {
   async function fetchMyOverview() {
     const res = await apiClient.get('/stats/my_overview')
     return res.data // { overview }
+  }
+
+  // Failure Reason (SPQ Head / Admin only, else 403): scorecard categories that
+  // fail most often + their reasons.
+  async function fetchFailureReasons(campaign = '') {
+    const res = await apiClient.get('/stats/failure_reasons', { params: campaign ? { campaign } : {} })
+    return res.data // { total_evaluated, categories: [{ category, fail_count, pct, top_reasons }] }
+  }
+
+  // Sub-tab "Hierarki Based": pohon AM -> TL -> Agent, tiap simpul membawa kategori
+  // scorecard terbesar miliknya sendiri.
+  async function fetchFailureReasonsHierarchy(campaign = '') {
+    const res = await apiClient.get('/stats/failure_reasons_hierarchy', { params: campaign ? { campaign } : {} })
+    return res.data // { total_evaluated, all_telesales, area_managers: [...] }
   }
 
   async function fetchRoleCounts() {
@@ -82,6 +97,7 @@ export const useDataStore = defineStore('data', () => {
     stats, dailyStats, results, campaigns,
     fetchStats, fetchDailyStats, fetchResults, fetchCampaigns,
     fetchStatsOverview, fetchCampaignMonthly, fetchHierarchy, fetchQcPerformance, fetchMyOverview,
-    fetchAiStatusTimeseries, fetchErrorReasons, fetchRoleCounts,
+    fetchAiStatusTimeseries, fetchErrorReasons, fetchRoleCounts, fetchFailureReasons,
+    fetchFailureReasonsHierarchy,
   }
 })

@@ -187,8 +187,18 @@ async function loadAll() {
     } catch {
       local = []
     }
+    // Sumber kebenaran kolom QC. Wajib dibaca terpisah: /list_results hanya
+    // memuat ticket yang sudah punya baris result, sehingga assignment untuk
+    // ticket yang belum diproses tidak akan pernah ikut terbawa di sana.
+    let assignments = []
+    try {
+      const res = await apiClient.get('/qc_assignments')
+      assignments = res.data || []
+    } catch {
+      assignments = []
+    }
     if (myId !== requestId) return
-    tickets.value = joinLocalResults(groupTickets(daily), local)
+    tickets.value = joinLocalResults(groupTickets(daily), local, assignments)
     qcUsers.value = users.data || []
   } catch (e) {
     if (e.name === 'AbortError') return

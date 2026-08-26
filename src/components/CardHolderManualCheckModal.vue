@@ -6,7 +6,9 @@
           <div>
             <h2 class="modal-title">Manual Check — {{ row.sumber || 'Verifikasi Data' }}</h2>
             <p class="modal-subtitle">
-              Ajukan perubahan verifikasi data untuk ditinjau SPQ Head.
+              {{ direct
+                ? 'Ubah verifikasi data — perubahan berlaku langsung tanpa persetujuan.'
+                : 'Ajukan perubahan verifikasi data untuk ditinjau SPQ Head.' }}
             </p>
           </div>
           <button class="close-x" aria-label="Tutup" @click="close">✕</button>
@@ -30,7 +32,7 @@
               <div class="detail-row"><span class="dk">Error Code</span><span class="dv">{{ row.error_code || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Risk Base</span><span class="dv">{{ row.risk_base || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Field</span><span class="dv">{{ row.item_code || '—' }}</span></div>
-              <div class="detail-row"><span class="dk">{{ referenceLabel }}</span><span class="dv">{{ row.reference_value ?? '—' }}</span></div>
+              <div class="detail-row"><span class="dk">{{ referenceLabel }}</span><span class="dv">{{ effectiveReference ?? '—' }}</span></div>
               <div class="detail-row"><span class="dk">Transkrip</span><span class="dv">{{ row.extracted_value ?? '—' }}</span></div>
               <div class="detail-row"><span class="dk">Match</span><span class="dv">{{ row.match || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Reason</span><span class="dv">{{ row.reason || '—' }}</span></div>
@@ -131,7 +133,7 @@
           <button class="btn-cancel" @click="close">Cancel</button>
           <button class="btn-submit" :disabled="!canSubmit" @click="submit">
             <span v-if="submitting" class="spinner"></span>
-            {{ submitting ? 'Mengirim…' : 'Submit' }}
+            {{ submitting ? (direct ? 'Menerapkan…' : 'Mengirim…') : (direct ? 'Terapkan' : 'Submit') }}
           </button>
         </footer>
       </div>
@@ -148,6 +150,9 @@ const props = defineProps({
   displayId: { type: String, default: null },
   // The B17 Error Code row being appealed (carries reference_value/extracted_value/match).
   row: { type: Object, required: true },
+  // Direct edit by TL QC / SPQ Head — POST /error_code_appeal/direct (applies at
+  // once, no hierarchy) instead of the QC submit endpoint.
+  direct: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'submitted'])
 
@@ -182,7 +187,10 @@ async function loadErrorReasons() {
     errorReasonGroups.value = []
   }
 }
-const referenceVal = ref(props.row?.reference_value != null ? String(props.row.reference_value) : '')
+// Falls back to tnc_product: when a field's TMS column is empty the RIPLAY
+// product term is the reference the AI compared against.
+const _ref0 = props.row?.reference_value ?? props.row?.tnc_product
+const referenceVal = ref(_ref0 != null ? String(_ref0) : '')
 const extractedVal = ref(props.row?.extracted_value != null ? String(props.row.extracted_value) : '')
 const timestampVal = ref(props.row?.timestamp != null ? String(props.row.timestamp) : _ev.ts)
 const evidenceVal = ref(props.row?.evidence_quote != null ? String(props.row.evidence_quote) : _ev.text)
@@ -197,10 +205,19 @@ const lastRejected = computed(() =>
 // Verification, "Ascend" for Card Holder Verification (falls back otherwise).
 const referenceLabel = computed(() => {
   const s = (props.row?.sumber || '').toLowerCase()
-  if (s.includes('cashline')) return 'TMS'
+  // With an empty TMS column the verdict was made against the product T&C
+  // from the RIPLAY, so name that column instead.
+  if (s.includes('cashline')) {
+    return props.row?.reference_value == null && props.row?.tnc_product != null
+      ? 'TnC Product' : 'TMS'
+  }
   if (s.includes('card holder') || s.includes('card_holder')) return 'Ascend'
   return 'Reference Value'
 })
+
+// The reference actually used for the verdict.
+const effectiveReference = computed(() =>
+  props.row?.reference_value ?? props.row?.tnc_product ?? null)
 
 // Every text field is required (QC fills empty values with "-"). A 'change'
 // banding additionally requires a New Error Code.
@@ -238,7 +255,7 @@ async function submit() {
     const qcEvidence = `${timestampVal.value.trim()} ${evidenceVal.value.trim()}`.trim()
     form.append('qc_evidence', qcEvidence)
     form.append('qc_ticket_id', ticketVal.value.trim())
-    const res = await apiClient.post('/error_code_appeal', form)
+    const res = await apiClient.post(props.direct ? '/error_code_appeal/direct' : '/error_code_appeal', form)
     emit('submitted', { resultId: props.resultId, appeal: res.data })
     close()
   } catch (e) {
@@ -247,7 +264,7 @@ async function submit() {
     } else if (e.response?.status === 422 || e.response?.status === 404) {
       errorMsg.value = e.response.data?.detail || 'Input tidak valid.'
     } else if (e.response?.status === 403) {
-      errorMsg.value = 'Akses hanya untuk QC.'
+      errorMsg.value = props.direct ? 'Akses hanya untuk TL QC atau SPQ Head.' : 'Akses hanya untuk QC.'
     } else {
       errorMsg.value = 'Gagal mengirim. Coba lagi.'
     }

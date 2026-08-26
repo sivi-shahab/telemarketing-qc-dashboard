@@ -14,8 +14,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # Di-bake ke bundle saat build — ganti kalau environment-nya beda.
-        VITE_API_URL: ${VITE_API_URL:-/telemarketing_qc_system/api}
+        # Di-bake ke bundle saat build — harus sama dengan prefix `location`
+        # App B di nginx depan (/api-b/ -> :4000). Tanpa prefix, /auth/login
+        # nyasar ke App C :8008 dan balas 422.
+        VITE_API_URL: ${VITE_API_URL:-/api-b}
     image: ${REGISTRY:-local}/qc-dashboard:${TAG:-latest}
     ports:
       - "4006:4006"

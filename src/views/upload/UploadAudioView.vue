@@ -36,7 +36,7 @@
           @dragover.prevent="isDragging = true"
           @dragleave.prevent="isDragging = false"
           @drop.prevent="handleDrop"
-          @click="fileInput.click()"
+          @click="openFilePicker"
         >
           <input
             ref="fileInput"
@@ -47,12 +47,12 @@
             @change="handleFileSelect"
           />
           <div v-if="!selectedFiles.length" class="drop-placeholder">
-            <span class="drop-icon">🎵</span>
-            <p>Drag & drop file audio di sini</p>
+            <span class="drop-icon">🎧</span>
+            <p>Drag &amp; drop file audio di sini</p>
             <p class="drop-hint">atau klik untuk browse</p>
           </div>
           <div v-else class="file-list">
-            <div v-for="(f, i) in selectedFiles" :key="i" class="file-row">
+            <div v-for="(f, i) in selectedFiles" :key="`${f.name}-${i}`" class="file-row">
               <span class="file-icon">🎵</span>
               <span class="file-name">{{ f.name }}</span>
               <span class="file-size">{{ formatSize(f.size) }}</span>
@@ -69,20 +69,36 @@
               <span>Enable Diarization (Pisahkan per Speaker)</span>
             </label>
           </div>
-
           <div class="option-group">
-            <label for="language-select">Bahasa Audio</label>
-            <select id="language-select" v-model="language" class="select-input">
+            <label for="stt-language">Bahasa</label>
+            <select id="stt-language" v-model="language" class="select-input">
               <option value="id">🇮🇩 Indonesia</option>
               <option value="en">🇺🇸 English</option>
             </select>
           </div>
         </div>
 
+        <!-- Campaign dropdown -->
+        <div class="field">
+          <label>Campaign <span class="required">*</span></label>
+          <select v-model="campaign" class="select-input">
+            <option value="" disabled>Pilih campaign...</option>
+            <option v-for="c in campaigns" :key="c.id" :value="c.name">{{ c.name }}</option>
+          </select>
+          <span v-if="!campaigns.length" class="field-hint">
+            <template v-if="campaignScoped">
+              Tidak ada campaign aktif dalam cakupan role Anda.
+            </template>
+            <template v-else>
+              Belum ada campaign. Upload dulu di <RouterLink to="/upload/campaign">Upload Campaign</RouterLink>.
+            </template>
+          </span>
+        </div>
+
         <!-- Upload Button -->
         <button
           class="btn-upload"
-          :disabled="!selectedFiles.length || uploading"
+          :disabled="!selectedFiles.length || !campaign || uploading"
           @click="uploadFiles"
         >
           <span v-if="uploading" class="spinner"></span>
@@ -130,7 +146,12 @@
             <tr v-if="filteredJobs.length === 0">
               <td colspan="7" class="empty-row">Tidak ada data</td>
             </tr>
-            <tr v-for="job in filteredJobs" :key="job.job_id" class="job-row">
+            <tr
+              v-for="job in filteredJobs"
+              :key="job.job_id"
+              class="job-row"
+              @click="selectJobDetail(job)"
+            >
               <td class="file-cell">
                 <div class="file-info">
                   <span class="file-icon">🎵</span>
@@ -159,7 +180,7 @@
               <td class="date-cell">
                 {{ formatDate(job.created_at) }}
               </td>
-              <td class="action-cell">
+              <td class="action-cell" @click.stop>
                 <div class="action-buttons">
                   <button
                     class="btn-download"
@@ -204,7 +225,7 @@
           Page {{ currentPage }} of {{ totalPages }}
         </span>
         <button
-          :disabled="currentPage === totalPages"
+          :disabled="currentPage >= totalPages"
           @click="currentPage++"
           class="page-btn"
         >
@@ -216,7 +237,7 @@
     <!-- Diarization & Details Section -->
     <div v-if="selectedJobDetail" class="detail-section">
       <div class="detail-header">
-        <div class="section-title">📋 Job Details & Diarization</div>
+        <div class="section-title">📋 Job Details &amp; Diarization</div>
         <button class="btn-close" @click="selectedJobDetail = null">✕</button>
       </div>
 
@@ -291,27 +312,6 @@
             </div>
           </div>
         </div>
-
-        <!-- Confidence Scores -->
-        <div v-if="selectedJobDetail.status === 'completed'" class="detail-card">
-          <div class="card-title">📊 Confidence Scores</div>
-          <div class="confidence-content">
-            <div class="confidence-item">
-              <span class="conf-label">Overall Confidence</span>
-              <div class="conf-bar">
-                <div class="conf-fill" :style="{ width: confidenceScores.overall + '%' }"></div>
-              </div>
-              <span class="conf-value">{{ confidenceScores.overall }}%</span>
-            </div>
-            <div class="confidence-item">
-              <span class="conf-label">Accuracy</span>
-              <div class="conf-bar">
-                <div class="conf-fill" :style="{ width: confidenceScores.accuracy + '%' }"></div>
-              </div>
-              <span class="conf-value">{{ confidenceScores.accuracy }}%</span>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -330,13 +330,15 @@
 
 <script setup>
 import SidebarLayout from '../../components/SidebarLayout.vue'
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import apiClient from '../../api/client.js'
+import { campaignObjectsInScope, isCampaignScoped } from '../../utils/campaignScope.js'
 
 // Constants
 const AUDIO_EXTS = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.opus', '.wma', '.webm', '.amr']
 const POLLING_INTERVAL = 5000 // 5 seconds
+const STORAGE_KEY = 'stt_jobs_history'
 
 // API Base & Key
 // [FIX CORS] Default SEBELUMNYA 'http://10.158.32.26:8000' -- absolute URL ke
@@ -348,7 +350,6 @@ const POLLING_INTERVAL = 5000 // 5 seconds
 // dengan benar). Ganti default ke path RELATIF /api-a supaya request jadi
 // same-origin -- CORS tidak berlaku sama sekali untuk same-origin request.
 const apiBase = import.meta.env.VITE_API_BASE || '/api-a'
-const apiKey = import.meta.env.VITE_API_KEY || ''
 
 // [FIX CORS] Sama seperti apiBase -- nginx SUDAH punya location /api/download
 // dan /api/view-streams/ yang proxy ke port 8010 TANPA perlu prefix tambahan
@@ -356,13 +357,26 @@ const apiKey = import.meta.env.VITE_API_KEY || ''
 // SEBELUMNYA 'http://10.158.32.26:8010' bikin request PDF juga kena CORS.
 // String kosong '' -> path jadi relatif ke origin saat ini (same-origin).
 const pdfBase = import.meta.env.VITE_PDF_API_BASE || ''
-const pdfApiKey = import.meta.env.VITE_PDF_API_KEY || 'zTkQMeKmvq9D59z0NhWczv9o9KrPSfnSs8hLJ0J4r1s'
+// KEAMANAN: fallback key literal DIHAPUS (key yang sama juga sempat hardcoded di
+// TranscriptsView.vue dan sudah bocor ke git -> harus di-rotate). Ingat semua
+// VITE_* di-inline ke bundle, jadi key ini tetap terbaca di DevTools; solusi
+// sebenarnya adalah proxy /api/downloads lewat backend yang ikut auth session.
+const pdfApiKey = import.meta.env.VITE_PDF_API_KEY || ''
 
 // State - Upload
+// [FIX] Merge menyisakan DUA nama untuk daftar file yang sama: template memakai
+// `files`, script memakai `selectedFiles` (yang tidak pernah dideklarasikan ->
+// ReferenceError saat memilih file). Disatukan jadi `selectedFiles`.
 const fileInput = ref(null)
 const selectedFiles = ref([])
+const campaigns = ref([])
+const campaignScoped = computed(() => isCampaignScoped())
+const campaign = ref('')
+// [FIX] `diarization` dan `language` dipakai template + uploadFiles() tapi
+// deklarasinya hilang saat merge.
 const diarization = ref(false)
 const language = ref('id')
+const isDragging = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
 const formatError = ref('')
@@ -378,7 +392,7 @@ const selectedJobDetail = ref(null)
 const pollingActive = ref(false)
 const refreshing = ref(false)
 const diarizationData = ref([])
-const confidenceScores = ref({ overall: 0, accuracy: 0 })
+let pollTimer = null
 
 // Computed - Stats
 const stats = computed(() => {
@@ -392,27 +406,28 @@ const stats = computed(() => {
 })
 
 // Computed - Filtered Jobs
+// [FIX] `.sort()` sebelumnya dijalankan langsung pada array hasil filter yang,
+// saat filterStatus kosong, ADALAH allJobs.value itu sendiri -- computed yang
+// memutasi sumbernya sendiri. Disalin dulu dengan slice().
+const matchingJobs = computed(() => {
+  const list = filterStatus.value
+    ? allJobs.value.filter(j => j.status === filterStatus.value)
+    : allJobs.value
+  return list.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+})
+
 const filteredJobs = computed(() => {
-  let filtered = allJobs.value
-  if (filterStatus.value) {
-    filtered = filtered.filter(j => j.status === filterStatus.value)
-  }
-  // Sort by created_at descending
-  filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-  // Pagination
   const start = (currentPage.value - 1) * pageSize
-  return filtered.slice(start, start + pageSize)
+  return matchingJobs.value.slice(start, start + pageSize)
 })
 
-const totalJobs = computed(() => {
-  let filtered = allJobs.value
-  if (filterStatus.value) {
-    filtered = filtered.filter(j => j.status === filterStatus.value)
-  }
-  return filtered.length
-})
+const totalJobs = computed(() => matchingJobs.value.length)
+const totalPages = computed(() => Math.max(1, Math.ceil(totalJobs.value / pageSize)))
 
-const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize))
+// Jangan terjebak di halaman kosong saat filter mempersempit daftar.
+watch(totalPages, (tp) => {
+  if (currentPage.value > tp) currentPage.value = tp
+})
 
 // Computed - History Stats
 const todayJobs = computed(() => {
@@ -435,6 +450,7 @@ function authHeaders(extra = {}) {
     ...extra
   }
 }
+
 function isAudio(name) {
   const lower = (name || '').toLowerCase()
   return AUDIO_EXTS.some(ext => lower.endsWith(ext))
@@ -456,6 +472,10 @@ function removeFile(i) {
 }
 
 // Functions - File Events
+function openFilePicker() {
+  fileInput.value?.click()
+}
+
 function handleFileSelect(e) {
   if (e.target.files?.length) addFiles(e.target.files)
   if (fileInput.value) fileInput.value.value = ''
@@ -469,6 +489,10 @@ function handleDrop(e) {
 // Functions - Upload
 async function uploadFiles() {
   if (!selectedFiles.value.length) return
+  if (!campaign.value) {
+    uploadError.value = 'Pilih campaign terlebih dahulu.'
+    return
+  }
 
   uploading.value = true
   uploadError.value = ''
@@ -479,12 +503,11 @@ async function uploadFiles() {
       form.append('audio_file', file)
       form.append('enable_diarization', diarization.value ? '1' : '0')
       form.append('language', language.value)
-      // NOTE: field 'campaign' sengaja tidak dikirim di sini — endpoint
-      // /speech/stt/save_dashboard akan fallback ke
-      // DEFAULT_UPLOAD_TRANSCRIPT_CAMPAIGN (.env STT service) kalau field
-      // ini kosong. Kalau nanti perlu user pilih campaign secara eksplisit,
-      // tambahkan dropdown di Upload Options lalu:
-      //   form.append('campaign', selectedCampaign.value)
+      // [FIX] Dropdown Campaign wajib diisi di layar ini, tapi nilainya tidak
+      // pernah ikut terkirim setelah merge -- backend diam-diam jatuh ke
+      // DEFAULT_UPLOAD_TRANSCRIPT_CAMPAIGN, jadi tiket masuk ke campaign yang
+      // salah. Sekarang dikirim eksplisit.
+      form.append('campaign', campaign.value)
 
       // [FIX] apiClient (axios) punya baseURL bawaan '/api-b' (App B) --
       // dipakai bareng apiBase ('/api-a') bikin numpuk jadi
@@ -511,6 +534,7 @@ async function uploadFiles() {
           // itu transkrip plain tanpa skor/evaluasi.
           result_id: null,
           audio_name: file.name,
+          campaign: campaign.value,
           status: 'processing',
           diarization: diarization.value,
           language: language.value,
@@ -552,7 +576,7 @@ async function downloadPDF(jobId, displayName) {
     // TIDAK kena bug "malformed Host header" di location /voice-to-text-dm/.
     const res = await fetch(`${pdfBase}/api/downloads/${encodeURIComponent(pdfId)}`, {
       method: 'GET',
-      headers: { 'X-API-Key': pdfApiKey }
+      headers: pdfApiKey ? { 'X-API-Key': pdfApiKey } : {}
     })
     if (!res.ok) throw new Error('PDF belum siap. Tunggu hingga status COMPLETED.')
     const blob = await res.blob()
@@ -579,6 +603,10 @@ function needsPolling(job) {
     (job.status === 'completed' && !job.result_id)
 }
 
+function isProcessing(status) {
+  return ['accepted', 'pending', 'processing'].includes(status)
+}
+
 // [FIX] Sebelumnya field ini dibaca dari `data.result_id`, yaitu hasil
 // cabang register_result_to_main_backend (/webhook/register_stt_result) —
 // endpoint itu didesain KHUSUS untuk transkrip plain TANPA evaluasi LLM
@@ -594,6 +622,7 @@ function applyStatusUpdate(jobId, data) {
   const idx = allJobs.value.findIndex(j => j.job_id === jobId)
   if (idx === -1) return
   allJobs.value[idx].status = data.status
+  if (data.error_message) allJobs.value[idx].error_message = data.error_message
   if (data.main_backend_result_id) {
     allJobs.value[idx].result_id = data.main_backend_result_id
   }
@@ -627,16 +656,25 @@ async function pollOneJob(job) {
   }
 }
 
+function stopPolling() {
+  if (!pollTimer) return
+  clearInterval(pollTimer)
+  pollTimer = null
+  pollingActive.value = false
+}
+
 function startPolling() {
   if (pollingActive.value) return
+  if (!allJobs.value.some(needsPolling)) return
   pollingActive.value = true
 
-  const interval = setInterval(async () => {
+  // [FIX] handle interval disimpan di scope komponen supaya bisa dibersihkan
+  // saat unmount — sebelumnya interval terus jalan setelah halaman ditinggalkan.
+  pollTimer = setInterval(async () => {
     const activeJobs = allJobs.value.filter(needsPolling)
 
     if (activeJobs.length === 0) {
-      clearInterval(interval)
-      pollingActive.value = false
+      stopPolling()
       return
     }
 
@@ -661,29 +699,19 @@ async function refreshNow() {
 }
 
 // Functions - Details
+// [FIX] `selectJobDetail` tidak pernah terpanggil dari template setelah merge,
+// jadi panel "Job Details" mustahil terbuka. Sekarang tersambung ke klik baris.
 function selectJobDetail(job) {
   selectedJobDetail.value = job
-  
-  // Mock diarization data (replace with actual API call)
-  if (job.diarization && job.status === 'completed') {
-    diarizationData.value = [
-      { label: 'Speaker 1', duration: '0:00 - 0:45', text: 'Halo, selamat pagi. Bagaimana kabar Anda hari ini?' },
-      { label: 'Speaker 2', duration: '0:45 - 1:30', text: 'Baik-baik saja, terima kasih. Bagaimana dengan Anda?' },
-      { label: 'Speaker 1', duration: '1:30 - 2:15', text: 'Saya juga baik. Ada yang bisa saya bantu?' }
-    ]
-  }
-
-  // Mock confidence scores
-  confidenceScores.value = {
-    overall: 92,
-    accuracy: 88
-  }
+  diarizationData.value = Array.isArray(job.diarization_segments) ? job.diarization_segments : []
 }
 
 function clearAll() {
   if (confirm('Hapus semua history?')) {
+    stopPolling()
     allJobs.value = []
     selectedJobDetail.value = null
+    localStorage.removeItem(STORAGE_KEY)
   }
 }
 
@@ -693,46 +721,64 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// [FIX] truncateId / formatDate / formatDateTime dipakai template tapi
+// definisinya hilang saat merge.
+function truncateId(id) {
+  const s = String(id || '')
+  return s.length > 12 ? `${s.slice(0, 8)}…${s.slice(-4)}` : (s || '—')
+}
+
 function formatDate(iso) {
-  const date = new Date(iso)
-  return date.toLocaleDateString('id-ID', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta' })
 }
 
 function formatDateTime(iso) {
-  const date = new Date(iso)
-  return date.toLocaleString('id-ID')
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium', timeZone: 'Asia/Jakarta' })
 }
 
-function truncateId(id) {
-  return id.length > 12 ? id.substring(0, 12) + '...' : id
-}
+// Campaign aktif yang boleh diunggah login ini: campaign di luar cakupan role tidak
+// ditawarkan (tiketnya tidak akan bisa dibuka sendiri sesudah diunggah).
+onMounted(async () => {
+  // [FIX] history disimpan ke localStorage oleh watch() di bawah, tapi tidak
+  // pernah dibaca kembali -- daftar job selalu kosong setelah refresh halaman.
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    if (Array.isArray(saved)) allJobs.value = saved
+  } catch {
+    localStorage.removeItem(STORAGE_KEY)
+  }
 
-function isProcessing(status) {
-  return ['accepted', 'pending', 'processing'].includes(status)
-}
-
-// Lifecycle
-let isDragging = ref(false)
-
-onMounted(() => {
-  // Load from localStorage
-  const saved = localStorage.getItem('stt_jobs_history')
-  if (saved) {
-    try {
-      allJobs.value = JSON.parse(saved)
-    } catch (e) {
-      console.error('Load error:', e)
-    }
+  try {
+    const res = await apiClient.get('/list_campaigns')
+    campaigns.value = campaignObjectsInScope(
+      (res.data.campaigns || []).filter(c => c.is_active)
+    )
+  } catch {
+    campaigns.value = []
   }
 
   startPolling()
+})
+
+onBeforeUnmount(() => {
+  stopPolling()
 })
 
 // Watch & persist
 watch(
   allJobs,
   (newJobs) => {
-    localStorage.setItem('stt_jobs_history', JSON.stringify(newJobs))
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newJobs))
+    } catch (e) {
+      console.warn('Gagal menyimpan history job:', e)
+    }
   },
   { deep: true }
 )
@@ -951,6 +997,28 @@ watch(
   cursor: pointer;
 }
 
+/* Campaign field (wajib diisi sebelum upload). */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.required {
+  color: #dc2626;
+}
+
+.field-hint {
+  font-size: 12px;
+  color: #64748b;
+}
+
 .select-input {
   padding: 8px 12px;
   border: 1.5px solid #cbd5e1;
@@ -1081,6 +1149,10 @@ watch(
 .jobs-table td {
   padding: 12px;
   border-bottom: 1px solid #f1f5f9;
+}
+
+.job-row {
+  cursor: pointer;
 }
 
 .jobs-table tbody tr:hover {
@@ -1401,43 +1473,6 @@ watch(
   text-align: center;
   color: #94a3b8;
   padding: 20px;
-}
-
-.confidence-content {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.confidence-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.conf-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: #64748b;
-}
-
-.conf-bar {
-  height: 8px;
-  background: #e2e8f0;
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.conf-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #22c55e, #16a34a);
-  transition: width 0.3s;
-}
-
-.conf-value {
-  font-size: 13px;
-  font-weight: 700;
-  color: #1e293b;
 }
 
 /* ============ HISTORY SECTION ============ */

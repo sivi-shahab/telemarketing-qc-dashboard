@@ -42,19 +42,30 @@ export function groupStatus(group) {
  *
  * Bila satu ticket id punya lebih dari satu result (upload ulang), yang dipakai
  * adalah kemunculan PERTAMA: /list_results terurut uploaded_at menurun.
+ *
+ * `assignments` (dari /qc_assignments) adalah sumber kebenaran untuk kolom QC.
+ * /list_results TIDAK cukup: endpoint itu beriterasi per baris tabel `results`,
+ * jadi ticket yang belum diproses tidak muncul sama sekali di sana dan
+ * assignment-nya tampak hilang setelah reload. Snapshot /list_results hanya
+ * dipakai sebagai cadangan dan untuk kolom pemeriksaan QC.
  */
-export function joinLocalResults(groups, localItems) {
+export function joinLocalResults(groups, localItems, assignments) {
   const byTicket = new Map()
   for (const it of localItems || []) {
     if (it?.id != null && !byTicket.has(it.id)) byTicket.set(it.id, it)
   }
+  const byAssignment = new Map()
+  for (const a of assignments || []) {
+    if (a?.ticket_id != null && !byAssignment.has(a.ticket_id)) byAssignment.set(a.ticket_id, a)
+  }
   return (groups || []).map((g) => {
     const local = byTicket.get(g.id) || null
+    const assigned = byAssignment.get(g.id) || null
     return {
       ...g,
       status: groupStatus(g),
-      assigned_qc: local?.assigned_qc ?? null,
-      assigned_at: local?.assigned_at ?? null,
+      assigned_qc: assigned?.qc_username ?? local?.assigned_qc ?? null,
+      assigned_at: assigned?.assigned_at ?? local?.assigned_at ?? null,
       qc_checked_at: local?.qc_checked_at ?? null,
       qc_checked_by: local?.qc_checked_by ?? null,
     }

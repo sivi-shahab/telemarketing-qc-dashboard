@@ -2,7 +2,7 @@
   <div class="eval">
     <!-- Ringkasan penilaian AI (perhitungan skor, dibuat mudah dipahami) — hidden for role user -->
     <div v-if="!isSimpleViewer" class="block">
-      <div class="block-title">🎧 Ringkasan Penilaian AI</div>
+      <div class="block-title">Ringkasan Penilaian AI</div>
       <table class="calc-tbl">
         <thead>
           <tr>
@@ -68,10 +68,12 @@
               <span class="ct-name">Pengurangan – Pelanggaran kritis</span>
               <span class="info" tabindex="0">ⓘ<span class="tip">Nilai dikurangi karena ada langkah wajib yang tidak dilakukan agen (mis. verifikasi identitas atau konfirmasi persetujuan).</span></span>
               <div v-if="criticalFails.length" class="ct-reason">
-                Langkah wajib yang tidak dilakukan agen:
+                <!-- Bukan selalu "tidak dilakukan": verifikasi statik bisa gagal justru
+                     karena agent SUDAH bertanya tapi jawabannya tidak cocok Ascend. -->
+                Pelanggaran kritis yang terjadi:
                 <ul class="calc-reason-list">
                   <li v-for="(it, i) in criticalFails" :key="i">
-                    <strong>{{ it.item_code || '—' }}</strong> — {{ it.requirement || '—' }}
+                    <strong>{{ it.item_code || '—' }}</strong> — {{ cccReason(it) }}
                   </li>
                 </ul>
               </div>
@@ -119,12 +121,14 @@
 
     <!-- Error Code (role user only): standalone table, item_code column hidden -->
     <div v-if="ev && isSimpleViewer && !hideErrorCode" class="block">
-      <div class="block-title">⚠️ Error Code</div>
+      <div class="block-title">Error Code</div>
       <table v-if="errorCodeRows.length" class="tbl">
         <thead>
           <tr>
             <th>Sumber</th>
             <th>Error Code</th>
+            <th>Error Type</th>
+            <th>Error Category</th>
             <th>Details Error</th>
             <th>Reason</th>
             <th>Evidence</th>
@@ -134,11 +138,13 @@
         <tbody>
           <template v-for="(group, gi) in errorCodeGroups" :key="gi">
             <tr class="group-row">
-              <td colspan="6">{{ group.sumber }} ({{ group.rows.length }})</td>
+              <td colspan="8">{{ group.sumber }} ({{ group.rows.length }})</td>
             </tr>
             <tr v-for="(row, i) in group.rows" :key="gi + '-' + i">
               <td class="src-cell">{{ row.sumber || '—' }}</td>
               <td><span class="badge badge-red">{{ row.error_code || '—' }}</span></td>
+              <td>{{ row.error_type || '—' }}</td>
+              <td>{{ row.error_category || '—' }}</td>
               <td>{{ row.details_error || '—' }}</td>
               <td class="reason">{{ row.reason || '—' }}</td>
               <td class="exec-evidence">{{ row.evidence || '—' }}</td>
@@ -152,7 +158,7 @@
 
     <!-- Executive Summary -->
     <div v-if="ev && !isSimpleViewer" class="block exec-summary">
-      <div class="block-title">🧭 Executive Summary</div>
+      <div class="block-title">Executive Summary</div>
 
       <!-- Critical Compliance Check -->
       <div class="exec-sub">
@@ -171,6 +177,7 @@
               <th>Item Code</th>
               <th>Requirement</th>
               <th>Status</th>
+              <th>Alasan</th>
             </tr>
           </thead>
           <tbody>
@@ -182,37 +189,70 @@
                   {{ it.status || '—' }}
                 </span>
               </td>
+              <!-- Alasan gagal: dihitung backend agar seragam di semua tampilan, dan
+                   membedakan "agent tidak bertanya" dari "agent bertanya tapi data
+                   mismatch dengan Ascend". -->
+              <td class="muted reason">{{ it.status === 'PASS' ? '—' : cccReason(it) }}</td>
             </tr>
           </tbody>
         </table>
         <div v-else class="empty-inline">Tidak ada item.</div>
       </div>
 
-      <!-- Scorecard Belum Sesuai -->
+      <!-- Ringkasan Kategori — hasil per kategori DIGABUNG dengan item scorecard
+           yang belum sesuai di kategori itu, sehingga terlihat langsung item_code
+           mana yang menjatuhkan tiap kategori. -->
       <div class="exec-sub">
         <div class="exec-sub-head">
-          <span class="exec-sub-title">Scorecard Belum Sesuai</span>
-          <span class="badge badge-gray">{{ belumSesuai.length }}</span>
+          <span class="exec-sub-title">Ringkasan Kategori</span>
+          <span class="badge badge-gray">{{ belumSesuai.length }} item belum sesuai</span>
         </div>
-        <table v-if="belumSesuai.length" class="tbl">
+        <table v-if="categoryBreakdown.length" class="tbl">
           <thead>
             <tr>
-              <th>Category</th>
-              <th>Item Code</th>
+              <th>Kategori</th>
+              <!-- Bobot & Skor disembunyikan untuk role QC (lihat showCategoryScore). -->
+              <th v-if="showCategoryScore" class="num">Bobot</th>
+              <th v-if="showCategoryScore" class="num">Skor</th>
+              <th>Hasil</th>
+              <th>Item Belum Sesuai</th>
+              <!-- Kosakata sheet QC per item yang gagal: kategori scorecard
+                   ("Greeting") menjawab DI MANA gagalnya, Error Type/Category
+                   ("Error - Human" / "Probbing") menjawab kesalahan JENIS apa itu
+                   menurut sheet. Ditambahkan, bukan menggantikan judul kategori —
+                   beberapa kategori scorecard memetakan ke error category yang sama,
+                   jadi menggantinya justru menghapus pembeda (14 Agustus 2026). -->
+              <th>Error Type</th>
+              <th>Error Category</th>
               <th>Requirement</th>
-              <th>Status</th>
+              <th>Alasan</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(it, i) in belumSesuai" :key="i">
-              <td>{{ it.category || '—' }}</td>
-              <td class="strong">{{ it.item_code || '—' }}</td>
-              <td>{{ it.requirement || '—' }}</td>
-              <td><span class="badge badge-red">{{ it.status || '—' }}</span></td>
-            </tr>
+            <template v-for="(c, i) in categoryBreakdown" :key="i">
+              <tr v-for="(it, j) in (c.items.length ? c.items : [null])" :key="`${i}-${j}`">
+                <td v-if="j === 0" :rowspan="c.rowspan" class="strong">{{ categoryLabel(c.category) || '—' }}</td>
+                <td v-if="showCategoryScore && j === 0" :rowspan="c.rowspan" class="num">
+                  {{ categoryWeightPct(c.total_weight) }}
+                </td>
+                <td v-if="showCategoryScore && j === 0" :rowspan="c.rowspan" class="num">
+                  {{ c.earned_score ?? '—' }}
+                </td>
+                <td v-if="j === 0" :rowspan="c.rowspan">
+                  <span :class="['badge', c.category_result === 'PASS' ? 'badge-green' : 'badge-red']">
+                    {{ c.category_result || '—' }}
+                  </span>
+                </td>
+                <td class="strong">{{ it?.item_code || '—' }}</td>
+                <td>{{ it ? scorecardErrorType(it) : '—' }}</td>
+                <td>{{ it ? scorecardErrorCategory(it) : '—' }}</td>
+                <td>{{ it?.requirement || '—' }}</td>
+                <td v-if="j === 0" :rowspan="c.rowspan" class="muted reason">{{ c.fail_reason || '—' }}</td>
+              </tr>
+            </template>
           </tbody>
         </table>
-        <div v-else class="empty-inline">Tidak ada item belum sesuai.</div>
+        <div v-else class="empty-inline">Tidak ada ringkasan kategori.</div>
       </div>
 
       <!-- Campaign Interest Verification -->
@@ -271,7 +311,22 @@
                 </span>
               </td>
               <td>{{ v.reference_value ?? '—' }}</td>
-              <td>{{ v.extracted_value ?? '—' }}</td>
+              <!-- Verifikasi STATIK boleh diulang sampai 3 kali. Kalau hanya nilai
+                   terpilih yang ditampilkan, alasan "penyebutan tidak konsisten antar
+                   pengulangan" mustahil diperiksa QC — jadi SEMUA penyebutan nasabah
+                   ditampilkan, dengan yang dipakai untuk pencocokan ditandai. -->
+              <td>
+                <ol v-if="mentionsOf(v).length > 1" class="mention-list">
+                  <li
+                    v-for="(mn, mi) in mentionsOf(v)"
+                    :key="mi"
+                    :class="{ 'mention-used': mn.value === v.extracted_value }"
+                  >
+                    <span v-if="mn.ts" class="mention-ts">{{ mn.ts }}</span>{{ mn.value }}
+                  </li>
+                </ol>
+                <template v-else>{{ v.extracted_value ?? '—' }}</template>
+              </td>
               <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
               <td class="reason">{{ v.reason || '—' }}</td>
               <td>{{ v.similarity_percent != null ? v.similarity_percent + '%' : '—' }}</td>
@@ -292,6 +347,7 @@
             <tr>
               <th>Field</th>
               <th>TMS</th>
+              <th title="Syarat & ketentuan produk dari dokumen RIPLAY Bank Mega">TnC Product</th>
               <th>Transkrip</th>
               <th>Match</th>
               <th>Reason</th>
@@ -302,6 +358,7 @@
             <tr v-for="(v, i) in ev.cashline_data_verification" :key="i">
               <td class="strong">{{ v.field ? titleizeField(v.field) : '—' }}</td>
               <td>{{ v.reference_value ?? '—' }}</td>
+              <td class="tnc">{{ v.tnc_product ?? '—' }}</td>
               <td>{{ v.extracted_value ?? '—' }}</td>
               <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
               <td class="reason">{{ v.reason || '—' }}</td>
@@ -324,6 +381,11 @@
             <tr>
               <th>Sumber</th>
               <th>Error Code</th>
+              <!-- Kosakata sheet QC ("Error Reason - Telemarketing QC"), dibawa apa
+                   adanya oleh backend. Ditambahkan sebagai pembeda antar kode, bukan
+                   pengganti Details Error (permintaan 14 Agustus 2026). -->
+              <th>Error Type</th>
+              <th>Error Category</th>
               <th>Risk Base</th>
               <th>Item Code</th>
               <th>Details Error</th>
@@ -345,6 +407,8 @@
               <tr>
                 <td class="src-cell">{{ row.sumber || '—' }}</td>
                 <td><span class="badge badge-red">{{ row.error_code || '—' }}</span></td>
+                <td>{{ row.error_type || '—' }}</td>
+                <td>{{ row.error_category || '—' }}</td>
                 <td>{{ row.risk_base || '—' }}</td>
                 <td class="strong">{{ row.item_code || '—' }}</td>
                 <td>{{ row.details_error || '—' }}</td>
@@ -452,7 +516,7 @@
 
     <!-- Source files -->
     <div v-if="result.source_files?.length && !isSimpleViewer" class="block">
-      <div class="block-title">📄 File Sumber ({{ result.source_files.length }})</div>
+      <div class="block-title">File Sumber ({{ result.source_files.length }})</div>
       <div class="chips">
         <span v-for="(f, i) in result.source_files" :key="i" class="chip chip-blue">{{ f }}</span>
       </div>
@@ -460,7 +524,7 @@
 
     <!-- Transcript PDF viewers (sorted by filename) -->
     <div v-if="result.result_id && result.source_files?.length && !isSimpleViewer" class="block">
-      <div class="block-title">📑 Transkrip PDF ({{ result.source_files.length }} file)</div>
+      <div class="block-title">Transkrip PDF ({{ result.source_files.length }} file)</div>
       <PdfViewer
         v-for="fn in sortedFiles(result.source_files)"
         :key="fn"
@@ -472,7 +536,7 @@
     <template v-if="ev && !isSimpleViewer">
       <!-- Extracted data -->
       <div class="block">
-        <div class="block-title">🧾 Data Terekstrak</div>
+        <div class="block-title">Data Terekstrak</div>
         <div class="meta-grid">
           <div class="meta-item">
             <div class="meta-label">Nama Nasabah</div>
@@ -495,7 +559,7 @@
 
       <!-- Interest -->
       <div class="block">
-        <div class="block-title">💬 Minat Nasabah</div>
+        <div class="block-title">Minat Nasabah</div>
         <div class="interest-grid">
           <div class="interest-card">
             <div class="interest-head">
@@ -538,39 +602,12 @@
         </div>
       </div>
 
-      <!-- Category summary -->
-      <div v-if="ev.category_summary?.length" class="block">
-        <div class="block-title">📋 Ringkasan Kategori</div>
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th>Kategori</th>
-              <!-- Bobot & Skor disembunyikan untuk role QC (lihat catatan di showCategoryScore). -->
-              <th v-if="showCategoryScore" class="num">Bobot</th>
-              <th v-if="showCategoryScore" class="num">Skor</th>
-              <th>Hasil</th>
-              <th>Alasan</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(c, i) in ev.category_summary" :key="i">
-              <td class="strong">{{ c.category }}</td>
-              <td v-if="showCategoryScore" class="num">{{ categoryWeightPct(c.total_weight) }}</td>
-              <td v-if="showCategoryScore" class="num">{{ c.earned_score ?? '—' }}</td>
-              <td>
-                <span :class="['badge', c.category_result === 'PASS' ? 'badge-green' : 'badge-red']">
-                  {{ c.category_result || '—' }}
-                </span>
-              </td>
-              <td class="muted reason">{{ c.fail_reason || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Ringkasan Kategori dipindah ke Executive Summary (digabung dengan
+           "Scorecard Belum Sesuai") — lihat blok di atas. -->
 
       <!-- Scorecard result -->
       <div v-if="ev.scorecard_result?.length" class="block">
-        <div class="block-title">✅ Hasil Scorecard ({{ ev.scorecard_result.length }} item)</div>
+        <div class="block-title">Hasil Scorecard ({{ ev.scorecard_result.length }} item)</div>
         <div class="tbl-scroll">
         <table class="tbl">
           <thead>
@@ -589,7 +626,7 @@
           <tbody>
             <template v-for="(it, i) in ev.scorecard_result" :key="i">
               <tr>
-                <td class="strong">{{ it.item_code || '—' }}<div class="cat-sub">{{ it.category }}</div></td>
+                <td class="strong">{{ it.item_code || '—' }}<div class="cat-sub">{{ categoryLabel(it.category) }}</div></td>
                 <td>{{ it.requirement || '—' }}</td>
                 <td>
                   <span :class="['badge', it.tolerable === 'NO' ? 'badge-red' : 'badge-gray']">
@@ -669,6 +706,8 @@ import CardHolderManualCheckModal from './CardHolderManualCheckModal.vue'
 import ErrorCodeReviewModal from './ErrorCodeReviewModal.vue'
 import AddErrorCodeModal from './AddErrorCodeModal.vue'
 import { useAuthStore } from '../stores/auth.js'
+import { P } from '../permissions.js'
+import { appealTimeline } from '../utils/appealTimeline.js'
 
 const props = defineProps({
   // The full final result JSON: { campaign, passing_grade, ..., evaluation: {...} }
@@ -688,34 +727,38 @@ const ev = computed(() => props.result?.evaluation || null)
 const auth = useAuthStore()
 // "Simple viewer" roles (individual agent + team leader) see the simplified
 // Results detail (Error Code table only; no Executive Summary / scores).
-const isSimpleViewer = computed(() => ['sales_agent', 'team_leader'].includes(auth.user?.role))
-const isQc = computed(() => auth.user?.role === 'qc')
-const isSpqHead = computed(() => auth.user?.role === 'spq_head')
-const isTlQc = computed(() => auth.user?.role === 'team_leader_qc')
+// Semua gate di bawah memakai capability, bukan nama role — supaya role buatan
+// operator (menu Manage Role) ikut mendapat kolom yang sesuai.
+const isSimpleViewer = computed(() => !auth.can(P.RESULTS_EVALUATION_DETAIL))
+const canAppeal = computed(() => auth.can(P.ERROR_CODE_APPEAL))
+const canDirectEdit = computed(() => auth.can(P.ERROR_CODE_DIRECT_EDIT))
+const canReviewTl = computed(() => auth.can(P.ERROR_CODE_REVIEW_TL))
+const canReviewSpq = computed(() => auth.can(P.ERROR_CODE_REVIEW_SPQ))
 
 // The appeal columns only make sense when a resultId is available (Results page).
 // "Ringkasan Kategori": kolom Bobot & Skor disembunyikan khusus untuk QC —
 // QC menilai lolos/tidaknya kategori, bukan angka bobot/skornya.
-const showCategoryScore = computed(() => !isQc.value)
+const showCategoryScore = computed(() => auth.can(P.RESULTS_CATEGORY_SCORE))
 
-const showManualCheckCol = computed(() => isQc.value && !!props.resultId)
+const showManualCheckCol = computed(() => canAppeal.value && !!props.resultId)
 // Both reviewers see a review column: Team Leader QC does the intermediate check
 // (approve/reject/escalate), SPQ Head the final approval of escalated bandings.
-const showReviewCol = computed(() => (isSpqHead.value || isTlQc.value) && !!props.resultId)
-const reviewStage = computed(() => (isTlQc.value ? 'tl' : 'spq'))
+const showReviewCol = computed(() => (canReviewSpq.value || canReviewTl.value) && !!props.resultId)
+const reviewStage = computed(() => (canReviewTl.value ? 'tl' : 'spq'))
 
 // Team Leader QC & SPQ Head may edit an error code DIRECTLY (no approval
 // hierarchy) — a per-row Manual Check that applies immediately. This is separate
 // from the Review Banding column (which acts on QC-submitted appeals).
-const isReviewer = computed(() => isTlQc.value || isSpqHead.value)
-const showDirectEditCol = computed(() => isReviewer.value && !!props.resultId)
+const showDirectEditCol = computed(() => canDirectEdit.value && !!props.resultId)
 
-// Error Code table column count (base 8 + Riwayat + role-specific action columns).
+// Error Code table column count (base 10 + Riwayat + role-specific action columns).
+// Base 10 = Sumber, Error Code, Error Type, Error Category, Risk Base, Item Code,
+// Details Error, Reason, Evidence, Ticket ID.
 // QC: [Manual Check]. Reviewer: [Manual Check (direct)] + [Review Banding].
 const showHistoryCol = computed(
   () => showManualCheckCol.value || showReviewCol.value || showDirectEditCol.value)
 const errorColCount = computed(() =>
-  8 + (showHistoryCol.value ? 1 : 0)
+  10 + (showHistoryCol.value ? 1 : 0)
     + (showManualCheckCol.value ? 1 : 0)
     + (showDirectEditCol.value ? 1 : 0)
     + (showReviewCol.value ? 1 : 0))
@@ -741,26 +784,9 @@ function fmtTs(iso) {
 // each banding contributes a submit event (QC) + a TL QC decision + an SPQ Head
 // decision, with the reason/comment as the note.
 function rowTimeline(row) {
-  const hist = row?.appeal?.history || []
-  const KIND = { remove: 'Ajukan hapus error code', change: 'Ajukan ubah error code', add: 'Ajukan tambah error code' }
-  const TL = { approved: 'Diterima (final)', rejected: 'Ditolak', escalated: 'Diteruskan ke SPQ Head' }
-  const SPQ = { approved: 'Approved', rejected: 'Rejected' }
-  // A direct edit by a reviewer has no QC→TL→SPQ chain — render it as one event.
-  const DIRECT_ROLE = { tl_direct: 'TL QC', spq_direct: 'SPQ Head' }
-  const DIRECT_ACTION = {
-    remove: 'Hapus error code (langsung)', change: 'Ubah error code (langsung)', add: 'Tambah error code (langsung)',
-  }
-  const ev = []
-  for (const h of hist) {
-    if (h.origin === 'tl_direct' || h.origin === 'spq_direct') {
-      ev.push({ at: h.tl_qc_reviewed_at || h.requested_at, role: DIRECT_ROLE[h.origin], who: h.requested_by_username, action: DIRECT_ACTION[h.appeal_kind] || 'Edit langsung', note: h.qc_reason })
-      continue
-    }
-    ev.push({ at: h.requested_at, role: 'QC', who: h.requested_by_username, action: KIND[h.appeal_kind] || 'Ajukan banding', note: h.qc_reason })
-    if (h.tl_qc_reviewed_at) ev.push({ at: h.tl_qc_reviewed_at, role: 'TL QC', who: h.tl_qc_username, action: TL[h.tl_qc_status] || h.tl_qc_status, note: h.tl_qc_comment })
-    if (h.reviewed_at) ev.push({ at: h.reviewed_at, role: 'SPQ Head', who: h.reviewed_by_username, action: SPQ[h.approval_status] || h.approval_status, note: h.review_comment })
-  }
-  return ev.sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0))
+  // Wording timeline dipusatkan di utils/appealTimeline.js — dipakai juga oleh
+  // modal Riwayat di kolom Results supaya kedua tampilan tidak berbeda kata.
+  return appealTimeline(row?.appeal?.history || [])
 }
 
 // --- Error Code appeal (banding) ------------------------------------------
@@ -900,11 +926,44 @@ const belumSesuai = computed(() =>
   (ev.value?.scorecard_result || []).filter((it) => it?.status === 'BELUM_SESUAI')
 )
 
+// "Ringkasan Kategori": hasil per kategori + item scorecard BELUM_SESUAI yang jatuh
+// di kategori itu, satu baris per item (sel kategori di-rowspan). Kategori yang lolos
+// tetap ditampilkan dengan satu baris kosong, supaya tabel ini tetap menjadi ringkasan
+// LENGKAP seperti tabel Ringkasan Kategori yang lama.
+const categoryBreakdown = computed(() => {
+  const failsByCat = new Map()
+  for (const it of belumSesuai.value) {
+    const key = it?.category || '—'
+    if (!failsByCat.has(key)) failsByCat.set(key, [])
+    failsByCat.get(key).push(it)
+  }
+  const rows = (ev.value?.category_summary || []).map((c) => ({
+    ...c,
+    items: failsByCat.get(c.category) || [],
+  }))
+  // Item yang kategorinya tidak ada di category_summary tidak boleh hilang.
+  const known = new Set(rows.map((r) => r.category))
+  for (const [category, items] of failsByCat) {
+    if (!known.has(category)) rows.push({ category, items, category_result: 'FAIL' })
+  }
+  return rows.map((r) => ({ ...r, rowspan: Math.max(1, r.items.length) }))
+})
+
 // Derived error code for a scorecard BELUM_SESUAI item, mirroring the backend
 // (compliance/error_codes.py CATEGORY_ERROR_CODES). Falls back to the per-item
 // code from the server-built error_code_table, else "—".
+// Cermin dari CATEGORY_ERROR_CODES di compliance/error_codes.py — ubah keduanya
+// bersamaan. ('Probing Cashline' yang dulu tertulis di sini bukan nama kategori yang
+// ada di data; yang benar 'Penjelasan Mega Cashline'.)
 const SCORECARD_CATEGORY_CODES = [
-  { categories: ['Probing Cashline', 'Final Konfirmasi Mega Cashline'], code: 'B10' },
+  {
+    categories: [
+      'Penjelasan Mega Cashline',
+      'Final Konfirmasi Mega Cashline',
+      'Final Konfirmasi Mega Ultima Shield',
+    ],
+    code: 'B10',
+  },
   { categories: ['Greeting'], code: 'B12' },
   { categories: ['Legal Statement Mega Cashline', 'Legal Statement Mega Ultima Shield'], code: 'B18' },
 ]
@@ -915,6 +974,36 @@ const VERIF_ITEM_CODES = { SC_CL_23_1: 'B17', SC_CL_23_2: 'B17', SC_CL_24: 'B16'
 const VERIF_ITEM_CATEGORY = {
   SC_CL_23_1: 'Verifikasi Statik', SC_CL_23_2: 'Verifikasi Statik', SC_CL_24: 'Verifikasi Dinamis',
 }
+// Nama TAMPILAN kategori scorecard. Kategori "Verifikasi" hanya berisi item statik
+// (SC_CL_23_1/23_2) — verifikasi dinamis sudah kategori tersendiri — jadi nama
+// polosnya menyesatkan. Diganti saat ditampilkan saja: nilai mentahnya tetap dipakai
+// untuk pencocokan (mis. it.category === 'Verifikasi Dinamis') dan tersimpan apa
+// adanya di result_json tiket lama. Cermin CATEGORY_DISPLAY di
+// compliance/stats_aggregate.py.
+const CATEGORY_LABEL = { Verifikasi: 'Verifikasi Statik' }
+function categoryLabel(category) {
+  return CATEGORY_LABEL[category] || category
+}
+
+// Semua penyebutan nasabah untuk sebuah field verifikasi (statik boleh diulang).
+// `extracted_mentions` baru ada sejak prompt v47 — hasil lama hanya punya
+// `extracted_value`, jadi dikembalikan sebagai daftar berisi satu nilai supaya
+// tampilannya tidak berubah untuk tiket lama.
+function mentionsOf(v) {
+  // Sejak prompt v52 tiap elemen berupa objek { timestamp, value } — dua ucapan yang
+  // kata-katanya identik di menit berbeda tidak lagi bisa digabung. Hasil lama
+  // menyimpan string telanjang, jadi keduanya diterima.
+  const raw = Array.isArray(v?.extracted_mentions) ? v.extracted_mentions : []
+  const list = raw
+    .map((m) => (m && typeof m === 'object'
+      ? { ts: String(m.timestamp || ''), value: String(m.value ?? '') }
+      : { ts: '', value: String(m ?? '') }))
+    .filter((m) => m.value !== '')
+  if (list.length) return list
+  return v?.extracted_value != null && v.extracted_value !== ''
+    ? [{ ts: '', value: String(v.extracted_value) }]
+    : []
+}
 function scorecardErrorCode(it) {
   if (VERIF_ITEM_CODES[it?.item_code]) return VERIF_ITEM_CODES[it.item_code]
   const cat = it?.category
@@ -924,10 +1013,30 @@ function scorecardErrorCode(it) {
   const row = (ev.value?.error_code_table || []).find((r) => r.item_code && r.item_code === it?.item_code)
   return row?.error_code || '—'
 }
+// Error Type / Error Category (kosakata sheet QC) untuk sebuah item scorecard yang
+// BELUM_SESUAI. Diambil dari baris error_code_table yang dibangun backend — bukan
+// dipetakan ulang di sini — supaya hanya ada SATU tempat yang tahu kode mana masuk
+// kategori apa (compliance/error_codes.py). Dicari lewat item_code dulu; item yang
+// kodenya diturunkan per kategori (B10/B12/B18) bisa saja tidak punya baris
+// ber-item_code, jadi ada cadangan pencarian lewat error_code-nya.
+function errorMetaOf(it) {
+  const table = ev.value?.error_code_table || []
+  const byItem = table.find((r) => r.item_code && r.item_code === it?.item_code)
+  if (byItem) return byItem
+  const code = scorecardErrorCode(it)
+  return table.find((r) => r.error_code === code) || {}
+}
+function scorecardErrorType(it) {
+  return errorMetaOf(it).error_type || '—'
+}
+function scorecardErrorCategory(it) {
+  return errorMetaOf(it).error_category || '—'
+}
+
 // Display category for a scorecard-deduction row: verification-linked items show
 // "Verifikasi Statik/Dinamis"; everything else keeps its scorecard category.
 function deductionCategory(it) {
-  return VERIF_ITEM_CATEGORY[it?.item_code] || it?.category || '—'
+  return VERIF_ITEM_CATEGORY[it?.item_code] || categoryLabel(it?.category) || '—'
 }
 
 // Negate the "Agent ..." requirement → "Agent tidak ..." (no item-code suffix;
@@ -1018,6 +1127,19 @@ const verificationDeductions = computed(() => {
 const criticalFails = computed(() =>
   (ev.value?.critical_compliance_check?.checked_items || []).filter((it) => it?.status === 'FAIL')
 )
+
+// Alasan gagalnya satu item critical compliance. Backend mengirim `reason` yang
+// menyebut SEBAB sebenarnya (lihat annotate_critical_compliance_reasons) — penting
+// untuk verifikasi statik, karena "Agent tidak memverifikasi tanggal lahir" justru
+// SALAH bila agent sudah bertanya dan jawabannya yang tidak cocok Ascend. Negasi di
+// bawah hanya cadangan untuk hasil lama yang belum punya field itu.
+function cccReason(it) {
+  if (it?.reason) return it.reason
+  const req = it?.requirement || ''
+  if (!req) return it?.item_code || '—'
+  const m = req.match(/^(\s*Agent\s+)(.*)$/i)
+  return m ? `${m[1]}tidak ${m[2]}` : `Belum terpenuhi: ${req}`
+}
 
 // Error Code table: server-computed rows from the single source of truth
 // (compliance/error_codes.py, injected as evaluation.error_code_table by the
@@ -1313,6 +1435,19 @@ const Evidence = {
 .ticket-cell { font-family: monospace; font-size: 11px; white-space: nowrap; min-width: 120px; padding-right: 16px; color: var(--text-muted); }
 .muted { color: var(--text-muted); }
 .reason { font-weight: 600; color: var(--text); }
+
+/* Daftar penyebutan nasabah pada verifikasi statik (kolom Transkrip). Bernomor agar
+   urutan pengulangan terbaca; yang dipakai untuk pencocokan ditebalkan. */
+.mention-list { margin: 0; padding-left: 18px; list-style: decimal; }
+.mention-list li { line-height: 1.4; }
+.mention-list li + li { margin-top: 2px; }
+.mention-used { font-weight: 700; }
+/* Waktu ucapan — QC bisa melompat ke titik percakapannya di transkrip. */
+.mention-ts { display: inline-block; min-width: 44px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+
+/* Product T&C from the RIPLAY: an envelope (range / allowed set / fee table), not
+   this ticket's value — muted so the TMS column stays the one that reads first. */
+.tnc { color: var(--text-muted); font-size: 12px; max-width: 260px; white-space: normal; line-height: 1.4; }
 .skor-col { width: 44px; white-space: nowrap; }
 .reason-col { min-width: 300px; }
 .reason-cell { min-width: 300px; max-width: 460px; font-size: 12px; white-space: normal; line-height: 1.45; }

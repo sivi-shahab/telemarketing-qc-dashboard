@@ -78,12 +78,21 @@ const routes = [
     component: () => import('../views/spq-head/ManageUserView.vue'),
   },
   {
+    path: '/spq-head/manage-roles',
+    component: () => import('../views/spq-head/ManageRoleView.vue'),
+  },
+  {
     path: '/spq-head/roles',
     component: () => import('../views/spq-head/RoleHierarchyView.vue'),
   },
   {
     path: '/qc/assign',
     component: () => import('../views/qc/AssignTicketView.vue'),
+  },
+  {
+    // Catch-all: harus tetap paling akhir agar tidak menaungi route di atasnya.
+    path: '/:pathMatch(.*)*',
+    component: () => import('../views/NotFoundView.vue'),
   },
 ]
 

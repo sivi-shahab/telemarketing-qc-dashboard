@@ -31,16 +31,7 @@
           <div class="field">
             <label>Role <span class="required">*</span></label>
             <select v-model="form.role" class="text-input">
-              <option value="spq_head">SPQ Head</option>
-              <option value="admin">Admin</option>
-              <option value="telesales_head">Telesales Head</option>
-              <option value="team_leader_qc">Team Leader QC</option>
-              <option value="qc">QC</option>
-              <option value="qc_support">QC Support</option>
-              <option value="area_manager">Area Manager</option>
-              <option value="team_leader">Team Leader Sales</option>
-              <option value="sales_agent">Sales Agent</option>
-              <option value="demo">Demo (read-only)</option>
+              <option v-for="r in roleOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
             </select>
           </div>
 
@@ -68,16 +59,12 @@
           />
           <select v-model="roleFilter" class="text-input filter-select">
             <option value="">Semua Role</option>
-            <option value="spq_head">SPQ Head</option>
-            <option value="admin">Admin</option>
-            <option value="telesales_head">Telesales Head</option>
-            <option value="team_leader_qc">Team Leader QC</option>
-            <option value="qc">QC</option>
-            <option value="qc_support">QC Support</option>
-            <option value="area_manager">Area Manager</option>
-            <option value="team_leader">Team Leader Sales</option>
-            <option value="sales_agent">Sales Agent</option>
-            <option value="demo">Demo (read-only)</option>
+            <option v-for="r in roleOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
+          </select>
+          <select v-model="campaignFilter" class="text-input filter-select">
+            <option value="">Semua Campaign</option>
+            <option v-for="c in campaignOptions" :key="c" :value="c">{{ c }}</option>
+            <option value="__none__">⚠ Tanpa tag campaign</option>
           </select>
           <select v-model="statusFilter" class="text-input filter-select">
             <option value="">Semua Status</option>
@@ -94,6 +81,7 @@
               <tr>
                 <th class="sortable" @click="sortBy('name')">User <span class="sort-ind">{{ sortIndicator('name') }}</span></th>
                 <th class="sortable" @click="sortBy('role')">Role <span class="sort-ind">{{ sortIndicator('role') }}</span></th>
+                <th>Campaign</th>
                 <th class="sortable" @click="sortBy('status')">Status <span class="sort-ind">{{ sortIndicator('status') }}</span></th>
                 <th class="sortable" @click="sortBy('created')">Created <span class="sort-ind">{{ sortIndicator('created') }}</span></th>
                 <th class="col-action">Aksi</th>
@@ -101,13 +89,13 @@
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="5" class="empty">Memuat...</td>
+                <td colspan="6" class="empty">Memuat...</td>
               </tr>
               <tr v-else-if="users.length === 0">
-                <td colspan="5" class="empty">Tidak ada user.</td>
+                <td colspan="6" class="empty">Tidak ada user.</td>
               </tr>
               <tr v-else-if="displayUsers.length === 0">
-                <td colspan="5" class="empty">Tidak ada user yang cocok dengan pencarian/filter.</td>
+                <td colspan="6" class="empty">Tidak ada user yang cocok dengan pencarian/filter.</td>
               </tr>
               <tr v-for="u in displayUsers" :key="u.id">
                 <td>
@@ -116,6 +104,17 @@
                 </td>
                 <td>
                   <span class="badge" :class="roleBadgeClass(u.role)">{{ roleLabel(u.role) }}</span>
+                </td>
+                <td class="camp-cell">
+                  <template v-if="u.campaigns && u.campaigns.length">
+                    <span v-for="c in u.campaigns" :key="c" class="camp-pill">{{ c }}</span>
+                  </template>
+                  <!-- Sisi sales TANPA tag = tidak ditemukan di roster, jadi dia tidak
+                       akan melihat tiket apa pun. Ini yang perlu ketahuan. -->
+                  <span v-else-if="u.campaign_from_roster" class="camp-missing" title="NIP ini tidak ditemukan di Sales Database — user tidak akan melihat tiket apa pun">
+                    ⚠ tidak ada di roster
+                  </span>
+                  <span v-else class="camp-all">semua campaign</span>
                 </td>
                 <td>
                   <span class="badge" :class="u.is_active ? 'badge-green' : 'badge-gray'">
@@ -146,6 +145,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
+import { roleBadgeClass, roleLabel as sharedRoleLabel } from '../../utils/roleBadge.js'
 import { useAuthStore } from '../../stores/auth.js'
 
 const auth = useAuthStore()
@@ -158,7 +158,28 @@ const listError = ref('')
 // ---- Daftar User: search / filter / sort ----
 const search = ref('')
 const roleFilter = ref('')       // '' = semua role
+// Daftar role dinamis dari /roles — inilah yang membuat role buatan operator bisa
+// langsung dipilih saat membuat user.
+const roleOptions = ref([])
+async function loadRoles() {
+  try {
+    const res = await apiClient.get('/roles')
+    roleOptions.value = (res.data.roles || []).map(r => ({ key: r.key, label: r.label }))
+  } catch {
+    roleOptions.value = []
+  }
+}
 const statusFilter = ref('')     // '' | 'active' | 'inactive'
+// '' = semua; '__none__' = khusus menyaring user sisi sales yang tidak punya tag
+// campaign (NIP-nya tidak ada di roster) — audit yang paling sering dibutuhkan.
+const campaignFilter = ref('')
+// Daftar campaign yang benar-benar muncul pada user, bukan daftar campaign aktif —
+// supaya filternya tidak menawarkan pilihan yang pasti kosong.
+const campaignOptions = computed(() => {
+  const set = new Set()
+  users.value.forEach((u) => (u.campaigns || []).forEach((c) => set.add(c)))
+  return [...set].sort()
+})
 const sortKey = ref('created')   // 'name' | 'role' | 'status' | 'created'
 const sortDir = ref('desc')      // 'asc' | 'desc'
 
@@ -181,6 +202,14 @@ const displayUsers = computed(() => {
     if (roleFilter.value && (u.role || '').toLowerCase() !== roleFilter.value) return false
     if (statusFilter.value === 'active' && !u.is_active) return false
     if (statusFilter.value === 'inactive' && u.is_active) return false
+    if (campaignFilter.value === '__none__') {
+      // Hanya sisi sales yang bermasalah kalau tag-nya kosong; role lain memang
+      // tidak dibatasi campaign.
+      if (!u.campaign_from_roster || (u.campaigns || []).length) return false
+    } else if (campaignFilter.value) {
+      const want = campaignFilter.value.toLowerCase()
+      if (!(u.campaigns || []).some((c) => (c || '').toLowerCase() === want)) return false
+    }
     if (!q) return true
     return [u.name, u.username, u.email]
       .some((v) => (v || '').toLowerCase().includes(q))
@@ -207,29 +236,14 @@ const createOk = ref('')
 
 const deletingId = ref(null)
 
-// Mirror the role pill colors used by the profile/logout button (AccountPanel).
-function roleBadgeClass(role) {
-  const r = (role || 'sales_agent').toLowerCase()
-  if (r === 'spq_head' || r === 'admin' || r === 'telesales_head') return 'badge-red'
-  if (r === 'qc' || r === 'team_leader_qc' || r === 'qc_support') return 'badge-yellow'
-  if (r === 'team_leader' || r === 'area_manager') return 'badge-green'
-  if (r === 'demo') return 'badge-gray'
-  return 'badge-blue'
-}
+
 
 function roleLabel(role) {
   const r = (role || 'sales_agent').toLowerCase()
-  if (r === 'spq_head') return 'SPQ Head'
-  if (r === 'admin') return 'Admin'
-  if (r === 'telesales_head') return 'Telesales Head'
-  if (r === 'team_leader_qc') return 'Team Leader QC'
-  if (r === 'qc_support') return 'QC Support'
-  if (r === 'area_manager') return 'Area Manager'
-  if (r === 'team_leader') return 'Team Leader Sales'
-  if (r === 'sales_agent') return 'Sales Agent'
-  if (r === 'qc') return 'QC'
-  if (r === 'demo') return 'Demo'
-  return r
+  // Nama tampilan diambil dari tabel roles supaya role buatan operator ikut terbaca;
+  // util bersama hanya dipakai sebelum daftar itu selesai dimuat.
+  const known = roleOptions.value.find(o => o.key === r)
+  return known ? known.label : sharedRoleLabel(r)
 }
 
 function formatDate(iso) {
@@ -314,7 +328,7 @@ async function deleteUser(u) {
   }
 }
 
-onMounted(fetchUsers)
+onMounted(() => { fetchUsers(); loadRoles() })
 </script>
 
 <style scoped>
@@ -409,4 +423,13 @@ label { font-size: 13px; font-weight: 600; }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+
+.camp-cell { white-space: normal; }
+.camp-pill {
+  display: inline-block; font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.03em; padding: 2px 7px; border-radius: 999px;
+  background: #f1f5f9; color: var(--text-muted); margin: 1px 3px 1px 0;
+}
+.camp-all { font-size: 11.5px; color: var(--text-muted); font-style: italic; }
+.camp-missing { font-size: 11.5px; font-weight: 700; color: var(--red); }
 </style>

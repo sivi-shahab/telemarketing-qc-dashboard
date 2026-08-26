@@ -1,37 +1,11 @@
 <template>
   <SidebarLayout title="Recording Tickets">
     <div class="filter-bar">
-      <input
-        v-model="searchTiketId"
-        class="text-input"
-        placeholder="Cari tiket_id / id..."
-        @input="debouncedFilter"
-      />
-
-      <!-- PORT dari TranscriptsView: campaign jadi dropdown (sumber /list_campaigns,
-           hanya yang is_active). Pakai <input list> + <datalist> alih-alih <select>
-           murni supaya BACKWARD-COMPATIBLE: kalau nama campaign di App C ternyata
-           tidak persis sama dengan App A, user tetap bisa mengetik bebas seperti
-           sebelumnya. Kalau sudah dipastikan sama, ganti ke <select> biasa. -->
-      <input
-        v-model="searchCampaign"
-        class="text-input"
-        list="campaign-options"
-        placeholder="Cari campaign..."
-        @input="debouncedFilter"
-      />
-      <datalist id="campaign-options">
-        <option v-for="c in campaignOptions" :key="c" :value="c" />
-      </datalist>
-
-      <!-- PORT dari TranscriptsView: filter status sebagai dropdown.
-           /tickets-daily tidak menerima param `status`, jadi ini difilter
-           client-side (data sudah ditarik penuh untuk grouping). Dropdown
-           filter ini TETAP pakai field `status` (fungsi filtering, beda dari
-           kolom tampilan di sub-tabel yang sekarang diganti Customer). -->
-      <select v-model="filterStatus" class="select-input" @change="page = 1">
-        <option value="">Semua Status</option>
-        <option v-for="s in statusOptions" :key="s" :value="s">{{ statusLabel(s) }}</option>
+      <select v-model="filterAiStatus" class="select-input" @change="applyFilter">
+        <option value="">Semua AI Status</option>
+        <option value="PASS">Qualified</option>
+        <option value="FAIL">Not Qualified</option>
+        <option value="PENDING">Pending</option>
       </select>
 
       <input
@@ -163,6 +137,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
+import { campaignsInScope } from '../../utils/campaignScope.js'
 
 // --- Konfigurasi App C (recording_tms_api + PDF stream) ---
 // Same-origin call-qc; base dipakai untuk /tickets-daily dan /api/view-streams.
@@ -173,7 +148,7 @@ const C_API_BASE = (import.meta.env.VITE_TMS_API_URL || 'https://call-qc.bankmeg
 // key ini TETAP terlihat di DevTools siapa pun yang membuka aplikasi. Solusi
 // jangka menengah: pindahkan X-API-Key ke backend call-qc dan proxy
 // /tickets-daily + /api/view-streams lewat apiClient (ikut auth session user).
-const X_API_KEY = import.meta.env.VITE_TMS_API_KEY || 'zTkQMeKmvq9D59z0NhWczv9o9KrPSfnSs8hLJ0J4r1s'
+const X_API_KEY = import.meta.env.VITE_TMS_API_KEY || ''
 
 const FETCH_LIMIT = 100 // /tickets-daily maks 100 per page
 const MAX_FETCH_PAGES = 100 // pengaman loop
@@ -188,18 +163,15 @@ const expandedId = ref(null)
 const searchTiketId = ref('')
 const searchCampaign = ref('')
 const searchDate = ref('')
-const filterStatus = ref('') // PORT: filter status (client-side)
+const filterAiStatus = ref('') // filter AI status (client-side): PASS / FAIL / PENDING
 
 // PORT dari TranscriptsView: daftar campaign aktif untuk dropdown.
 const campaignOptions = ref([])
-
 
 // Guard anti race-condition: hanya respons dari request TERAKHIR yang dipakai.
 let requestId = 0
 let inFlight = null // AbortController
 let debounceTimer = null
-
-const STATUS_ORDER = ['pending', 'processing', 'done', 'failed']
 
 const modeHint = computed(() => {
   if (searchDate.value) return `Mode: tanggal ${searchDate.value}`
@@ -207,28 +179,10 @@ const modeHint = computed(() => {
   return 'Mode: load_date kemarin'
 })
 
-// Status yang benar-benar muncul di data + status baku, supaya dropdown tidak
-// menawarkan pilihan yang pasti kosong. Dipakai HANYA untuk filter dropdown
-// (kolom tampilan status di sub-tabel sudah diganti Customer/a_number).
-const statusOptions = computed(() => {
-  const seen = new Set()
-  for (const it of allItems.value) {
-    const s = normStatus(it.status)
-    if (s) seen.add(s)
-  }
-  const arr = Array.from(seen)
-  arr.sort((a, b) => {
-    const ia = STATUS_ORDER.indexOf(a)
-    const ib = STATUS_ORDER.indexOf(b)
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-  })
-  return arr
-})
-
-// PORT: filter status diterapkan client-side sebelum grouping.
+// Filter AI status diterapkan client-side sebelum grouping.
 const filteredItems = computed(() => {
-  if (!filterStatus.value) return allItems.value
-  return allItems.value.filter((it) => normStatus(it.status) === filterStatus.value)
+  if (!filterAiStatus.value) return allItems.value
+  return allItems.value.filter((it) => normAiStatus(it.ai_status) === filterAiStatus.value)
 })
 
 // Group by `id` (satu id bisa punya banyak tiket_id). Terbaru dulu.
@@ -270,37 +224,13 @@ watch(totalPages, (tp) => {
   if (page.value > tp) page.value = tp
 })
 
-function normStatus(status) {
-  return (status || '').toString().trim().toLowerCase()
+function normAiStatus(status) {
+  return (status || '').toString().trim().toUpperCase()
 }
 
-function statusClass(status) {
-  return (
-    { pending: 'badge-gray', processing: 'badge-blue', done: 'badge-green', failed: 'badge-red' }[
-      normStatus(status)
-    ] || 'badge-gray'
-  )
-}
-
-function statusLabel(status) {
-  const s = normStatus(status)
-  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'
-}
-
-// inserted_at / processed_at / created_time = epoch DETIK (int) -> kali 1000
-// untuk Date. ASUMSI: created_time format-nya SAMA (epoch detik) dengan
-// processed_at/inserted_at, karena berasal dari tabel SQL yang sama
-// (dashboard.recording_tms_api) -- BELUM dikonfirmasi dengan sample response
-// JSON asli. Kalau ternyata created_time formatnya beda (mis. string ISO),
-// kabari saya, formatDate() perlu disesuaikan.
-// [FIX] created_time (dikonfirmasi user) formatnya STRING "YYYY-MM-DD
-// HH:MM:SS.mmm" (mis. "2025-10-08 13:28:47.000"), BUKAN epoch detik seperti
-// asumsi awal (processed_at/inserted_at). Naive UTC -- tanpa info timezone
-// eksplisit, sama konvensi dengan timestamp lain di aplikasi ini (lihat
-// pattern serupa di ResultsView.vue: tambah 'Z' kalau belum ada offset,
-// supaya di-parse sebagai UTC lalu ditampilkan dalam Asia/Jakarta).
-// Tetap dukung angka (epoch detik) untuk kompatibilitas field lain yang
-// mungkin masih pakai format itu.
+// [FIX] Deklarasi `function formatDate(value) { ... }` beserta `}` penutupnya
+// hilang saat resolve konflik merge, menyisakan badan fungsi menggantung di
+// scope modul -> "'return' outside of function" saat build.
 function formatDate(value) {
   if (!value) return '—'
 
@@ -381,13 +311,14 @@ async function fetchTickets() {
   }
 }
 
-// PORT dari TranscriptsView: daftar campaign aktif untuk dropdown filter.
-// Sumbernya App A (/list_campaigns) via apiClient; kalau gagal, dropdown kosong
-// dan input campaign tetap berfungsi sebagai teks bebas seperti sebelumnya.
+// Active campaign names for the Campaign filter dropdown, dipersempit ke cakupan
+// campaign login ini (campaignsInScope).
 async function fetchCampaigns() {
   try {
     const res = await apiClient.get('/list_campaigns')
-    campaignOptions.value = (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
+    campaignOptions.value = campaignsInScope(
+      (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
+    )
   } catch {
     campaignOptions.value = []
   }
@@ -407,7 +338,7 @@ function clearSearch() {
   searchTiketId.value = ''
   searchCampaign.value = ''
   searchDate.value = ''
-  filterStatus.value = ''
+  filterAiStatus.value = ''
   applyFilter()
 }
 

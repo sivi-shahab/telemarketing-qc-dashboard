@@ -6,7 +6,9 @@
           <div>
             <h2 class="modal-title">Manual Check</h2>
             <p class="modal-subtitle">
-              Ajukan perubahan Error Code untuk ditinjau oleh SPQ Head.
+              {{ direct
+                ? 'Ubah Error Code — perubahan berlaku langsung tanpa persetujuan.'
+                : 'Ajukan perubahan Error Code untuk ditinjau oleh SPQ Head.' }}
             </p>
           </div>
           <button class="close-x" aria-label="Tutup" @click="close">✕</button>
@@ -124,7 +126,7 @@
           <button class="btn-cancel" @click="close">Cancel</button>
           <button class="btn-submit" :disabled="!canSubmit" @click="submit">
             <span v-if="submitting" class="spinner"></span>
-            {{ submitting ? 'Mengirim…' : 'Submit' }}
+            {{ submitting ? (direct ? 'Menerapkan…' : 'Mengirim…') : (direct ? 'Terapkan' : 'Submit') }}
           </button>
         </footer>
       </div>
@@ -141,6 +143,9 @@ const props = defineProps({
   displayId: { type: String, default: null },
   // The Error Code row being appealed (sumber/error_code/risk_base/item_code/…).
   row: { type: Object, required: true },
+  // Direct edit by TL QC / SPQ Head — POST /error_code_appeal/direct (applies at
+  // once, no hierarchy) instead of the QC submit endpoint.
+  direct: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'submitted'])
 
@@ -235,7 +240,7 @@ async function submit() {
     // string the backend stores (same "timestamp quote" shape as ai_evidence).
     form.append('qc_evidence', `${timestampVal.value.trim()} ${evidenceVal.value.trim()}`.trim())
     form.append('qc_ticket_id', ticketVal.value.trim())
-    const res = await apiClient.post('/error_code_appeal', form)
+    const res = await apiClient.post(props.direct ? '/error_code_appeal/direct' : '/error_code_appeal', form)
     emit('submitted', { resultId: props.resultId, appeal: res.data })
     close()
   } catch (e) {
@@ -244,7 +249,7 @@ async function submit() {
     } else if (e.response?.status === 422 || e.response?.status === 404) {
       errorMsg.value = e.response.data?.detail || 'Input tidak valid.'
     } else if (e.response?.status === 403) {
-      errorMsg.value = 'Akses hanya untuk QC.'
+      errorMsg.value = props.direct ? 'Akses hanya untuk TL QC atau SPQ Head.' : 'Akses hanya untuk QC.'
     } else {
       errorMsg.value = 'Gagal mengirim. Coba lagi.'
     }

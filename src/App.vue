@@ -8,8 +8,21 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from './stores/auth.js'
+
 const $route = useRoute()
+const auth = useAuthStore()
+
+// Capability disimpan bersama profil di localStorage supaya guard router bisa
+// memutuskan tanpa menunggu jaringan. Konsekuensinya data itu bisa basi setelah
+// permission role diubah lewat Manage Role — jadi diperbarui sekali tiap aplikasi
+// dimuat. Sesi lama yang login sebelum /auth/me mengirim capability juga terisi
+// di sini, tanpa perlu login ulang.
+onMounted(() => {
+  auth.reloadMe().catch(() => {})
+})
 </script>
 
 <style>

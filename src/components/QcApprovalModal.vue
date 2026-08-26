@@ -57,6 +57,8 @@
                       placeholder="Alasan penolakan / catatan untuk QC..."></textarea>
           </div>
 
+          <ManualStatusHistory :result-id="resultId" />
+
           <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
         </div>
 
@@ -95,7 +97,8 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import apiClient from '../api/client.js'
-import { aiStatusLabel } from '../utils/aiStatus.js'
+import ManualStatusHistory from './ManualStatusHistory.vue'
+import { aiStatusLabel, aiStatusBadgeClass } from '../utils/aiStatus.js'
 
 const props = defineProps({
   resultId: { type: String, required: true },
@@ -131,7 +134,7 @@ const reviewerName = computed(() =>
 )
 
 function badgeClass(status) {
-  return status === 'PASS' ? 'badge-green' : 'badge-red'
+  return aiStatusBadgeClass(status)
 }
 
 function formatDate(iso) {
@@ -228,6 +231,7 @@ code.id-value {
 .badge-green { background: var(--green-bg); color: #16a34a; }
 .badge-red { background: var(--red-bg); color: var(--red); }
 .badge-gray { background: #f1f5f9; color: var(--text-muted); }
+.badge-wait { background: #fef3c7; color: #b45309; }
 
 .error-msg {
   background: var(--red-bg); color: var(--red); border: 1px solid #fecaca;
