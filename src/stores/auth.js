@@ -79,6 +79,13 @@ export const useAuthStore = defineStore('auth', () => {
     })
     accessToken.value = res.data.access_token
     localStorage.setItem('access_token', accessToken.value)
+    // App B sekarang hanya membalas access_token. Tapi kalau suatu saat refresh
+    // token ikut dirotasi, yang lama langsung tidak berlaku — simpan penggantinya
+    // supaya sesi tidak mati di refresh berikutnya.
+    if (res.data.refresh_token) {
+      refreshToken.value = res.data.refresh_token
+      localStorage.setItem('refresh_token', refreshToken.value)
+    }
     return accessToken.value
   }
 

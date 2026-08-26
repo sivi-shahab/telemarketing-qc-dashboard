@@ -1,5 +1,6 @@
 // GANTI SEBELUM DIPAKAI: REGISTRY (+ credentialsId 'gitlab-registry' di Jenkins)
-// dan VITE_API_URL sesuai environment tujuan.
+// dan VITE_API_URL sesuai environment tujuan — nilainya harus prefix yang di
+// nginx depan diproxy ke App B :4000 (di call-qc: /api-b).
 //
 // Catatan: VITE_API_URL di-*bake* saat build (Vite mengganti nilainya di bundle),
 // jadi satu image terikat ke satu environment.
@@ -10,7 +11,7 @@ pipeline {
     IMAGE        = "qc-dashboard"
     REGISTRY     = "registry.gitlab.<domain>/<group>"
     TAG          = "${env.GIT_COMMIT.take(8)}"
-    VITE_API_URL = "/telemarketing_qc_system/api"
+    VITE_API_URL = "/api-b"
   }
 
   stages {
