@@ -120,6 +120,24 @@
             <td class="ct-result"></td>
           </tr>
 
+          <!-- 4b) Pengurangan item non-tolerable (iris 10% per item) -->
+          <tr class="row-section row-head">
+            <td class="ct-label">
+              <span class="ct-name">Pengurangan – Item wajib (non-tolerable)</span>
+              <div v-if="nonTolerableBombs.length" class="ct-reason">
+                Item wajib yang belum sesuai:
+                <ul class="calc-reason-list">
+                  <li v-for="(it, i) in nonTolerableBombs" :key="i">
+                    <strong>{{ it.item_code || '—' }}</strong> — {{ it.requirement || it.reason || '—' }}
+                  </li>
+                </ul>
+              </div>
+              <div v-else class="ct-reason">Tidak ada pengurangan; semua item wajib sudah sesuai.</div>
+            </td>
+            <td class="ct-change" :class="deltaClass(nonTolerableScore)">{{ deltaText(nonTolerableScore) }}</td>
+            <td class="ct-result"></td>
+          </tr>
+
           <!-- 5) Skor Akhir -->
           <tr class="row-total">
             <td class="ct-label">
@@ -243,6 +261,9 @@
         <div class="exec-sub-head">
           <span class="exec-sub-title">Ringkasan Kategori</span>
           <span class="badge badge-gray">{{ belumSesuai.length }} item belum sesuai</span>
+          <span v-if="pendingItems.length" class="badge badge-amber">
+            {{ pendingItems.length }} item pending
+          </span>
         </div>
         <table v-if="categoryBreakdown.length" class="tbl">
           <thead>
@@ -252,7 +273,7 @@
               <th v-if="showCategoryScore" class="num">Bobot</th>
               <th v-if="showCategoryScore" class="num">Skor</th>
               <th>Hasil</th>
-              <th>Item Belum Sesuai</th>
+              <th>Item Belum Sesuai / Pending</th>
               <!-- Kosakata sheet QC per item yang gagal: kategori scorecard
                    ("Greeting") menjawab DI MANA gagalnya, Error Type/Category
                    ("Error - Human" / "Probbing") menjawab kesalahan JENIS apa itu
@@ -280,9 +301,16 @@
                     {{ categoryResultLabel(c.category_result) }}
                   </span>
                 </td>
-                <td class="strong">{{ it?.item_code || '—' }}</td>
-                <td>{{ it ? scorecardErrorType(it) : '—' }}</td>
-                <td>{{ it ? scorecardErrorCategory(it) : '—' }}</td>
+                <!-- Item PENDING diberi tanda supaya tidak terbaca sebagai kegagalan:
+                     ia ditangguhkan menunggu dokumen, bobotnya belum dipotong. Kolom
+                     Error Type/Category-nya sengaja "—" — error code baru terbit kalau
+                     tenggat H+2 lewat tanpa dokumen. -->
+                <td class="strong">
+                  {{ it?.item_code || '—' }}
+                  <span v-if="it?.status === 'PENDING'" class="badge badge-amber">PENDING</span>
+                </td>
+                <td>{{ it && it.status !== 'PENDING' ? scorecardErrorType(it) : '—' }}</td>
+                <td>{{ it && it.status !== 'PENDING' ? scorecardErrorCategory(it) : '—' }}</td>
                 <td>{{ it?.requirement || '—' }}</td>
                 <td v-if="j === 0" :rowspan="c.rowspan" class="muted reason">{{ c.fail_reason || '—' }}</td>
               </tr>
@@ -989,7 +1017,8 @@ const zeroScoreCut = computed(() =>
 )
 const verifScore = computed(() => numOr0(ev.value?.ai_score_verification))
 const criticalScore = computed(() => numOr0(ev.value?.ai_score_critical_compliance_check))
-const phase3 = computed(() => phase2.value + verifScore.value + criticalScore.value)
+const phase3 = computed(() =>
+  phase2.value + verifScore.value + criticalScore.value + nonTolerableScore.value)
 
 // Running balance checkpoints (Hasil column): max -> phase2 -> +verif -> phase3.
 const runAfterVerif = computed(() => phase2.value + verifScore.value)
@@ -1018,13 +1047,22 @@ const belumSesuai = computed(() =>
   (ev.value?.scorecard_result || []).filter((it) => it?.status === 'BELUM_SESUAI')
 )
 
-// "Ringkasan Kategori": hasil per kategori + item scorecard BELUM_SESUAI yang jatuh
-// di kategori itu, satu baris per item (sel kategori di-rowspan). Kategori yang lolos
-// tetap ditampilkan dengan satu baris kosong, supaya tabel ini tetap menjadi ringkasan
-// LENGKAP seperti tabel Ringkasan Kategori yang lama.
+// Item scorecard yang DITANGGUHKAN — menunggu dokumen pendukung dalam tenggat H+2
+// (SC_CL_23_1/23_2 dari verifikasi statik, SC_CL_13 dari cashline). Bukan kegagalan:
+// bobotnya tidak dipotong dan tidak memveto AI Status. Ditampilkan berdampingan dengan
+// yang BELUM_SESUAI di Ringkasan Kategori supaya kategori berstatus PENDING tetap
+// menyebut item MANA yang ditunggu.
+const pendingItems = computed(() =>
+  (ev.value?.scorecard_result || []).filter((it) => it?.status === 'PENDING')
+)
+
+// "Ringkasan Kategori": hasil per kategori + item scorecard BELUM_SESUAI / PENDING yang
+// jatuh di kategori itu, satu baris per item (sel kategori di-rowspan). Kategori yang
+// lolos tetap ditampilkan dengan satu baris kosong, supaya tabel ini tetap menjadi
+// ringkasan LENGKAP seperti tabel Ringkasan Kategori yang lama.
 const categoryBreakdown = computed(() => {
   const failsByCat = new Map()
-  for (const it of belumSesuai.value) {
+  for (const it of [...belumSesuai.value, ...pendingItems.value]) {
     const key = it?.category || '—'
     if (!failsByCat.has(key)) failsByCat.set(key, [])
     failsByCat.get(key).push(it)
@@ -1036,7 +1074,12 @@ const categoryBreakdown = computed(() => {
   // Item yang kategorinya tidak ada di category_summary tidak boleh hilang.
   const known = new Set(rows.map((r) => r.category))
   for (const [category, items] of failsByCat) {
-    if (!known.has(category)) rows.push({ category, items, category_result: 'FAIL' })
+    // Kategori yang tidak ada di category_summary: FAIL hanya bila memang ada item
+    // yang gagal — kalau seluruhnya ditangguhkan, kategorinya PENDING, bukan gagal.
+    if (!known.has(category)) {
+      const failed = items.some((it) => it?.status === 'BELUM_SESUAI')
+      rows.push({ category, items, category_result: failed ? 'FAIL' : 'PENDING' })
+    }
   }
   return rows.map((r) => ({ ...r, rowspan: Math.max(1, r.items.length) }))
 })
@@ -1227,6 +1270,18 @@ const criticalFails = computed(() =>
   (ev.value?.critical_compliance_check?.checked_items || []).filter((it) => it?.status === 'FAIL')
 )
 
+// SCORE BOMB — seluruh item yang memotong skor lewat iris, dikirim backend sudah
+// tergabung: pelanggaran kritis (ratio 0.25) DAN item non-tolerable lain (ratio 0.10).
+// Lihat compliance.scoring.score_bomb_items.
+const scoreBombs = computed(() => ev.value?.score_bomb_items || [])
+// Hanya yang non-kritis (iris 10%) — dipakai baris pengurangannya sendiri, karena
+// pengurangan kritis sudah punya barisnya di atas.
+const nonTolerableBombs = computed(() => scoreBombs.value.filter((b) => Number(b?.ratio) < 0.25))
+const nonTolerableScore = computed(() => {
+  const v = Number(ev.value?.ai_score_non_tolerable)
+  return Number.isFinite(v) ? v : 0
+})
+
 // Alasan gagalnya satu item critical compliance. Backend mengirim `reason` yang
 // menyebut SEBAB sebenarnya (lihat annotate_critical_compliance_reasons) — penting
 // untuk verifikasi statik, karena "Agent tidak memverifikasi tanggal lahir" justru
@@ -1403,6 +1458,9 @@ function verificationTypeBadgeClass(type) {
 function categoryResultBadgeClass(result) {
   if (result === 'PASS') return 'badge-green'
   if (result === 'TIDAK_DINILAI') return 'badge-gray'
+  // PENDING = penangguhan menunggu dokumen, bukan kegagalan — amber, sewarna dengan
+  // PENDING di tabel verifikasi dan di kolom Status tabel Scorecard.
+  if (result === 'PENDING') return 'badge-amber'
   return 'badge-red'
 }
 
@@ -1451,6 +1509,7 @@ const Evidence = {
 </script>
 
 <style scoped>
+
 .eval { display: flex; flex-direction: column; gap: 20px; }
 
 .meta-grid {

@@ -248,10 +248,16 @@
                    Number of Calls dilepas di tata letak ini. -->
               <td class="cell-date">
                 <ul v-if="isDemoLayout && callDurations(group.primary).length" class="call-duration-list">
-                  <li v-for="(c, i) in callDurations(group.primary)" :key="i">
+                  <li v-for="(c, i) in callDurations(group.primary)" :key="i" :class="{ 'cd-excluded': c.excluded }">
                     <span class="cd-file">{{ c.file }}</span>
                     <span class="cd-sep">-</span>
                     <span class="cd-dur">{{ c.duration }}</span>
+                    <!-- Panggilan agent lain: tidak ikut dinilai, jadi diberi
+                         keterangan siapa agent-nya alih-alih dibiarkan tampak
+                         setara dengan panggilan yang dinilai. -->
+                    <span v-if="c.excluded" class="cd-tag">
+                      tidak dinilai<template v-if="c.agent"> — {{ c.agent }}</template>
+                    </span>
                   </li>
                 </ul>
                 <span v-else>{{ group.primary.audio_duration || '—' }}</span>
@@ -1510,11 +1516,24 @@ function scorecardIssues(item) {
 // panggilan tetap terbaca.
 function callDurations(item) {
   const rows = Array.isArray(item.audio_durations) ? item.audio_durations : []
-  if (rows.length) {
-    return rows.map((r) => ({ file: r.file || '—', duration: r.duration || '—' }))
-  }
-  const files = Array.isArray(item.source_files) ? item.source_files : []
-  return files.map((f) => ({ file: f, duration: '—' }))
+  const scored = rows.length
+    ? rows.map((r) => ({ file: r.file || '—', duration: r.duration || '—', excluded: false }))
+    : (Array.isArray(item.source_files) ? item.source_files : []).map((f) => ({
+        file: f,
+        duration: '—',
+        excluded: false,
+      }))
+  // Panggilan milik agent LAIN: tetap disebut di sini — kalau tidak, satu PDF
+  // yang diupload seolah lenyap tanpa jejak dari layar. Ditandai `excluded`
+  // supaya jelas ia TIDAK ikut dinilai, berikut nama agent yang terdeteksi.
+  // Lihat compliance/call_ownership.py.
+  const skipped = (Array.isArray(item.excluded_calls) ? item.excluded_calls : []).map((c) => ({
+    file: c.filename || '—',
+    duration: c.duration || '—',
+    excluded: true,
+    agent: Array.isArray(c.detected_agent) ? c.detected_agent.join(', ') : (c.detected_agent || ''),
+  }))
+  return [...scored, ...skipped]
 }
 
 // Angka nilai: buang desimal nol yang tidak berarti (149.0 -> "149") tapi
@@ -1556,12 +1575,28 @@ function formatLimit(item) {
   return Number.isFinite(n) && n > 0 ? `Rp ${n.toLocaleString('id-ID')}` : (raw || '—')
 }
 
+// Isi kolom SCOREBOMB / Critical Failure(s): SELURUH item yang memotong skor lewat
+// iris — pelanggaran kritis (25%) DAN item non-tolerable lain (10%). Backend
+// mengirimkannya sudah tergabung di `score_bomb_items` (compliance.scoring).
+// Besar irisnya (25% / 10%) SENGAJA tidak ditulis di bullet — permintaan bisnis
+// 31 Agustus 2026; yang perlu terbaca adalah item apa yang mengebom, bukan angkanya.
+//
+// Sampai 31 Agustus 2026 kolom ini hanya membaca `critical_compliance_check`, jadi
+// iris 10% memotong skor tanpa pernah terlihat di mana pun. Pembacaan lama
+// dipertahankan sebagai cadangan untuk baris yang payload-nya belum membawa field
+// baru (mis. tab yang masih memakai respons ter-cache).
 function cccItems(item) {
+  if (Array.isArray(item?.score_bomb_items) && item.score_bomb_items.length) {
+    return item.score_bomb_items
+  }
   const ccc = item?.critical_compliance_check
   if (!ccc || !Array.isArray(ccc.checked_items)) return []
   return ccc.checked_items.filter((it) => it.status !== 'PASS')
 }
 
+
+// Non-tolerable (tolerable=NO) scorecard items still unmet — negated reasons from
+// the backend, e.g. "Agent tidak menjelaskan biaya". Styled like Critical Failure.
 function nonTolerableItems(item) {
   return item?.non_tolerable_items || []
 }
@@ -2223,6 +2258,15 @@ onBeforeUnmount(() => {
 .cd-file { word-break: break-all; }
 .cd-sep { color: var(--text-muted); margin: 0 2px; }
 .cd-dur { white-space: nowrap; font-weight: 700; color: var(--text); }
+/* Panggilan agent lain: diredupkan dan durasinya tidak lagi ditebalkan, supaya
+   sekilas terbaca bukan bagian dari yang dinilai. */
+.cd-excluded { opacity: 0.6; }
+.cd-excluded .cd-file { text-decoration: line-through; }
+.cd-excluded .cd-dur { font-weight: 400; color: var(--text-muted); }
+.cd-tag {
+  display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
+  background: #f1f3f5; color: var(--text-muted); font-size: 10px; white-space: nowrap;
+}
 
 /* Grade tata letak Demo: <nilai akhir>/<passing grade>. Passing grade biru (angka
    acuan), nilai akhir hijau bila memenuhi dan merah bila tidak. */

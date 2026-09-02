@@ -7,6 +7,9 @@
           <tr>
             <th>Agent ID</th>
             <th>Agent Name</th>
+            <!-- Nama panggilan on-air (kolom NAME ONLINE di "Update Sales
+                 Telemarketing …xlsx"), berdampingan dengan nama lengkap agent. -->
+            <th>Name Online</th>
             <th>Lama Bergabung</th>
             <th>Campaign</th>
             <th>Tanggal</th>
@@ -20,6 +23,7 @@
           <tr v-if="!errors.length">
             <td>{{ summary.agent_id || '—' }}</td>
             <td>{{ summary.agent_name || '—' }}</td>
+            <td>{{ summary.name_online || '—' }}</td>
             <td class="nowrap">{{ summary.durasi_bergabung || '—' }}</td>
             <td><CampaignCell :campaign="campaign" /></td>
             <td class="nowrap">{{ summary.tanggal || '—' }}</td>
@@ -28,6 +32,7 @@
           <tr v-for="(e, i) in errors" :key="i">
             <td v-if="i === 0" :rowspan="errors.length">{{ summary.agent_id || '—' }}</td>
             <td v-if="i === 0" :rowspan="errors.length">{{ summary.agent_name || '—' }}</td>
+            <td v-if="i === 0" :rowspan="errors.length">{{ summary.name_online || '—' }}</td>
             <td v-if="i === 0" :rowspan="errors.length" class="nowrap">{{ summary.durasi_bergabung || '—' }}</td>
             <td v-if="i === 0" :rowspan="errors.length"><CampaignCell :campaign="campaign" /></td>
             <td v-if="i === 0" :rowspan="errors.length" class="nowrap">{{ summary.tanggal || '—' }}</td>

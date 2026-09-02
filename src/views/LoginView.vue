@@ -158,14 +158,37 @@ async function handleLogin() {
 </script>
 
 <style scoped>
+/* Login PANEL KANAN SETINGGI LAYAR (31 Agustus 2026). Sebelumnya kartu mengambang di
+   tengah dan menutup wajah AI pada foto latar; sekarang ia menjadi kolom penuh yang
+   memakan seperempat kanan layar, tepi ke tepi atas-bawah. Yang bergeser hanya
+   panelnya — `.login-bg` tetap `inset: 0`, jadi lebar latarnya tidak berubah.
+
+   Lebarnya satu variabel, `--login-panel-w`, karena DUA elemen harus sepakat: panelnya
+   sendiri dan running text di bawah, yang berhenti tepat di tepi kiri panel supaya
+   keduanya tidak saling menimpa. `max(360px, 25%)` menjaga form tetap terpakai di
+   layar 1280px ke bawah (25% dari 1280 hanya 320px — terlalu sempit untuk field). */
 .login-page {
+  --login-panel-w: max(360px, 25%);
   position: relative;
   min-height: 100vh;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: flex-end;
   overflow: hidden;
   background: linear-gradient(135deg, #FAFBFC 0%, #FDF3D2 100%);
+}
+
+/* Layar sempit: kolom seperempat tidak masuk akal lagi, panelnya melebar penuh dan
+   running text kembali selebar layar. */
+@media (max-width: 900px) {
+  .login-page { --login-panel-w: 100%; }
+  /* Panelnya selebar layar, jadi running text tidak punya sisi kiri untuk ditempati —
+     dikembalikan selebar layar dan panelnya menyisakan ruang lewat padding bawah. */
+  /* Di sini running text kembali melintas di bawah panel, jadi ruang bawahnya
+     dipulihkan supaya tombol Login tidak tertutup. Override `.ticker`-nya sendiri
+     ADA DI BAWAH, sesudah aturan dasar `.ticker` — specificity keduanya sama, jadi
+     yang menang adalah yang ditulis belakangan. */
+  .login-card { border-left: none; box-shadow: none; padding-bottom: 92px; }
 }
 
 .login-bg {
@@ -194,14 +217,22 @@ async function handleLogin() {
   background: rgba(255, 255, 255, 0.10);
   backdrop-filter: blur(20px) saturate(150%);
   -webkit-backdrop-filter: blur(20px) saturate(150%);
-  border: 1px solid rgba(255, 255, 255, 0.20);
-  border-radius: 18px;
+  /* Hanya tepi KIRI yang bergaris: tiga sisi lainnya berimpit dengan tepi layar,
+     dan garis di sana hanya akan terbaca sebagai cacat render. Sudut pun tidak
+     dibulatkan lagi — panel setinggi layar dengan sudut membulat menyisakan
+     segitiga latar di pojok. */
+  border-left: 1px solid rgba(255, 255, 255, 0.20);
   padding: 36px 32px;
-  width: 100%;
-  max-width: 380px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.42);
+  width: var(--login-panel-w);
+  /* Isi panel ditengahkan secara vertikal, bukan menumpuk di atas. Padding atas dan
+     bawah sengaja SAMA: running text berhenti di tepi kiri panel (lihat `.ticker`),
+     jadi tidak ada lagi yang perlu dihindari di dasar dan menyisakan ruang di sana
+     hanya akan mendorong form naik dari titik tengah. */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-shadow: -16px 0 48px rgba(0, 0, 0, 0.42);
   text-align: center;
-  margin-bottom: 56px; /* ruang untuk running text yang menempel di bawah layar */
 }
 
 /* Firefox lama & Safari tanpa izin backdrop-filter tidak mengaburkan apa pun —
@@ -315,15 +346,25 @@ input:-webkit-autofill:focus {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- Running text Do & Don'ts ---- */
+/* Berhenti di tepi kiri panel login, bukan menyeberang di bawahnya: panelnya kini
+   setinggi layar, jadi running text yang selebar layar akan tertimpa separuh. */
 .ticker {
   position: absolute;
-  left: 0; right: 0; bottom: 0;
+  left: 0; right: var(--login-panel-w); bottom: 0;
   padding: 12px 0;
   background: rgba(30, 31, 33, .72);
   border-top: 1px solid rgba(255, 255, 255, .14);
   overflow: hidden;
   white-space: nowrap;
 }
+/* Layar sempit: panelnya selebar layar, jadi `right: var(--login-panel-w)` akan
+   bernilai 100% dan running text-nya menyusut jadi nol. Dikembalikan selebar layar —
+   HARUS ditulis sesudah aturan `.ticker` di atas, bukan di blok media query dekat
+   `.login-page`, karena specificity keduanya sama persis. */
+@media (max-width: 900px) {
+  .ticker { right: 0; }
+}
+
 .ticker-track {
   display: flex;
   width: max-content;

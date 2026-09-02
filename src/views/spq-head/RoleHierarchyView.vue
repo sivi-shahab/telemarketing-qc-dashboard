@@ -238,20 +238,29 @@ const roles = [
   {
     role: 'spq_head', label: 'SPQ Head', badge: 'badge-red', division: 'Puncak',
     scope: 'Seluruh sistem',
+    menus: ['Stats', 'Results', 'Transkrip', 'Hierarki Role & Menu'],
+    note: 'Pemutus perkara QC, bukan pengurus sistem maupun antrean. Grup Administration & '
+      + 'Delete Data pindah ke Admin (10 & 14 Agustus 2026), dan ketiga antrean kerja QC — '
+      + 'Assign Ticket, Manual Check, Pending Check — dicabut 1 September 2026 karena '
+      + 'mengurus antrean adalah pekerjaan Team Leader QC & QC. Wewenangnya sendiri utuh: '
+      + 'banding yang naik ke SPQ Head tetap diputus dari menu Results.',
+  },
+  {
+    role: 'admin', label: 'Admin', badge: 'badge-red', division: 'Puncak',
+    scope: 'Seluruh sistem',
+    // Dulu tertulis "sama persis dengan SPQ Head". Sudah tidak sejak SPQ Head
+    // kehilangan grup Administration/Delete Data (10 & 14 Agustus 2026) lalu
+    // ketiga antrean kerja QC (1 September 2026); Admin-lah yang kini memegang
+    // menu terbanyak, jadi daftarnya ditulis lengkap alih-alih menunjuk role lain.
     menus: [
       'Stats', 'Results', 'Transkrip', 'Assign Ticket', 'Manual Check',
       'Pending Check', 'Campaigns', 'Database Sales', 'Database QC',
       'Upload Campaign', 'Upload Audio', 'Upload Transcript', 'Get Result',
-      'Upload Database Sales', 'Upload Database QC',
+      'Upload Database Sales', 'Upload Database QC', 'Reprocess All Ticket',
       'Delete Campaign', 'Manage User', 'Manage Role', 'Hierarki Role & Menu',
     ],
-    note: 'Satu-satunya role dengan grup Delete Data & Administration.',
-  },
-  {
-    role: 'admin', label: 'Admin', badge: 'badge-red', division: 'Puncak',
-    scope: 'Seluruh sistem (menu = SPQ Head)',
-    menus: ['Sama persis dengan SPQ Head'],
-    note: 'MENU-nya sama persis dengan SPQ Head, tetapi AKSI QC di Results sengaja tidak diberikan: '
+    note: 'Satu-satunya role dengan grup Delete Data & Administration. '
+      + 'AKSI QC di Results sengaja tidak diberikan: '
       + 'tanpa tombol Set/Ubah & Review Manual Status, tanpa edit error code langsung & Review Banding. '
       + 'Admin mengurus sistem (user, campaign, database), bukan memutus perkara QC — termasuk '
       + 'tanpa tabel perbandingan OCR dokumen, yang juga penilaian QC. '

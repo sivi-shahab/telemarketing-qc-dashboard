@@ -117,7 +117,7 @@
                   <tr>
                     <th class="sortable" @click="teamView.sortBy('name')">Sales Agent <span class="sort-ind">{{ teamView.indicator('name') }}</span></th>
                     <th class="sortable" @click="teamView.sortBy('nip_baru')">NIP <span class="sort-ind">{{ teamView.indicator('nip_baru') }}</span></th>
-                    <th class="num sortable" @click="teamView.sortBy('submissions')">Submissions <span class="sort-ind">{{ teamView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="teamView.sortBy('submissions')">Total Recording <span class="sort-ind">{{ teamView.indicator('submissions') }}</span></th>
                     <th class="num sortable" @click="teamView.sortBy('total_risk')">Total Failure <span class="sort-ind">{{ teamView.indicator('total_risk') }}</span></th>
                     <th class="rate-col sortable" @click="teamView.sortBy('error_rate')">Avg Failure Rate <span class="sort-ind">{{ teamView.indicator('error_rate') }}</span></th>
                   </tr>
@@ -127,7 +127,10 @@
                   <tr v-else-if="!teamView.total"><td colspan="5" class="empty">
                     {{ agentEmptyText(teamView, teamAgents, 'Belum ada sales agent di tim Anda.') }}
                   </td></tr>
-                  <tr v-for="a in teamView.rows" :key="a.agent_id" :class="{ risky: a.submissions && a.error_rate >= 10 }">
+                  <!-- Ambang mengikuti avgClass ("danger" = > 3x). Sebelumnya >= 10
+                       — sisa dari masa kolom ini berisi PERSEN; pada skala kelipatan
+                       angka itu tak pernah tercapai sehingga tintnya tidak pernah muncul. -->
+                  <tr v-for="a in teamView.rows" :key="a.agent_id" :class="{ risky: a.submissions && a.error_rate > 3 }">
                     <td>
                       <span class="cell-agent">
                         <span class="avatar sm" :style="{ background: 'var(--m-gray-150)', color: 'var(--m-gray-700)' }">{{ initials(a.name) }}</span>
@@ -469,10 +472,11 @@
         <template v-else-if="hierarchy">
           <div class="kpis">
             <div class="kpi" style="--accent: var(--m-info)">
-              <div class="kpi-label">All Telesales — Submissions</div>
+              <div class="kpi-label">All Telesales - Total Recording</div>
               <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.submissions) }}</div>
+              <div class="kpi-sub">rekaman dinilai · {{ fmt(hierarchy.all_telesales.ticket_count) }} submission</div>
             </div>
-            <!-- Bentuk kartunya SAMA dengan Submissions (angka mentah, tanpa sub-line)
+            <!-- Bentuk kartunya SAMA dengan Total Recording (angka mentah, tanpa sub-line)
                  supaya pembilang & penyebut Failure Rate terbaca berdampingan; hanya
                  aksennya merah karena ini angka buruk, bukan angka volume.
 
@@ -490,7 +494,7 @@
             <div class="kpi" :style="{ '--accent': avgColor(hierarchy.all_telesales.error_rate) }">
               <div class="kpi-label">ALL TELESALES - AVG FAILURE RATE</div>
               <div class="kpi-value mono" :style="{ color: hierarchy.all_telesales.submissions ? avgColor(hierarchy.all_telesales.error_rate) : null }">{{ avgText(hierarchy.all_telesales.error_rate, hierarchy.all_telesales.submissions) }}</div>
-              <div class="kpi-sub">{{ fmt(hierarchy.all_telesales.total_risk) }} total failure / {{ fmt(hierarchy.all_telesales.errors) }} not qualified</div>
+              <div class="kpi-sub">{{ fmt(hierarchy.all_telesales.total_risk) }} total failure / {{ fmt(hierarchy.all_telesales.submissions) }} total recording</div>
             </div>
           </div>
 
@@ -504,6 +508,7 @@
                 <colgroup>
                   <col />
                   <col style="width: 96px" />
+                  <col style="width: 72px" />
                   <template v-if="showRiskBase">
                     <col style="width: 88px" />
                     <col style="width: 78px" />
@@ -522,12 +527,18 @@
                 </colgroup>
                 <thead>
                   <!-- Dua tingkat: kelima Risk Base dikelompokkan di bawah "Risk Base"
-                       supaya tidak terbaca sebagai kolom sejajar Submissions/Approve.
+                       supaya tidak terbaca sebagai kolom sejajar Total Recording/Approve.
                        Untuk sisi sales (showRiskBase = false) seluruh blok itu hilang
                        dan header cukup satu baris. -->
                   <tr>
                     <th :rowspan="showRiskBase ? 2 : 1">Nama</th>
-                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n">Submissions</th>
+                    <!-- Total Recording = jumlah REKAMAN/transkrip (PDF) yang dinilai,
+                         panggilan milik agent lain sudah tidak ikut; angka ini sekaligus
+                         penyebut Avg Failure Rate. Submission = jumlah ticket id-nya;
+                         Qualified/Pending/Not Qualified adalah vonis per TIKET dan
+                         menjumlah ke kolom Submission, bukan ke Total Recording. -->
+                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah rekaman (PDF) yang dinilai">Total Recording</th>
+                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah ticket id">Submission</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Qualified</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Pending</th>
                     <!-- Sisi sales: kolom ini dulu berjudul "Errors" (28 Agustus 2026 diganti
@@ -596,7 +607,12 @@
               </table>
             </div>
             <div v-if="showRiskBase" class="note">
-              <b>Avg Failure Rate</b> = <b>Total Failure</b> ÷ <b>Not Qualified</b>, ditulis sebagai kelipatan (mis. 4.5x).
+              <b>Avg Failure Rate</b> = <b>Total Failure</b> ÷ <b>Total Recording</b>, ditulis sebagai
+              kelipatan (mis. 2.8x) dan bukan persen — lihat alinea berikutnya. <b>Total Recording</b> =
+              jumlah <b>rekaman (PDF)</b> yang dinilai; panggilan milik agent lain pada tiket dua-agent
+              tidak ikut dihitung. Kolom <b>Submission</b> di sebelahnya adalah jumlah ticket id;
+              <b>Qualified</b> + <b>Pending</b> + <b>Not Qualified</b> menjumlah ke sana, bukan ke
+              Total Recording.
               Di tabel ini kolom Risk Base menghitung <b>PELANGGARAN</b>, bukan tiket:
               satu tiket dengan empat pelanggaran High menyumbang 4 ke kolom High, bukan 1.
               Karena itu <b>Total Failure</b> bisa lebih besar dari kolom <b>Not Qualified</b> —
@@ -612,7 +628,10 @@
               Not Qualified) atau KPI Overview.
             </div>
             <div v-else class="note">
-              <b>Avg Failure Rate</b> = <b>Total Failure</b> ÷ <b>Not Qualified</b>, ditulis sebagai kelipatan (mis. 4.5x). Dihitung hanya dari
+              <b>Avg Failure Rate</b> = <b>Total Failure</b> ÷ <b>Total Recording</b>, ditulis sebagai
+              kelipatan (mis. 2.8x). <b>Total Recording</b> = jumlah <b>rekaman (PDF)</b> yang dinilai,
+              bukan jumlah tiket — jumlah tiketnya ada di kolom <b>Submission</b> di sebelahnya.
+              Dihitung hanya dari
               tiket Not Qualified, dan tiap pelanggaran dihitung sendiri-sendiri — bukan satu
               per tiket. Klik baris AM atau TL untuk membuka level di bawahnya.
             </div>
@@ -759,7 +778,20 @@
             </div>
             <div class="kpi" style="--accent: var(--m-warning, #D97706)">
               <div class="kpi-label">Kategori Terbesar — All Telesales</div>
-              <div class="kpi-value">{{ topCategoryOf(failureHier.all_telesales) }}</div>
+              <!-- TIGA teratas, bukan satu: peringkat 2-3 sering berselisih tipis
+                   dari yang teratas, sehingga menampilkan pemenangnya saja membuat
+                   satu kategori terlihat dominan padahal tidak. Fontnya sengaja
+                   lebih kecil dari .kpi-value supaya tiga baris ini setinggi kartu
+                   KPI lain sebarisnya — kartu KPI diregangkan grid mengikuti yang
+                   tertinggi, jadi kartu ini tidak boleh menumbuhkan barisnya. -->
+              <ol class="kpi-top3">
+                <li v-for="(c, i) in topCategoriesOf(failureHier.all_telesales)" :key="'tc' + c.category">
+                  <span class="rank">{{ i + 1 }}</span>
+                  <span class="name" :title="c.category">{{ c.category }}</span>
+                  <span class="count mono">{{ fmt(c.fail_count) }}</span>
+                </li>
+                <li v-if="!topCategoriesOf(failureHier.all_telesales).length" class="none">—</li>
+              </ol>
               <div class="kpi-sub">{{ topCategorySubOf(failureHier.all_telesales) }}</div>
             </div>
           </div>
@@ -905,13 +937,17 @@ const scopeEmpty = computed(() => (isTeamLeader.value ? 'Belum ada tiket untuk t
 // global tapi tetap sisi sales.
 const showRiskBase = computed(() => auth.can(P.STATS_RISK_BASE))
 
-// Panel "Performa Campaign — Month to Month" di-takeout dari sisi sales atas
-// permintaan bisnis (28 Agustus 2026): Area Manager & Telesales Head tidak lagi
-// melihatnya, sementara QC, Team Leader QC, SPQ Head/Admin, dan demo tetap.
-// Pembedanya memakai capability yang sama dengan kolom Risk Base — panel ini
-// seluruhnya berisi kolom Risk Base (High/Medium/Low/Total Risk), jadi role yang
-// tidak boleh melihat kolom itu memang tidak punya alasan melihat panelnya.
-const showCampaignPerformance = computed(() => showRiskBase.value)
+// Panel "Performa Campaign — Month to Month" DISEMBUNYIKAN UNTUK SEMUA ROLE atas
+// permintaan bisnis (31 Agustus 2026). Sebelumnya panel ini hanya di-takeout dari
+// sisi sales (28 Agustus 2026) — Area Manager & Telesales Head — dengan capability
+// yang sama seperti kolom Risk Base, karena isinya memang seluruhnya kolom Risk Base.
+//
+// Aturan lama sengaja DIPERTAHANKAN di bawah, tinggal dinyalakan lagi dengan
+// mengembalikan nilainya ke `showRiskBase.value`. Seluruh pemuatan datanya ikut mati
+// sendiri: `loadCampaignMonthly` sudah menjaga dirinya pada flag ini, jadi
+// menyembunyikan panel juga menghemat satu permintaan ke backend, bukan cuma
+// menyembunyikan elemen yang tetap dimuat.
+const showCampaignPerformance = computed(() => false && showRiskBase.value)
 
 // Risk Base "System" (kode O) & "New" (kode N) adalah detail internal scoring —
 // hanya untuk SPQ Head/Admin dan Team Leader QC. QC biasa dan QC Support melihat
@@ -1039,12 +1075,13 @@ const salesColCount = computed(
   () => 6 + (showTeamLeaderCol.value ? 1 : 0) + (showAreaManagerCol.value ? 1 : 0))
 
 // Jumlah kolom tabel Hierarki Failure Rate, mengikuti kedua flag di atas:
-//   Nama + Submissions + Failure Rate = 3 dasar
+//   Nama + Total Recording + Failure Rate = 3 dasar
 //   + Qualified, Pending, Total Failure, High, Medium, Low  (showRiskBase)
 //   + System, New                                           (showRiskSystemNew)
 const hierColCount = computed(() => {
-  if (!showRiskBase.value) return 4 // Nama, Submissions, Total Failure, Failure Rate
-  return showRiskSystemNew.value ? 12 : 10
+  // +1 sejak kolom ticket id ditambahkan (31 Agustus 2026).
+  if (!showRiskBase.value) return 5 // Nama, Total Recording, Submission, Total Failure, Failure Rate
+  return showRiskSystemNew.value ? 13 : 11
 })
 
 // ---- Sales Agent (Team Leader) scoped view ----
@@ -1341,8 +1378,20 @@ function rateColor(r) {
 }
 // Belum ada submission bukan berarti "0% error". Membedakan keduanya penting:
 // 0% terbaca sebagai prestasi, padahal orangnya belum dinilai sama sekali.
+// Failure Rate = Total Failure / Total Recording. Pembilangnya menghitung SETIAP risk
+// base milik tiket Not Qualified (``risk_base_tally``, bukan satu yang tertinggi),
+// sedangkan penyebutnya jumlah TRANSKRIP — jadi satu tiket bisa menyumbang lebih dari
+// satu dan rasionya sah melewati 100%. Contoh nyata: 160908U5GK menyumbang 11 risk
+// base atas 2 transkrip (550%).
+//
+// Angka seperti "550%" terbaca sebagai salah hitung, jadi yang di atas 100
+// ditampilkan "100%+" (permintaan bisnis 31 Agustus 2026). Yang dibatasi HANYA
+// TAMPILANNYA: nilai aslinya tetap dipakai untuk warna badge, pengurutan baris, dan
+// penyorotan baris berisiko — membatasi angkanya sendiri akan membuat dua agent yang
+// jauh berbeda tampak setara di urutan.
 function rateText(rate, submissions) {
-  return submissions ? `${rate}%` : '—'
+  if (!submissions) return '—'
+  return rate > 100 ? '100%+' : `${rate}%`
 }
 function rateClassOf(rate, submissions) {
   return submissions ? rateClass(rate) : 'muted'
@@ -1365,15 +1414,20 @@ function avgText(avg, submissions) {
   // sudah dinilai tapi tanpa tiket gagal adalah 0.0x dan itu prestasi nyata.
   return submissions ? `${avg}x` : '—'
 }
-// Ambang dalam satuan kelipatan, bukan persen (ambang lama 3/6 dipakai untuk persen).
+// Ambang dalam satuan KELIPATAN, bukan persen (ambang 3/6 milik rateClass adalah
+// persen). Diturunkan dari 3/5 ke 2/3 pada 2 September 2026 sore, mengikuti
+// penyebut Avg Failure Rate yang pindah dari tiket Not Qualified ke Total Recording:
+// penyebutnya jadi ~2x lebih besar, jadi seluruh skalanya ikut mengecil. Tanpa ini
+// angka produksi (2.7x-2.9x) jatuh di bawah ambang lama dan SELURUH pohon tampak
+// hijau — bukan karena kinerjanya membaik, melainkan karena skalanya berubah.
 function avgClass(a) {
-  if (a > 5) return 'danger'
-  if (a >= 3) return 'warning'
+  if (a > 3) return 'danger'
+  if (a >= 2) return 'warning'
   return 'success'
 }
 function avgColor(a) {
-  if (a > 5) return 'var(--m-danger)'
-  if (a >= 3) return 'var(--m-warning)'
+  if (a > 3) return 'var(--m-danger)'
+  if (a >= 2) return 'var(--m-warning)'
   return 'var(--m-success)'
 }
 function avgClassOf(avg, submissions) {
@@ -1482,19 +1536,25 @@ const RiskCells = (p) => {
     h('span', { class: ['rate-badge', 'mono', avgClassOf(n.error_rate, n.submissions)] },
       avgText(n.error_rate, n.submissions)),
   ])
-  // Sisi sales: cukup Submissions / Total Failure / Failure Rate — lihat showRiskBase.
+  // Sisi sales: cukup Total Recording / Total Failure / Failure Rate — lihat showRiskBase.
   //
   // Kolom tengah memakai ``total_risk``, BUKAN ``errors``. ``errors`` menghitung
   // TIKET yang gagal, sedangkan Failure Rate di sebelahnya dihitung dari total risk
   // base (``_rate_of`` di compliance/stats_aggregate.py) — memasang ``errors`` di
   // bawah judul "Total Failure" membuat kolomnya menamai angka lain, dan
-  // Total Failure ÷ Submissions tidak sama dengan rasio yang tertera.
+  // Total Failure ÷ Total Recording ADALAH rasio yang tertera.
   // Sisi sales kini menerima ``total_risk``; lihat ``_HIER_RISK_FIELDS``.
+  // Kolom "Submission" (``ticket_count``) berdiri tepat di sebelah Total Recording
+  // sejak 31 Agustus 2026: Total Recording menghitung REKAMAN, sedangkan
+  // Qualified/Pending/Not Qualified tetap vonis PER TIKET. Tanpa kolom ini ketiganya
+  // tampak "tidak menjumlah" ke Total Recording dan tabelnya terbaca seperti salah hitung.
   if (!showRiskBase.value) {
-    return [cell(n.submissions, null), cell(n.total_risk, 'var(--m-danger)'), rate]
+    return [cell(n.submissions, null), cell(n.ticket_count, null),
+            cell(n.total_risk, 'var(--m-danger)'), rate]
   }
   return [
     cell(n.submissions, null),
+    cell(n.ticket_count, null),
     cell(n.approve, 'var(--m-success)'),
     cell(n.pending, '#D97706'),
     // Not Qualified = populasi yang menyumbang Total Failure. Ditampilkan supaya
@@ -1564,14 +1624,17 @@ function openFailureMode(mode) {
   loadFailureMode()
 }
 
-// Kategori terbesar sebuah simpul, untuk KPI "Kategori Terbesar".
-function topCategoryOf(node) {
-  return (node?.categories || [])[0]?.category || '—'
+// Tiga kategori terbesar sebuah simpul, untuk KPI "Kategori Terbesar". Backend
+// sudah mengurutkannya menurun dan mengirim 5 teratas per simpul (``_fail_node``),
+// jadi di sini cukup dipotong — tidak ada pengurutan ulang di layar yang bisa
+// berbeda dari tabelnya.
+function topCategoriesOf(node) {
+  return (node?.categories || []).slice(0, 3)
 }
+// Penyebutnya saja: jumlah failure tiap kategori sudah tertulis di barisnya sendiri.
 function topCategorySubOf(node) {
-  const c = (node?.categories || [])[0]
-  return c
-    ? `${fmt(c.fail_count)} failure dari ${fmt(node?.evaluated || 0)} tiket Not Qualified`
+  return (node?.categories || []).length
+    ? `failure dari ${fmt(node?.evaluated || 0)} tiket Not Qualified`
     : 'belum ada kegagalan'
 }
 
@@ -1900,6 +1963,31 @@ onUnmounted(() => clearInterval(timer))
 .kpi-value { font-size: 32px; font-weight: 800; color: var(--m-gray-900); margin-top: 6px; }
 .kpi-pct { font-size: 15px; font-weight: 700; color: var(--m-fg-2); }
 .kpi-sub { font-size: 12.5px; font-weight: 600; color: var(--m-fg-2); margin-top: 4px; }
+/* KPI "Kategori Terbesar": tiga baris menggantikan satu angka besar.
+   Tingginya dipatok agar SAMA dengan kartu ber-.kpi-value sebarisnya — kartu KPI
+   diregangkan grid mengikuti isi tertinggi, jadi kartu ini harus muat di ruang
+   yang sama: .kpi-value (32px + margin 6) ~= 46px, dan tiga baris 12.5px/1.25
+   dengan jarak 1px ~= 49px. Nama kategori dipotong elipsis, penuhnya di tooltip. */
+.kpi-top3 {
+  margin: 4px 0 0; padding: 0; list-style: none;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.kpi-top3 li {
+  display: flex; align-items: baseline; gap: 6px;
+  font-size: 12.5px; line-height: 1.25; min-width: 0;
+}
+.kpi-top3 .rank {
+  flex: none; width: 14px; text-align: center;
+  font-size: 10px; font-weight: 800; color: var(--m-fg-2);
+  background: var(--m-gray-100, rgba(0, 0, 0, .05)); border-radius: 3px;
+}
+.kpi-top3 .name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 700; color: var(--m-gray-900);
+}
+.kpi-top3 .count { flex: none; font-weight: 800; color: var(--m-danger); }
+.kpi-top3 .none { color: var(--m-fg-2); font-weight: 700; }
 /* Failure Reason: daftar alasan teratas per kategori */
 .reason-list { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .reason-list li { font-size: 12.5px; line-height: 1.35; }
