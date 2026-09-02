@@ -30,8 +30,11 @@
 
   /* semantic text / surface */
   --m-fg-1: var(--m-gray-900);
-  --m-fg-2: var(--m-gray-500);
-  --m-fg-3: var(--m-gray-400);
+  /* 28 Agustus 2026 — semua tulisan hitam: fg-2 & fg-3 (teks sekunder/tersier)
+     dulu gray-500 & gray-400, kini ikut gray-900. Skala abu-abunya sendiri
+     dibiarkan utuh karena masih dipakai untuk garis, latar, dan avatar. */
+  --m-fg-2: var(--m-gray-900);
+  --m-fg-3: var(--m-gray-900);
   --m-bg-app: var(--m-gray-50);
   --m-bg-surface: #FFFFFF;
   --m-bg-sunken: var(--m-gray-100);

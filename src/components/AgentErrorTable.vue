@@ -11,6 +11,8 @@
             <th>Campaign</th>
             <th>Tanggal</th>
             <th v-if="showDetailError">Detail Error</th>
+            <th>Failure Category</th>
+            <th>Evidence</th>
             <th>Reason</th>
           </tr>
         </thead>
@@ -21,7 +23,7 @@
             <td class="nowrap">{{ summary.durasi_bergabung || '—' }}</td>
             <td><CampaignCell :campaign="campaign" /></td>
             <td class="nowrap">{{ summary.tanggal || '—' }}</td>
-            <td :colspan="showDetailError ? 2 : 1" class="ok-cell">✓ Tidak ada error</td>
+            <td :colspan="showDetailError ? 4 : 3" class="ok-cell">✓ Tidak ada error</td>
           </tr>
           <tr v-for="(e, i) in errors" :key="i">
             <td v-if="i === 0" :rowspan="errors.length">{{ summary.agent_id || '—' }}</td>
@@ -30,9 +32,19 @@
             <td v-if="i === 0" :rowspan="errors.length"><CampaignCell :campaign="campaign" /></td>
             <td v-if="i === 0" :rowspan="errors.length" class="nowrap">{{ summary.tanggal || '—' }}</td>
             <td v-if="showDetailError">{{ e.details_error || '—' }}</td>
-            <!-- "Reason" menampilkan Details Error dari tabel Error Code (deskripsi
-                 kode; ikut ter-relabel saat banding "Ubah Error Code" di-approve). -->
-            <td class="reason">{{ e.details_error || '—' }}</td>
+            <!-- "Failure Category" = kolom ``error_category`` tabel Error Code (mis.
+                 "Data Input"), memakai kosakata yang sama dengan requirement scorecard.
+                 Sampai 28 Agustus 2026 kolom ini bernama "Error Category"; sebelumnya
+                 lagi bernama "Reason" dan isinya ``details_error`` — deskripsi kodenya,
+                 bukan kategorinya.
+
+                 Evidence & Reason diambil dari ``trigger_source`` scorecard di sisi QC,
+                 satu baris per temuan: backend men-de-dup pada (details_error, reason,
+                 evidence), jadi satu kode yang dilanggar di beberapa tempat tampil
+                 sebagai beberapa baris dengan evidence-nya masing-masing. -->
+            <td class="category">{{ e.error_category || '—' }}</td>
+            <td class="evidence">{{ e.evidence || '—' }}</td>
+            <td class="reason">{{ e.reason || '—' }}</td>
           </tr>
         </tbody>
       </table>
@@ -82,6 +94,11 @@ CampaignCell.props = ['campaign']
 .as-table tbody tr:hover td { background: #fafbfc; }
 
 .nowrap { white-space: nowrap; }
+.category { min-width: 140px; }
+/* Evidence memuat timestamp + kutipan transkrip apa adanya — sering panjang dan
+   berisi baris baru, jadi dibiarkan membungkus dan diberi lebar minimum sendiri
+   supaya tidak menghimpit kolom Reason di sebelahnya. */
+.evidence { min-width: 260px; max-width: 420px; white-space: pre-line; }
 .reason { min-width: 260px; }
 .ok-cell { color: #16a34a; font-weight: 600; }
 .camp { margin: 0; padding-left: 16px; }

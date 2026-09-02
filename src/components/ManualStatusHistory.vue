@@ -113,6 +113,6 @@ onMounted(async () => {
 .msh-badge.ok { background: #dcfce7; color: #166534; }
 .msh-badge.bad { background: #fee2e2; color: #991b1b; }
 .msh-badge.wait { background: #fef3c7; color: #b45309; }
-.msh-badge.none { background: #f3f4f6; color: #6b7280; }
+.msh-badge.none { background: #f3f4f6; color: #1E1F21; }
 .msh-comment { margin-top: 3px; font-size: 11.5px; color: var(--text-muted, #6b7280); font-style: italic; }
 </style>

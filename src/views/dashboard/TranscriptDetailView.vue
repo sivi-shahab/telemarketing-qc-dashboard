@@ -7,9 +7,9 @@
       </div>
     </header>
     <div class="viewer-body">
-      <!-- PDF di-stream dari App C dengan X-API-Key lalu dirender pdf.js ke canvas.
-           Tidak bisa memakai <iframe> karena elemen itu tak bisa mengirim header
-           X-API-Key, dan App C tidak menerima token lewat query string. -->
+      <!-- PDF diambil lewat App B (`GET /tickets_daily_pdf/{tiket_id}`) lalu dirender
+           pdf.js ke canvas. Tidak bisa memakai <iframe>: elemen itu tak bisa
+           mengirim header Authorization. -->
       <div v-if="loading" class="viewer-loading">
         <span class="spinner"></span> Memuat PDF…
       </div>
@@ -25,12 +25,21 @@ import { useRoute } from 'vue-router'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { createPdfPageRenderer } from '../../utils/pdfRender.js'
+import apiClient from '../../api/client.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
-// --- Konfigurasi App C (API stream PDF) ---
-const C_API_BASE = (import.meta.env.VITE_TMS_API_URL || 'https://call-qc.bankmega.local').replace(/\/+$/, '')
-const X_API_KEY = import.meta.env.VITE_TMS_API_KEY || 'zTkQMeKmvq9D59z0NhWczv9o9KrPSfnSs8hLJ0J4r1s'
+// PDF-nya diambil lewat App B, BUKAN lagi menembak App C langsung dari browser.
+// Dua alasannya, sama dengan yang berlaku untuk daftar tiketnya (TranscriptsView):
+//
+// 1. Kredensial. `X-API-Key` App C dulu ditulis di sini sebagai nilai fallback
+//    literal, jadi key-nya terbawa ke bundle produksi bahkan ketika env var-nya
+//    tidak disetel — terbaca siapa pun yang membuka DevTools. Sekarang key itu
+//    tinggal di server (services/view_streams.py).
+// 2. RBAC. Permintaan langsung ke App C tidak pernah melewati App B, jadi
+//    `rbac.effective_campaigns_for` tidak berlaku dan siapa pun yang memegang key
+//    itu bisa mengunduh PDF tiket campaign mana pun. Sekarang server yang
+//    memeriksanya (api/routers/tickets_daily_pdf.py).
 
 const route = useRoute()
 // tiket_id dari route param (/dashboard/transcripts/:tiketId) atau query.
@@ -50,15 +59,12 @@ async function loadAndRender() {
   loading.value = true
   error.value = ''
   try {
-    // Stream PDF dari App C dengan X-API-Key (fetch, bukan apiClient App B).
-    // Jamak: nginx hanya mem-proxy `location /api/view-streams/`. Bentuk tunggal
-    // lolos ke catch-all SPA dan mengembalikan index.html, bukan PDF.
-    const res = await fetch(`${C_API_BASE}/api/view-streams/${encodeURIComponent(tiketId)}`, {
-      headers: { 'X-API-Key': X_API_KEY, Accept: 'application/pdf' },
+    // apiClient menyisipkan token login; server yang memutuskan boleh/tidaknya.
+    const res = await apiClient.get(`/tickets_daily_pdf/${encodeURIComponent(tiketId)}`, {
+      responseType: 'arraybuffer',
+      headers: { Accept: 'application/pdf' },
     })
-    if (!res.ok) throw new Error(`Gagal memuat PDF (HTTP ${res.status})`)
-    const buf = await res.arrayBuffer()
-    pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise
+    pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(res.data) }).promise
     loading.value = false
     await nextTick()
     await renderAll()
@@ -73,7 +79,17 @@ async function loadAndRender() {
       resizeObserver.observe(pagesEl.value)
     }
   } catch (e) {
-    error.value = e.message || 'Gagal memuat PDF.'
+    // Body galat pun ikut terbaca sebagai ArrayBuffer (responseType di atas), jadi
+    // `detail` dari server harus dibongkar sendiri. Tanpa ini yang tampil cuma
+    // "Request failed with status code 404" — pesan yang tidak memberi tahu
+    // pemakainya bahwa tiket itu di luar cakupan campaign-nya.
+    let detail = ''
+    try {
+      const raw = e?.response?.data
+      if (raw) detail = JSON.parse(new TextDecoder().decode(raw))?.detail || ''
+    } catch { /* body bukan JSON */ }
+    const status = e?.response?.status
+    error.value = detail || (status ? `Gagal memuat PDF (HTTP ${status}).` : 'Gagal memuat PDF.')
     loading.value = false
   }
 }

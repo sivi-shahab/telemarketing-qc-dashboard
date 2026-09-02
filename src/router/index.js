@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ROUTE_PERMISSIONS } from '../permissions.js'
 
 const routes = [
   { path: '/', redirect: '/dashboard/stats' },
@@ -70,6 +71,13 @@ const routes = [
   //   component: () => import('../views/upload/UploadQcDatabaseView.vue'),
   // },
   {
+    // Reprocess All Ticket (menu Upload Data). Route ini TIDAK ikut ter-commit:
+    // berkas router ada di .gitignore sejak 12 Agustus 2026, sedangkan fiturnya
+    // lahir 21 Agustus — jadi pendaftarannya harus disalin manual ke tiap environment.
+    path: '/upload/reprocess',
+    component: () => import('../views/upload/ReprocessTicketsView.vue'),
+  },
+  {
     path: '/delete/campaign',
     component: () => import('../views/delete/DeleteCampaignView.vue'),
   },
@@ -101,60 +109,60 @@ const router = createRouter({
   routes,
 })
 
+// Capability yang dibutuhkan sebuah path. Route detail mewarisi izin induknya
+// (mis. `/dashboard/transcripts/221111rBUk` -> `/dashboard/transcripts`): dicari
+// prefix TERDAFTAR yang paling panjang, dan hanya pada batas segmen '/' supaya
+// `/dashboard/results-lain` tidak ikut terwarisi. `null` = cukup login.
+function requiredPermission(path) {
+  const direct = ROUTE_PERMISSIONS[path]
+  if (direct) return direct
+  let best = null
+  for (const key of Object.keys(ROUTE_PERMISSIONS)) {
+    if (path.startsWith(`${key}/`) && (!best || key.length > best.length)) best = key
+  }
+  return best ? ROUTE_PERMISSIONS[best] : null
+}
+
+// Halaman pendaratan saat sebuah route ditolak: yang PERTAMA boleh dibuka pemanggil.
+// Menolak ke '/' saja tidak cukup — '/' me-redirect ke /dashboard/stats, yang justru
+// tertutup bagi role tanpa MENU_STATS (mis. qc_support), sehingga akan memantul.
+const LANDING_ORDER = [
+  '/dashboard/stats',
+  '/dashboard/results',
+  '/dashboard/transcripts',
+  '/upload/result',
+]
+
+function landingFor(perms) {
+  for (const path of LANDING_ORDER) {
+    const need = ROUTE_PERMISSIONS[path]
+    if (!need || perms.includes(need)) return path
+  }
+  return '/login'
+}
+
+// Guard berbasis CAPABILITY, bukan daftar nama role.
+//
+// Versi lama mencocokkan `user.role` ke literal (`['spq_head','admin']` dst). Bentuk
+// itu menolak SEMUA role buatan operator lewat menu Manage Role — namanya tidak
+// pernah ada di daftar mana pun — dan daftarnya juga tertinggal dari kebijakan
+// 14 Agustus 2026 yang memindahkan pengurusan data ke `admin`. Sekarang sumber
+// kebenarannya satu: ROUTE_PERMISSIONS, peta yang sama yang dipakai SidebarMenu
+// untuk memutuskan link mana yang dirender.
 router.beforeEach(to => {
   const token = localStorage.getItem('access_token')
-  if (to.path !== '/login' && !token) {
-    return '/login'
-  }
-  // Role "qc" is restricted to the Dashboard menu (Stats / Results / Campaigns).
+  if (to.path !== '/login' && !token) return '/login'
+  if (to.path === '/login') return true
+
   const user = JSON.parse(localStorage.getItem('user') || 'null')
-  if (user?.role === 'qc' && !to.path.startsWith('/dashboard')) {
-    return '/dashboard/stats'
-  }
+  // Sesi lama (localStorage dari build sebelum capability) belum menyimpan
+  // `permissions`. Jangan kunci mereka di luar: App.vue memanggil reloadMe() saat
+  // dimuat sehingga datanya sembuh sendiri, dan endpoint tetap menegakkan izin.
+  if (!Array.isArray(user?.permissions)) return true
 
-  // QC Support has NO Statistics menu — send them to Results instead.
-  if (user?.role === 'qc_support' && to.path === '/dashboard/stats') {
-    return '/dashboard/results'
-  }
-
-  // "Upload Audio" is limited to SPQ Head / Admin, Sales Agent, QC Support, and Team Leader QC.
-  if (to.path === '/upload/audio' && !['spq_head', 'admin', 'sales_agent', 'qc_support', 'team_leader_qc'].includes(user?.role)) {
-    return '/'
-  }
-
-  // Transkrip (list + detail): QC / Team Leader QC / QC Support / SPQ Head / Admin.
-  if (to.path.startsWith('/dashboard/transcripts') && !['qc', 'spq_head', 'admin', 'team_leader_qc', 'qc_support'].includes(user?.role)) {
-    return '/'
-  }
-
-  // Manual Check (banding) & Pending Check (antrean Manual Status):
-  // QC / Team Leader QC / SPQ Head / Admin — sejalan dengan menu di SidebarMenu.
-  if (
-    ['/dashboard/banding-review', '/dashboard/pending-check'].includes(to.path) &&
-    !['qc', 'team_leader_qc', 'spq_head', 'admin'].includes(user?.role)
-  ) {
-    return '/'
-  }
-
-  // Assign Ticket (QC ticket assignment) is Team Leader QC / SPQ Head / Admin.
-  if (to.path.startsWith('/qc/') && !['team_leader_qc', 'spq_head', 'admin'].includes(user?.role)) {
-    return '/'
-  }
-
-  // SPQ Head area ("Manage User", "Hierarki Role") is SPQ Head / Admin only.
-  if (to.path.startsWith('/spq-head') && !['spq_head', 'admin'].includes(user?.role)) {
-    return '/'
-  }
-
-  // Sales database (upload + list) is SPQ Head / Admin only.
-  // qc-database dinonaktifkan: route-nya di-comment, path-nya tidak ada lagi.
-  if (
-    ['/upload/sales-database', '/dashboard/sales-database',
-     /* '/upload/qc-database', '/dashboard/qc-database' */].includes(to.path) &&
-    !['spq_head', 'admin'].includes(user?.role)
-  ) {
-    return '/'
-  }
+  const need = requiredPermission(to.path)
+  if (need && !user.permissions.includes(need)) return landingFor(user.permissions)
+  return true
 })
 
 export default router

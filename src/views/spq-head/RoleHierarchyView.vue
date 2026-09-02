@@ -384,9 +384,9 @@ const features = [
     note: '—',
   },
   {
-    menu: 'Stats', feature: 'Tabel Hierarki Error Rate QC (kinerja QC)',
+    menu: 'Stats', feature: 'Tabel Hierarki Failure Rate QC (kinerja QC)',
     who: ['Team Leader QC', 'SPQ Head', 'Admin'],
-    note: 'Termasuk Approve Rate per QC.',
+    note: 'Termasuk Checked Rate per QC.',
   },
   {
     menu: 'Stats', feature: 'Kolom Risk System & Risk New',
