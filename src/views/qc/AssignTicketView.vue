@@ -82,12 +82,16 @@ import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
 import { groupTickets, joinLocalResults } from './assignTicketData.js'
 
-// Same-origin call-qc; nginx mem-proxy /tickets-daily ke App C (:8008).
-// Pola dan konstanta menyalin TranscriptsView.vue yang sudah dipakai produksi.
-const C_API_BASE = (import.meta.env.VITE_TMS_API_URL || 'https://call-qc.bankmega.local').replace(/\/+$/, '')
-const X_API_KEY = import.meta.env.VITE_TMS_API_KEY || 'zTkQMeKmvq9D59z0NhWczv9o9KrPSfnSs8hLJ0J4r1s'
-const FETCH_LIMIT = 100      // /tickets-daily menolak limit > 100
-const MAX_FETCH_PAGES = 100  // pengaman loop
+// Baris tiket diambil lewat App B (`GET /tickets_daily`), bukan menembak App C
+// langsung dari browser: permintaan langsung tidak melewati App B sehingga
+// pembatasan campaign (`rbac.effective_campaigns_for`) tidak berlaku — login yang
+// dibatasi ke campaign Collection tetap bisa meng-assign tiket ACT02/LOC26.
+// Paginasi App C (maks 100/halaman) dan X-API-Key ikut pindah ke server.
+// Sama seperti TranscriptsView.vue.
+
+// Paginasi /list_results (App B) — masih dilakukan di sini, lihat fetchLocalResults.
+const FETCH_LIMIT = 100
+const MAX_FETCH_PAGES = 100
 
 const tickets = ref([])
 const qcUsers = ref([])
@@ -127,28 +131,14 @@ function formatDate(iso) {
   })
 }
 
-// Tarik seluruh halaman tickets-daily. Dibatalkan bila ada permintaan baru,
-// dan hanya permintaan TERAKHIR yang boleh menulis ke state.
+// Baris tickets-daily DALAM CAKUPAN campaign login ini. Satu request: server yang
+// memaginasi App C dan menyaringnya. Dibatalkan bila ada permintaan baru, dan
+// hanya permintaan TERAKHIR yang boleh menulis ke state.
 async function fetchTicketsDaily(signal) {
-  const collected = []
-  let p = 1
-  while (p <= MAX_FETCH_PAGES) {
-    const url = new URL(`${C_API_BASE}/tickets-daily`)
-    if (loadDate.value) url.searchParams.set('load_date', loadDate.value)
-    url.searchParams.set('page', String(p))
-    url.searchParams.set('limit', String(FETCH_LIMIT))
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json', 'X-API-Key': X_API_KEY },
-      signal,
-    })
-    if (!res.ok) throw new Error(`Gagal memuat tickets-daily (HTTP ${res.status})`)
-    const data = await res.json()
-    const items = data.items || []
-    collected.push(...items)
-    if (collected.length >= (data.total || 0) || items.length === 0) break
-    p += 1
-  }
-  return collected
+  const params = {}
+  if (loadDate.value) params.load_date = loadDate.value
+  const res = await apiClient.get('/tickets_daily', { params, signal })
+  return res.data.items || []
 }
 
 // Data assignment lokal. Dipaginasi penuh: satu hari saja sudah >100 ticket,
@@ -201,12 +191,12 @@ async function loadAll() {
     tickets.value = joinLocalResults(groupTickets(daily), local, assignments)
     qcUsers.value = users.data || []
   } catch (e) {
-    if (e.name === 'AbortError') return
+    if (e.name === 'AbortError' || e.name === 'CanceledError') return
     if (myId !== requestId) return
     tickets.value = []
     errorMsg.value = e.response?.status === 403
       ? 'Akses hanya untuk Team Leader QC atau SPQ Head.'
-      : (e.message || 'Gagal memuat data.')
+      : (e.response?.data?.detail || e.message || 'Gagal memuat data.')
   } finally {
     if (myId === requestId) {
       loading.value = false

@@ -51,6 +51,72 @@
         <input type="date" v-model="filterDateEnd" class="date-input" @change="applyFilter" />
       </div>
       <button class="btn-clear" @click="clearFilters">Reset</button>
+      <!-- Reprocess All (Admin only, capability admin.ticket.reprocess): memproses
+           ulang SELURUH tiket yang cocok dengan filter di atas — bukan hanya halaman
+           yang tampak. Sengaja hanya di menu Results: Manual Check & Pending Check
+           adalah antrean review, dan filter antreannya bukan hal yang masuk akal
+           dijadikan dasar perintah semahal ini. -->
+      <button
+        v-if="canReprocessAll"
+        class="btn-reprocess-all"
+        :disabled="bulkPreviewLoading || !!bulkJob"
+        title="Proses ulang semua ticket yang cocok dengan filter saat ini"
+        @click="openBulkModal"
+      >
+        <span v-if="bulkPreviewLoading" class="spinner spinner-blue"></span>
+        {{ bulkPreviewLoading ? 'Menghitung...' : 'Reprocess All' }}
+      </button>
+    </div>
+
+    <!-- Strip progres job Reprocess All. Tombol per baris tidak perlu diurus di
+         sini: `reprocess_active` dari /list_results sudah menahannya, dan poll 7
+         detik yang sama melepasnya begitu tiap tiket selesai. -->
+    <div v-if="bulkJob" class="bulk-bar">
+      <span class="spinner spinner-blue"></span>
+      <span class="bulk-text">
+        Reprocess All berjalan —
+        <strong>{{ bulkDone }}/{{ bulkJob.total_tickets }}</strong> selesai
+        <template v-if="bulkJob.counts?.failed"> · {{ bulkJob.counts.failed }} gagal</template>
+      </span>
+      <button class="bulk-cancel" :disabled="bulkCancelling" @click="cancelBulkJob">
+        {{ bulkCancelling ? 'Membatalkan...' : 'Batalkan' }}
+      </button>
+      <span v-if="bulkError" class="bulk-err">{{ bulkError }}</span>
+    </div>
+
+    <!-- Kebijakan tenggat H+2 dokumen pendukung.
+         Sejak 28 Agustus 2026 SELURUH bar ini — indikator maupun tombolnya — hanya
+         tampil untuk pemegang ``admin.doc_sla.write``, yaitu Admin dan Demo.
+         Sebelumnya indikatornya tampil untuk semua role dengan alasan status
+         PENDING/FAIL mereka bergantung padanya; kebijakan ini sengaja diubah karena
+         sakelar tingkat sistem bukan informasi yang perlu dibaca sisi sales/QC.
+         Gate-nya CAPABILITY (bukan `role === 'admin'`), jadi bisa dipindah ke role
+         lain lewat Manage Role tanpa menyentuh kode. -->
+    <div v-if="canSeeDocSla && docSla" class="sla-bar" :class="docSla.enabled ? 'sla-on' : 'sla-off'">
+      <span class="sla-dot" aria-hidden="true"></span>
+      <span class="sla-text">
+        <template v-if="docSla.enabled">
+          Kebijakan SLA <strong>H+2 AKTIF</strong> — semua dokumen mengikuti kebijakan H+2
+          ({{ docSla.sla_hours }} jam sejak submit TMS). Tiket yang dokumennya belum
+          diunggah sampai tenggat menjadi <strong>Not Qualified</strong>.
+        </template>
+        <template v-else>
+          Kebijakan SLA <strong>H+2 NONAKTIF</strong> — tenggat dianggap tidak pernah
+          lewat, jadi tiket yang kekurangan dokumen tetap <strong>Pending</strong>.
+        </template>
+      </span>
+      <span v-if="docSla.updated_by_username" class="sla-meta">
+        diubah oleh {{ docSla.updated_by_username }}
+      </span>
+      <button
+        v-if="docSla.can_edit"
+        class="sla-toggle"
+        :disabled="docSlaSaving"
+        @click="toggleDocSla"
+      >
+        {{ docSlaSaving ? 'Menyimpan...' : (docSla.enabled ? 'Matikan H+2' : 'Aktifkan H+2') }}
+      </button>
+      <span v-if="docSlaError" class="sla-error">{{ docSlaError }}</span>
     </div>
 
     <!-- Export agregat per kategori verifikasi (Admin). Berbeda dengan
@@ -95,24 +161,28 @@
     </div>
     <div v-else class="table-card">
       <table class="data-table">
+        <!-- Lebar kolom: `colStyle(normal, demo)` — tata letak Demo melepas dua kolom
+             (Number of Calls & Export), jadi sisanya melebar, terutama Call Duration
+             yang di sana memuat satu butir per PDF. -->
         <colgroup>
-          <col style="width: 10%" />
+          <col :style="colStyle(10, 11)" />
           <col v-if="isSimpleViewer" style="width: 12%" />
           <col v-if="isSimpleViewer" style="width: 11%" />
           <col v-if="isSimpleViewer" style="width: 9%" />
-          <col style="width: 6%" />
-          <col style="width: 7%" />
-          <col style="width: 10%" />
-          <col v-if="showCriticalFailure" style="width: 13%" />
+          <col v-if="!isDemoLayout" style="width: 6%" />
+          <col :style="colStyle(7, 17)" />
+          <col :style="colStyle(10, 11)" />
+          <col v-if="showCriticalFailure" :style="colStyle(13, 15)" />
+          <col v-if="isDemoLayout" style="width: 10%" />
           <col v-if="showNonTolerable" style="width: 11%" />
           <col v-if="!isSimpleViewer" style="width: 8%" />
-          <col style="width: 8%" />
-          <col v-if="showManualStatus" style="width: 10%" />
-          <col v-if="!isSimpleViewer" style="width: 7%" />
-          <col v-if="showDocumentColumn" style="width: 9%" />
+          <col :style="colStyle(8, 10)" />
+          <col v-if="showManualStatus" :style="colStyle(10, 13)" />
+          <col v-if="showExportColumn" style="width: 7%" />
+          <col v-if="showDocumentColumn" :style="colStyle(9, 9)" />
           <col v-if="canAppealErrorCode" style="width: 12%" />
           <col v-if="canReviewBandingSpq" style="width: 12%" />
-          <col v-if="canDeleteTicket" style="width: 8%" />
+          <col v-if="showActionColumn" :style="colStyle(9, 9)" />
           <col v-if="canReviewBandingTl" style="width: 12%" />
           <col v-if="isPendingCheck" style="width: 11%" />
         </colgroup>
@@ -122,21 +192,28 @@
             <th v-if="isSimpleViewer">Customer Name</th>
             <th v-if="isSimpleViewer">Nomor Kartu</th>
             <th v-if="isSimpleViewer">Limit Sebelumnya</th>
-            <th class="num">Number of Calls</th>
+            <th v-if="!isDemoLayout" class="num">Number of Calls</th>
             <th>Call Duration</th>
             <th>Campaign Interest</th>
-            <th v-if="showCriticalFailure">Critical Failure(s)</th>
+            <!-- Isinya sama (critical_compliance_check); tata letak Demo menyebutnya
+                 SCOREBOMB, istilah yang dipakai saat mendemokan ke orang awam. -->
+            <th v-if="showCriticalFailure">{{ isDemoLayout ? 'SCOREBOMB' : 'Critical Failure(s)' }}</th>
+            <!-- Item scorecard yang belum beres, kode saja. Kuning = PENDING (menunggu
+                 dokumen, skor belum dipotong), merah = BELUM_SESUAI (sudah dipotong). -->
+            <th v-if="isDemoLayout">SCORECARD</th>
             <th v-if="showNonTolerable">Non-Tolerable</th>
-            <th v-if="!isSimpleViewer" class="num">Passing Grade</th>
+            <!-- Demo: "Grade" = nilai akhir / passing grade (mis. 149/135). Non-demo
+                 tetap "Passing Grade" dalam persen terhadap skor maksimum. -->
+            <th v-if="!isSimpleViewer" class="num">{{ isDemoLayout ? 'Grade' : 'Passing Grade' }}</th>
             <th>AI Status</th>
             <th v-if="showManualStatus">Manual Status</th>
-            <th v-if="!isSimpleViewer">Export</th>
+            <th v-if="showExportColumn">Export</th>
             <th v-if="showDocumentColumn">Document</th>
             <!-- Kolom ini SEMATA-MATA tentang banding Error Code (sumbernya
                  error_code_appeals), tidak ada hubungannya dengan Manual Status. -->
             <th v-if="canAppealErrorCode">Manual Check</th>
             <th v-if="canReviewBandingSpq">Manual Check</th>
-            <th v-if="canDeleteTicket">Delete Record</th>
+            <th v-if="showActionColumn">Action</th>
             <th v-if="canReviewBandingTl">Manual Check</th>
             <th v-if="isPendingCheck">Sisa Waktu (H+2)</th>
           </tr>
@@ -156,10 +233,29 @@
                 </span>
               </td>
               <td v-if="isSimpleViewer" class="cell-strong">{{ group.primary.customer_name || '—' }}</td>
-              <td v-if="isSimpleViewer">{{ group.primary.account_number || 'NTB' }}</td>
+              <!-- Nomor Kartu = nomor kartu virtual Cashline (ascend CUST_CR_CARD1).
+                   Sudah di-mask di backend (8 digit tengah disembunyikan) sehingga
+                   PAN penuh tidak pernah sampai ke browser. Kosong di ascend artinya
+                   nasabah belum punya kartu → backend kirim null → tampil "Cashline NTB"
+                   (New To Bank; sampai 28 Agustus 2026 tertulis "NTB" saja). -->
+              <td v-if="isSimpleViewer">{{ group.primary.account_number || 'Cashline NTB' }}</td>
+              <!-- Limit Sebelumnya = ascend CUST_CRLIMIT; hanya untuk nasabah non-NTB.
+                   Limit pencairan >= 50 jt memicu wajib upload NPWP (lihat backend). -->
               <td v-if="isSimpleViewer">{{ formatLimit(group.primary) }}</td>
-              <td class="num">{{ group.primary.num_calls ?? '—' }}</td>
-              <td class="cell-date">{{ group.primary.audio_duration || '—' }}</td>
+              <td v-if="!isDemoLayout" class="num">{{ group.primary.num_calls ?? '—' }}</td>
+              <!-- Demo: satu butir per PDF, "<nama berkas> - <durasi>". Jumlah
+                   panggilan terbaca dari banyaknya butir, itulah sebabnya kolom
+                   Number of Calls dilepas di tata letak ini. -->
+              <td class="cell-date">
+                <ul v-if="isDemoLayout && callDurations(group.primary).length" class="call-duration-list">
+                  <li v-for="(c, i) in callDurations(group.primary)" :key="i">
+                    <span class="cd-file">{{ c.file }}</span>
+                    <span class="cd-sep">-</span>
+                    <span class="cd-dur">{{ c.duration }}</span>
+                  </li>
+                </ul>
+                <span v-else>{{ group.primary.audio_duration || '—' }}</span>
+              </td>
               <td>
                 <ul v-if="group.primary.campaign_interest && group.primary.campaign_interest.length" class="campaign-interest-list">
                   <li v-for="(c, i) in group.primary.campaign_interest" :key="i">{{ c }}</li>
@@ -175,6 +271,19 @@
                 </ul>
                 <span v-else>—</span>
               </td>
+              <td v-if="isDemoLayout" class="cell-ccc">
+                <ul v-if="scorecardIssues(group.primary).length" class="ccc-list">
+                  <li
+                    v-for="(sc, i) in scorecardIssues(group.primary)"
+                    :key="i"
+                    class="ccc-item"
+                  >
+                    <span :class="['ccc-dot', sc.status === 'PENDING' ? 'dot-amber' : 'dot-red']"></span>
+                    <span class="ccc-req">{{ sc.item_code }}</span>
+                  </li>
+                </ul>
+                <span v-else>—</span>
+              </td>
               <td v-if="showNonTolerable" class="cell-ccc">
                 <ul v-if="nonTolerableItems(group.primary).length" class="ccc-list">
                   <li v-for="(r, i) in nonTolerableItems(group.primary)" :key="i" class="ccc-item">
@@ -184,16 +293,35 @@
                 </ul>
                 <span v-else>—</span>
               </td>
-              <td v-if="!isSimpleViewer" class="num">{{ passingGradeDisplay(group.primary) }}</td>
+              <td v-if="!isSimpleViewer" class="num">
+                <template v-if="isDemoLayout">
+                  <span v-if="gradePair(group.primary)" class="grade-pair">
+                    <span
+                      :class="['grade-final', gradePair(group.primary).passed ? 'grade-pass' : 'grade-fail']"
+                      :title="gradePair(group.primary).passed ? 'Nilai akhir memenuhi passing grade' : 'Nilai akhir di bawah passing grade'"
+                    >{{ gradePair(group.primary).score }}</span><span class="grade-sep">/</span><span
+                      class="grade-passing"
+                      title="Passing grade campaign ini"
+                    >{{ gradePair(group.primary).passing }}</span>
+                  </span>
+                  <span v-else>—</span>
+                </template>
+                <template v-else>{{ passingGradeDisplay(group.primary) }}</template>
+              </td>
               <td>
                 <span v-if="group.primary.ai_status" :class="['status-badge', aiStatusBadgeClass(group.primary.ai_status)]">{{ aiStatusLabel(group.primary.ai_status) }}</span>
                 <span v-else>—</span>
-                <!-- PENDING tanpa keterangan tidak bisa ditindaklanjuti: sebutkan
-                     dokumen apa yang ditunggu dan bahwa tenggatnya H+2. -->
+                <!-- PENDING tanpa keterangan tidak bisa ditindaklanjuti. Dua sebab
+                     yang mungkin, dan bisa muncul bersamaan (dipisah " · "):
+                     "Data Ascend Kosong" (acuan card holder tidak ada — harus
+                     dilengkapi dari sisi Ascend, bukan oleh agent/QC) dan dokumen
+                     pendukung yang ditunggu beserta tenggat H+2-nya. -->
                 <div v-if="group.primary.pending_reason" class="ai-status-note">{{ group.primary.pending_reason }}</div>
-                <!-- Not Qualified karena sebab yang TIDAK terbaca dari skor: saat ini
-                     indikasi fraud (penyebutan verifikasi statik berubah-ubah). -->
-                <div v-if="group.primary.fail_reason" class="ai-status-note note-fraud">{{ group.primary.fail_reason }}</div>
+                <!-- Not Qualified karena sebab yang TIDAK terbaca dari skor: sejak
+                     21 Agustus 2026 hanya badword. Penyebutan verifikasi statik yang
+                     berubah-ubah tetap menggugurkan tiket, tetapi tidak lagi diberi
+                     komentar di sini — sebabnya terbaca di kolom Critical Failure. -->
+                <div v-if="group.primary.fail_reason" class="ai-status-note note-fail">{{ group.primary.fail_reason }}</div>
               </td>
               <!-- Manual Status (sisi QC + administrasi): verdict QC via hierarki +
                    default missing-docs. Divisi sales tidak melihat kolom ini. -->
@@ -230,7 +358,7 @@
                      tidak terwakili oleh riwayat karena belum tentu ada kejadiannya. -->
                 <span v-if="group.primary.missing_documents" class="mstatus-note">{{ missingDocNote(group.primary) }}</span>
               </td>
-              <td v-if="!isSimpleViewer" class="cell-export" @click.stop>
+              <td v-if="showExportColumn" class="cell-export" @click.stop>
                 <button
                   v-if="group.primary.status === 'done'"
                   class="btn-export-row"
@@ -254,7 +382,10 @@
                     <button
                       v-else
                       class="btn-doc-row"
-                      :disabled="!docMissing(group.primary).length"
+                      :disabled="!docMissing(group.primary).length || uploadLockedByStatus(group.primary)"
+                      :title="uploadLockedByStatus(group.primary)
+                        ? 'Tiket sudah Not Qualified — dokumen susulan tidak lagi mengubah vonis'
+                        : undefined"
                       @click="openDocModal(group.primary)"
                     >
                       <span>Upload</span>
@@ -264,7 +395,7 @@
                   <!-- View — role ber-capability DOCUMENT_VIEW, mati bila belum ada
                        dokumen sama sekali. -->
                   <button
-                      v-if="canViewDocument"
+                    v-if="canViewDocument"
                     class="btn-doc-row btn-doc-view"
                     :disabled="!group.primary.has_documents"
                     :title="group.primary.has_documents ? 'Lihat dokumen yang sudah diunggah' : 'Belum ada dokumen yang diunggah'"
@@ -285,7 +416,7 @@
                      dokumen: "Perlu Dokumen NPWP karena Perubahan NPWP". Hanya dokumen
                      yang BELUM diunggah yang disebut; tiket tanpa kebutuhan dokumen
                      meninggalkan sel ini kosong. -->
-                <div v-if="canUploadDocument && docNeeds(group.primary).length" class="doc-reason">
+                <div v-if="docNeeds(group.primary).length" class="doc-reason">
                   <span
                     v-for="n in docNeeds(group.primary)"
                     :key="n.doc_type"
@@ -307,7 +438,7 @@
                   v-if="appealHistoryCount(group.primary)"
                   class="btn-mstatus btn-mstatus-ghost"
                   :title="`Lihat ${appealHistoryCount(group.primary)} kejadian banding Error Code`"
-                  @click.stop="openAppealHistory(group.primary)"
+                  @click="openAppealHistory(group.primary)"
                 >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
               <!-- Banding Review (reuses the old hidden QC Approval column slot for SPQ Head):
@@ -322,11 +453,35 @@
                   v-if="appealHistoryCount(group.primary)"
                   class="btn-mstatus btn-mstatus-ghost"
                   :title="`Lihat ${appealHistoryCount(group.primary)} kejadian banding Error Code`"
-                  @click.stop="openAppealHistory(group.primary)"
+                  @click="openAppealHistory(group.primary)"
                 >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
-              <td v-if="canDeleteTicket" class="cell-delete" @click.stop>
-                <button class="btn-delete-row" @click="openDeleteModal(group.primary)">Delete</button>
+              <!-- Satu kolom aksi per record: Reprocess di atas, Delete di bawah.
+                   Keduanya berbicara tentang kumpulan row yang sama (semua entry
+                   dengan ticket id ini), hanya Reprocess menggantinya dengan satu
+                   hasil baru sementara Delete membuangnya tanpa sisa. -->
+              <td v-if="showActionColumn" class="cell-actions" @click.stop>
+                <button
+                  v-if="canReprocessTicket"
+                  class="btn-reprocess-row"
+                  :disabled="reprocessBusy(group.primary)"
+                  :title="reprocessTitle(group.primary)"
+                  @click="openReprocessModal(group.primary)"
+                >
+                  <span v-if="reprocessBusy(group.primary)" class="spinner spinner-blue"></span>
+                  {{ reprocessBusy(group.primary) ? 'Memproses...' : 'Reprocess' }}
+                </button>
+                <button
+                  v-if="canDeleteTicket"
+                  class="btn-delete-row"
+                  :disabled="reprocessBusy(group.primary)"
+                  @click="openDeleteModal(group.primary)"
+                >Delete</button>
+                <span
+                  v-if="reprocessError[group.primary.id]"
+                  class="row-reprocess-err"
+                  :title="reprocessError[group.primary.id]"
+                >Reprocess gagal</span>
               </td>
               <!-- Team Leader QC: flag IDs with a banding awaiting THEIR check. -->
               <td v-if="canReviewBandingTl" class="cell-banding">
@@ -340,7 +495,7 @@
                   v-if="appealHistoryCount(group.primary)"
                   class="btn-mstatus btn-mstatus-ghost"
                   :title="`Lihat ${appealHistoryCount(group.primary)} kejadian banding Error Code`"
-                  @click.stop="openAppealHistory(group.primary)"
+                  @click="openAppealHistory(group.primary)"
                 >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
               <!-- Pending Check: H+2 SLA timer from TMS submit_time (deadline = submit_time + 2 hari). -->
@@ -484,6 +639,7 @@
       @reviewed="onQcRequestChanged"
     />
 
+    <!-- Delete Record (Admin only): two-step confirmation before deleting ALL entries of a ticket. -->
     <Teleport to="body">
       <div v-if="deleteItem" class="modal-overlay" @click.self="closeDeleteModal">
         <div class="del-modal-card" role="dialog" aria-modal="true">
@@ -507,6 +663,93 @@
             <button v-else class="del-btn-confirm" :disabled="deleting || deleteConfirmText.trim() !== deleteItem.id" @click="confirmDelete">
               <span v-if="deleting" class="spinner"></span>
               {{ deleting ? 'Menghapus...' : 'Hapus Permanen' }}
+            </button>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Reprocess (Admin only): satu konfirmasi, lalu tiket diproses ulang dan
+         entry lamanya dihapus setelah hasil barunya jadi. -->
+    <Teleport to="body">
+      <div v-if="reprocessItem" class="modal-overlay" @click.self="closeReprocessModal">
+        <div class="del-modal-card" role="dialog" aria-modal="true">
+          <header class="del-modal-head">
+            <h2 class="del-modal-title title-blue">Reprocess Ticket</h2>
+            <button class="del-close-x" @click="closeReprocessModal">✕</button>
+          </header>
+
+          <div class="del-modal-body">
+            <p>Ticket <strong>{{ reprocessItem.id }}</strong> akan dievaluasi ulang
+              memakai konfigurasi campaign
+              <strong>{{ reprocessItem.campaign || '—' }}</strong> yang berlaku sekarang.</p>
+            <p>Setelah hasil barunya jadi, <strong>semua entry lama</strong> ticket ini
+              dihapus sehingga tersisa tepat satu entry.</p>
+            <p class="del-warn">Banding Error Code, usulan/approval Manual Status, dan
+              dokumen pendukung pada entry lama ikut hilang. Kalau reproses gagal,
+              entry lama dipertahankan apa adanya.</p>
+            <p v-if="reprocessModalError" class="del-error">{{ reprocessModalError }}</p>
+          </div>
+
+          <footer class="del-modal-foot">
+            <button class="del-btn-cancel" :disabled="reprocessStarting" @click="closeReprocessModal">Batal</button>
+            <button class="del-btn-run" :disabled="reprocessStarting" @click="confirmReprocess">
+              <span v-if="reprocessStarting" class="spinner"></span>
+              {{ reprocessStarting ? 'Menjalankan...' : 'Proses Ulang' }}
+            </button>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Reprocess All: konfirmasi yang menyebut ONGKOSNYA, bukan sekadar "yakin?".
+         Angkanya datang dari /reprocess_filter_preview, yang memakai jalur
+         pemilihan tiket yang sama persis dengan job-nya. -->
+    <Teleport to="body">
+      <div v-if="bulkPreview" class="modal-overlay" @click.self="closeBulkModal">
+        <div class="del-modal-card" role="dialog" aria-modal="true">
+          <header class="del-modal-head">
+            <h2 class="del-modal-title title-blue">Reprocess All</h2>
+            <button class="del-close-x" @click="closeBulkModal">✕</button>
+          </header>
+
+          <div class="del-modal-body">
+            <p v-if="activeFilterLabels.length">Filter yang berlaku:</p>
+            <ul v-if="activeFilterLabels.length" class="bulk-filters">
+              <li v-for="f in activeFilterLabels" :key="f">{{ f }}</li>
+            </ul>
+            <p v-else class="del-warn"><strong>Tidak ada filter aktif</strong> — ini
+              menyentuh SELURUH ticket yang bisa Anda lihat.</p>
+
+            <table class="bulk-count">
+              <tr><td>Cocok dengan filter</td><td>{{ bulkPreview.matched }} ticket</td></tr>
+              <tr v-if="bulkPreview.skipped">
+                <td>Sedang direproses</td><td>{{ bulkPreview.skipped }} ticket → dilewati</td>
+              </tr>
+              <tr class="bulk-count-total">
+                <td>Diproses</td><td><strong>{{ bulkPreview.will_process }} ticket</strong></td>
+              </tr>
+            </table>
+
+            <p v-if="bulkPreview.will_process">Sebanyak itu pula panggilan LLM-nya,
+              sekitar <strong>{{ bulkEta }}</strong>. Tiap ticket dievaluasi ulang memakai
+              konfigurasi campaign yang berlaku sekarang, lalu entry lamanya dihapus
+              setelah hasil barunya jadi.</p>
+            <p class="del-warn">Banding Error Code, usulan/approval Manual Status, dan
+              dokumen pendukung pada entry lama ikut hilang. Ticket yang gagal
+              dipertahankan apa adanya.</p>
+            <p v-if="bulkModalError" class="del-error">{{ bulkModalError }}</p>
+          </div>
+
+          <footer class="del-modal-foot">
+            <button class="del-btn-cancel" :disabled="bulkStarting" @click="closeBulkModal">Batal</button>
+            <button
+              class="del-btn-run"
+              :disabled="bulkStarting || !bulkPreview.will_process"
+              @click="confirmBulkReprocess"
+            >
+              <span v-if="bulkStarting" class="spinner"></span>
+              {{ bulkStarting ? 'Menjalankan...' : `Proses Ulang ${bulkPreview.will_process} Ticket` }}
             </button>
           </footer>
         </div>
@@ -545,6 +788,61 @@ const serverGroups = ref([])
 const serverTotalGroups = ref(0)
 const serverTotalResults = ref(0)
 
+// --- Kebijakan tenggat H+2 dokumen pendukung -------------------------------
+// Sakelar global (app_settings.doc_sla_enabled), bukan per-tiket. Sejak
+// 28 Agustus 2026 hanya pemegang ``admin.doc_sla.write`` (Admin & Demo) yang
+// melihat barnya sekaligus tombolnya; role lain tidak menampilkannya DAN tidak
+// meminta datanya. Backend juga menolak GET maupun PUT dari role lain, jadi
+// penyembunyian di sini kenyamanan — pengamannya tetap di server.
+const canSeeDocSla = computed(() => auth.can(P.ADMIN_DOC_SLA_WRITE))
+const docSla = ref(null)
+const docSlaSaving = ref(false)
+const docSlaError = ref('')
+
+async function loadDocSla() {
+  // Role tanpa capability tidak perlu memanggilnya sama sekali — memanggil lalu
+  // menelan 403 hanya mengotori log dengan error yang memang diharapkan.
+  if (!canSeeDocSla.value) {
+    docSla.value = null
+    return
+  }
+  try {
+    const res = await apiClient.get('/doc_sla_policy')
+    docSla.value = res.data
+  } catch (e) {
+    // Indikator yang gagal dimuat cukup disembunyikan; layar Results tidak boleh
+    // ikut gagal hanya karena sakelar kebijakan tidak terbaca.
+    docSla.value = null
+  }
+}
+
+async function toggleDocSla() {
+  if (!docSla.value || docSlaSaving.value) return
+  const next = !docSla.value.enabled
+  const warn = next
+    ? 'Aktifkan kebijakan SLA H+2?\n\nTiket yang dokumennya belum diunggah dan tenggatnya sudah lewat akan langsung menjadi Not Qualified.'
+    : 'Matikan kebijakan SLA H+2?\n\nTenggat dianggap tidak pernah lewat, sehingga tiket yang kekurangan dokumen kembali menjadi Pending.'
+  // Sakelar ini menilai ulang SELURUH tiket yang ada seketika (dibaca saat MEMBACA
+  // data, bukan saat evaluasi), jadi jangan sampai tertekan tanpa sengaja.
+  if (!window.confirm(warn)) return
+  docSlaSaving.value = true
+  docSlaError.value = ''
+  try {
+    const res = await apiClient.put('/doc_sla_policy', { enabled: next })
+    docSla.value = res.data
+    // Status tiket di daftar ikut berubah, jadi muat ulang halamannya.
+    await fetchItems()
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    docSlaError.value = typeof detail === 'string' ? detail : 'Gagal mengubah kebijakan'
+  } finally {
+    docSlaSaving.value = false
+  }
+}
+
+// Same component serves the normal Results list and the "Banding Review" queue
+// (route meta.bandingReview) — the queue asks the backend for only tickets awaiting
+// the caller's review tier and, unlike Results, spans all dates (not just today).
 const route = useRoute()
 const isBandingReview = route.meta?.bandingReview === true
 // "Pending Check" queue (route meta.pendingCheck): tickets whose Manual Status is
@@ -645,8 +943,18 @@ const canUploadDocument = computed(() => auth.can(P.DOCUMENT_UPLOAD))
 // ensure_can_view_result (api/qc_scope.py) — jadi Team Leader yang boleh melihat
 // dokumen pun hanya bisa membuka dokumen tiket timnya sendiri.
 const canViewDocument = computed(() => auth.can(P.DOCUMENT_VIEW))
-// Kolom Document baru berguna kalau ada setidaknya satu aksi di dalamnya.
-const showDocumentColumn = computed(() => canUploadDocument.value || canViewDocument.value)
+// Boleh mengunggah untuk tiket yang SUDAH Not Qualified (Admin & Demo). Tanpa ini
+// tombol Upload mati begitu vonisnya jatuh: dokumen susulan tidak mengubah apa pun,
+// jadi meminta Team Leader mengunggahnya hanya memindahkan pekerjaan sia-sia.
+const canUploadLockedTicket = computed(() => auth.can(P.DOCUMENT_UPLOAD_LOCKED_TICKET))
+function uploadLockedByStatus(item) {
+  return item.ai_status === 'FAIL' && !canUploadLockedTicket.value
+}
+// Kolom Document berguna kalau ada aksi di dalamnya ATAU ada kebutuhan dokumen yang
+// perlu dibaca. Yang terakhir itu untuk Sales Agent: mereka tidak boleh mengunggah
+// maupun membuka dokumen, tetapi tetap perlu tahu berkas apa yang diminta tiketnya.
+const showDocumentColumn = computed(() =>
+  canUploadDocument.value || canViewDocument.value || items.value.some((i) => docNeeds(i).length))
 // Aksi Manual Status & banding kini murni capability. Ini juga yang membuat
 // pembatasan role "admin" (menu sama dengan SPQ Head, tanpa aksi QC) berlaku di
 // SATU tempat, bukan tersebar sebagai perbandingan nama role.
@@ -659,34 +967,64 @@ const canSetManualStatus = computed(() => auth.can(P.MANUAL_STATUS_SET))
 const canReviewManualTl = computed(() => auth.can(P.MANUAL_STATUS_REVIEW_TL))
 const canReviewManualSpq = computed(() => auth.can(P.MANUAL_STATUS_REVIEW_SPQ))
 const canAppealErrorCode = computed(() => auth.can(P.ERROR_CODE_APPEAL))
+const canDirectEditErrorCode = computed(() => auth.can(P.ERROR_CODE_DIRECT_EDIT))
 const canReviewBandingTl = computed(() => auth.can(P.ERROR_CODE_REVIEW_TL))
 const canReviewBandingSpq = computed(() => auth.can(P.ERROR_CODE_REVIEW_SPQ))
 const canDeleteTicket = computed(() => auth.can(P.ADMIN_TICKET_DELETE))
+const canReprocessTicket = computed(() => auth.can(P.ADMIN_TICKET_REPROCESS))
+// Satu kolom "Action" menampung Reprocess dan Delete (bertumpuk atas-bawah), jadi
+// kolomnya tampil selama pemanggil punya salah satu dari keduanya.
+const showActionColumn = computed(() => canDeleteTicket.value || canReprocessTicket.value)
 // Critical Failure(s) tampil untuk semua role KECUALI sisi sales (TLO/sales agent,
 // Team Leader, Area Manager, Telesales Head) — QC, TL QC, QC Support, SPQ Head,
 // dan admin tetap melihatnya.
 const showCriticalFailure = computed(() => auth.can(P.RESULTS_CRITICAL_FAILURE))
 
+// Tata letak Results versi Demo (27 Agustus 2026). Sebuah CAPABILITY, bukan
+// perbandingan `role === 'demo'`: halaman ini sudah sepenuhnya digerakkan
+// capability, dan tata letaknya jadi bisa dipindah ke role lain lewat Manage Role.
+// Yang diubah cuma penyajian — tidak ada data atau aksi baru yang dibuka olehnya:
+//   · Number of Calls dilepas (terbaca dari jumlah butir Call Duration)
+//   · Call Duration jadi daftar "<nama PDF> - <durasi>" per panggilan
+//   · "Critical Failure(s)" dijuduli SCOREBOMB
+//   · "Passing Grade" (persen) jadi "Grade" = nilai akhir / passing grade
+//   · Export per baris dilepas
+const isDemoLayout = computed(() => auth.can(P.RESULTS_LAYOUT_DEMO))
+// Export per baris memang belum punya capability sendiri — gate-nya sejak dulu
+// "bukan sisi sales". Tata letak Demo melepasnya di sini saja.
+const showExportColumn = computed(() => !isSimpleViewer.value && !isDemoLayout.value)
+
+// Lebar kolom yang berbeda antara tata letak biasa dan Demo.
+function colStyle(normal, demo) {
+  return { width: `${isDemoLayout.value ? demo : normal}%` }
+}
+
+// Non-Tolerable column is hidden for now (kept in the template so it can be
+// re-enabled by flipping this flag). Keep colCount in sync below.
 const showNonTolerable = false
 
 // Column count for empty/expand row colspan, mirroring the per-role <th> visibility:
-//   5 base columns: ID, Number of Calls, Call Duration, Campaign Interest, AI Status
-//   + Customer Name, Nomor Kartu, Limit Sebelumnya (simple viewer only)
-//   + Passing Grade, Export (non-simple-viewer)
+//   7 base columns: ID, Number of Calls, Call Duration, Campaign Interest,
+//     Critical Failure, Non-Tolerable, AI Status
+//   + Customer Name, Account Number (Sales Agent only)
+//   + Passing Grade, Export (non-Sales-Agent)
 //   + Document (role yang boleh View dan/atau Upload; keduanya menumpuk di sel yang
 //     sama. Sales Agent tidak punya keduanya, jadi kolomnya hilang sama sekali)
 //   + Manual Check (QC / TL QC / SPQ Head) — ringkasan banding Error Code
 const colCount = computed(() => {
   let n = 5 // ID, Number of Calls, Call Duration, Campaign Interest, AI Status
+  if (isDemoLayout.value) n -= 1 // Number of Calls dilepas di tata letak Demo
+  if (isDemoLayout.value) n += 1 // SCORECARD — hanya ada di tata letak Demo
   if (showManualStatus.value) n += 1 // Manual Status — hanya sisi QC & administrasi
   if (isSimpleViewer.value) n += 3 // Customer Name, Nomor Kartu, Limit Sebelumnya
-  if (showCriticalFailure.value) n += 1 // Critical Failure(s)
+  if (showCriticalFailure.value) n += 1 // Critical Failure(s) / SCOREBOMB
   if (showNonTolerable) n += 1 // Non-Tolerable
-  if (!isSimpleViewer.value) n += 2 // Passing Grade, Export
+  if (!isSimpleViewer.value) n += 1 // Passing Grade / Grade
+  if (showExportColumn.value) n += 1 // Export per baris
   if (showDocumentColumn.value) n += 1 // kolom Document (Upload dan/atau View)
   if (canAppealErrorCode.value) n += 1 // Manual Check — pengaju banding
   if (canReviewBandingSpq.value) n += 1 // Banding Review tahap SPQ Head
-  if (canDeleteTicket.value) n += 1 // Delete Record
+  if (showActionColumn.value) n += 1 // Action (Reprocess / Delete)
   if (canReviewBandingTl.value) n += 1 // Banding Review tahap Team Leader QC
   if (isPendingCheck) n += 1 // Sisa Waktu (H+2) timer
   return n
@@ -696,6 +1034,29 @@ const agentSummary = ref({})
 const loadingAgent = ref({})
 const exportingId = ref(null)
 
+// Manual Check (QC only): marks a ticket as human-reviewed. Append-only on the
+// backend, so the button is one-way here — un-checking is not a QC action.
+const approvingId = ref(null)
+async function approveManualCheck(item) {
+  if (approvingId.value || item.qc_checked_at) return
+  approvingId.value = item.result_id
+  try {
+    const res = await apiClient.post(`/qc_manual_check/${item.result_id}`)
+    // Reflect the server's timestamp rather than a locally-generated one, so the
+    // cell matches what a reload will show.
+    item.qc_checked_at = res.data?.created_at
+    item.qc_checked_by = res.data?.checked_by_username
+  } catch (e) {
+    alert(e.response?.status === 403
+      ? 'Ticket ini tidak di-assign kepada Anda.'
+      : 'Gagal menyimpan manual check. Coba lagi.')
+  } finally {
+    approvingId.value = null
+  }
+}
+
+// Delete Record (Admin only, capability admin.ticket.delete): two-step confirmation
+// to delete ALL entries of a ticket.
 const deleteItem = ref(null)
 const deleteStep = ref(1)
 const deleteConfirmText = ref('')
@@ -734,10 +1095,272 @@ async function confirmDelete() {
     await fetchItems()
   } catch (e) {
     deleting.value = false
-    if (e.response?.status === 403) deleteError.value = 'Hanya SPQ Head yang dapat menghapus record.'
+    if (e.response?.status === 403) deleteError.value = 'Anda tidak punya izin menghapus record.'
     else if (e.response?.status === 404) deleteError.value = 'Ticket tidak ditemukan (mungkin sudah terhapus).'
     else deleteError.value = 'Gagal menghapus record. Coba lagi.'
   }
+}
+
+// Reprocess satu tiket (Admin only, capability admin.ticket.reprocess).
+// Backend membuat job satu-item dan mengembalikannya SEGERA; kolom Action menampilkan
+// tombolnya sebagai "Memproses..." sampai job itu selesai. Penghapusan entry lama
+// dikerjakan worker SETELAH hasil baru berstatus done, jadi daftar baru di-refresh
+// pada saat itu — bukan saat tombol ditekan.
+const reprocessItem = ref(null)
+const reprocessStarting = ref(false)
+const reprocessModalError = ref('')
+const reprocessActive = ref({})   // ticket_id -> job_id selama job berjalan
+const reprocessError = ref({})    // ticket_id -> pesan kegagalan terakhir
+const reprocessTimers = {}        // ticket_id -> handle setTimeout polling
+
+// Dua sumber, dan keduanya diperlukan:
+//  - `reprocessActive`: job yang DIMULAI dari layar ini, supaya tombolnya berubah
+//    seketika tanpa menunggu fetch berikutnya;
+//  - `row.reprocess_active` dari /list_results: job yang masih berjalan menurut
+//    SERVER. Inilah yang menahan tombol sesudah refresh atau pindah menu — peta
+//    di atas ikut hilang bersama komponennya, dan tanpa penanda server tombolnya
+//    tampil siap ditekan lagi lalu ditolak 409 setelah modal dikonfirmasi.
+// Sengaja menerima BARIS-nya, bukan ticket id: penanda server menempel di baris,
+// dan mengambilnya lewat lookup terpisah hanya menambah jalan untuk luput.
+const reprocessBusy = (row) => !!row && (!!reprocessActive.value[row.id] || !!row.reprocess_active)
+const reprocessTitle = (row) => (reprocessBusy(row)
+  ? 'Ticket ini sedang diproses ulang'
+  : 'Proses ulang ticket ini dengan konfigurasi campaign terbaru, lalu hapus entry lamanya')
+
+function openReprocessModal(item) {
+  if (reprocessBusy(item)) return
+  reprocessItem.value = item
+  reprocessModalError.value = ''
+}
+function closeReprocessModal() {
+  if (reprocessStarting.value) return
+  reprocessItem.value = null
+  reprocessModalError.value = ''
+}
+
+function setReprocessActive(ticketId, jobId) {
+  const next = { ...reprocessActive.value }
+  if (jobId) next[ticketId] = jobId
+  else delete next[ticketId]
+  reprocessActive.value = next
+}
+function setReprocessError(ticketId, message) {
+  const next = { ...reprocessError.value }
+  if (message) next[ticketId] = message
+  else delete next[ticketId]
+  reprocessError.value = next
+}
+
+async function confirmReprocess() {
+  if (!reprocessItem.value) return
+  const ticketId = reprocessItem.value.id
+  reprocessStarting.value = true
+  reprocessModalError.value = ''
+  try {
+    const res = await apiClient.post('/reprocess_ticket', null, { params: { ticket_id: ticketId } })
+    setReprocessError(ticketId, '')
+    setReprocessActive(ticketId, res.data.job_id)
+    reprocessItem.value = null
+    pollReprocess(ticketId, res.data.job_id)
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    reprocessModalError.value = typeof detail === 'string'
+      ? detail
+      : 'Gagal menjalankan reproses. Coba lagi.'
+  } finally {
+    reprocessStarting.value = false
+  }
+}
+
+async function pollReprocess(ticketId, jobId) {
+  try {
+    const res = await apiClient.get(`/reprocess_job/${jobId}`)
+    const job = res.data
+    if (job.status === 'running') {
+      reprocessTimers[ticketId] = setTimeout(() => pollReprocess(ticketId, jobId), 4000)
+      return
+    }
+    setReprocessActive(ticketId, null)
+    const it = (job.items || [])[0]
+    if (it && it.status === 'done') {
+      // Entry lama sudah dihapus worker — muat ulang halaman datanya supaya yang
+      // tampil tinggal satu entry hasil reproses.
+      if (pagedGroups.value.length <= 1 && page.value > 1) page.value -= 1
+      await fetchItems()
+    } else {
+      setReprocessError(ticketId, it?.error_message || 'Reproses tidak selesai — entry lama dipertahankan.')
+    }
+  } catch {
+    // Gagal memantau (mis. jaringan) bukan berarti jobnya gagal: lepaskan tombolnya
+    // dan biarkan Admin menyegarkan halaman untuk melihat hasilnya.
+    setReprocessActive(ticketId, null)
+  }
+}
+
+function stopReprocessPolling() {
+  Object.values(reprocessTimers).forEach((t) => clearTimeout(t))
+}
+
+// --- Reprocess All: seluruh tiket yang cocok dengan filter -------------------
+// Hanya di menu Results. Manual Check & Pending Check adalah antrean review, dan
+// filter antreannya bukan dasar yang masuk akal untuk perintah semahal ini.
+const canReprocessAll = computed(() =>
+  canReprocessTicket.value && !isPendingCheck && !isBandingReview
+)
+const bulkPreview = ref(null)        // hasil /reprocess_filter_preview -> modal
+const bulkPreviewLoading = ref(false)
+const bulkStarting = ref(false)
+const bulkCancelling = ref(false)
+const bulkModalError = ref('')       // kegagalan di dalam modal
+const bulkError = ref('')            // kegagalan pada strip progres
+const bulkJob = ref(null)            // job yang sedang berjalan
+let bulkTimer = null
+
+const bulkDone = computed(() => {
+  const c = bulkJob.value?.counts
+  return c ? (c.done || 0) + (c.failed || 0) + (c.skipped || 0) : 0
+})
+
+// Perkiraan kasar: 8 worker paralel, ~4,5 menit per tiket. Ditampilkan supaya
+// "120 ticket" punya arti dalam satuan waktu sebelum Admin menekannya.
+const bulkEta = computed(() => {
+  const n = bulkPreview.value?.will_process || 0
+  const menit = Math.ceil((n / 8) * 4.5)
+  if (menit < 60) return `${menit} menit`
+  const jam = Math.floor(menit / 60)
+  const sisa = menit % 60
+  return sisa ? `${jam} jam ${sisa} menit` : `${jam} jam`
+})
+
+// Filter aktif dalam bahasa manusia. Modal HARUS menyebutnya: perintah ini
+// menyentuh seluruh tiket yang cocok, bukan halaman yang kebetulan terlihat, dan
+// satu filter yang terlupa berarti ratusan panggilan LLM yang tidak diniatkan.
+const activeFilterLabels = computed(() => {
+  const nama = (list, key, val) => (list.find((o) => o[key] === val)?.name) || val
+  const out = []
+  const STATUS = { PASS: 'Qualified', FAIL: 'Not Qualified', PENDING: 'Pending' }
+  if (filterAiStatus.value) out.push(`AI Status: ${STATUS[filterAiStatus.value]}`)
+  if (filterManualStatus.value) out.push(`Manual Status: ${STATUS[filterManualStatus.value]}`)
+  if (filterCampaign.value) out.push(`Campaign: ${filterCampaign.value}`)
+  if (filterAm.value) out.push(`AM: ${nama(hierOptions.value.area_managers, 'nip', filterAm.value)}`)
+  if (filterTl.value) out.push(`TL: ${nama(hierOptions.value.team_leaders, 'nip', filterTl.value)}`)
+  if (filterAgent.value) out.push(`TLO: ${nama(hierOptions.value.agents, 'nip', filterAgent.value)}`)
+  if (filterQc.value) out.push(`QC: ${nama(hierOptions.value.qc_users, 'username', filterQc.value)}`)
+  if (filterQcSupport.value) out.push(`QC Support: ${nama(hierOptions.value.qc_support_users, 'username', filterQcSupport.value)}`)
+  if (filterTicketId.value) out.push(`ID mengandung: ${filterTicketId.value.trim()}`)
+  if (filterDateStart.value || filterDateEnd.value) {
+    out.push(`Tanggal: ${filterDateStart.value || '…'} s/d ${filterDateEnd.value || '…'}`)
+  }
+  return out
+})
+
+// buildParams() dikirim APA ADANYA — nama field request server sengaja dibuat
+// sama persis dengan parameter /list_results. Memetakan ulang nama di sini adalah
+// tempat paling mudah bagi sebuah filter untuk diam-diam hilang, dan filter yang
+// hilang berarti tiket yang diproses lebih banyak daripada yang dilihat Admin.
+function bulkFilterBody() {
+  const { banding_pending, manual_status_pending, ...rest } = buildParams()
+  return rest
+}
+
+async function openBulkModal() {
+  bulkPreviewLoading.value = true
+  bulkModalError.value = ''
+  try {
+    const res = await apiClient.post('/reprocess_filter_preview', bulkFilterBody())
+    bulkPreview.value = res.data
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    bulkError.value = typeof detail === 'string' ? detail : 'Gagal menghitung jumlah ticket.'
+  } finally {
+    bulkPreviewLoading.value = false
+  }
+}
+
+function closeBulkModal() {
+  if (bulkStarting.value) return
+  bulkPreview.value = null
+  bulkModalError.value = ''
+}
+
+async function confirmBulkReprocess() {
+  bulkStarting.value = true
+  bulkModalError.value = ''
+  try {
+    const res = await apiClient.post('/reprocess_filtered', bulkFilterBody())
+    bulkJob.value = res.data
+    bulkPreview.value = null
+    bulkError.value = ''
+    scheduleBulkPoll(res.data.job_id)
+    // Baris yang ikut job langsung menampilkan "Memproses..." tanpa menunggu
+    // poll berikutnya.
+    await fetchItems({ silent: true })
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    bulkModalError.value = typeof detail === 'string'
+      ? detail
+      : 'Gagal menjalankan reproses massal.'
+  } finally {
+    bulkStarting.value = false
+  }
+}
+
+async function loadBulkJob(jobId) {
+  try {
+    const res = await apiClient.get(`/reprocess_job/${jobId}`)
+    if (res.data.status === 'running') {
+      bulkJob.value = res.data
+      scheduleBulkPoll(jobId)
+      return
+    }
+    // Selesai: lepaskan stripnya dan muat ulang daftarnya sekali, supaya entry
+    // lama yang sudah dihapus worker tidak tertinggal di layar.
+    bulkJob.value = null
+    stopBulkPolling()
+    await fetchItems({ silent: true })
+  } catch {
+    // Gagal memantau bukan berarti jobnya gagal; lepaskan stripnya dan biarkan
+    // Admin menyegarkan halaman.
+    bulkJob.value = null
+    stopBulkPolling()
+  }
+}
+
+function scheduleBulkPoll(jobId) {
+  stopBulkPolling()
+  bulkTimer = setTimeout(() => loadBulkJob(jobId), 7000)
+}
+
+function stopBulkPolling() {
+  if (bulkTimer) clearTimeout(bulkTimer)
+  bulkTimer = null
+}
+
+async function cancelBulkJob() {
+  if (!bulkJob.value) return
+  if (!window.confirm('Batalkan job? Ticket yang sedang diproses tetap diselesaikan.')) return
+  bulkCancelling.value = true
+  bulkError.value = ''
+  try {
+    await apiClient.post(`/reprocess_job/${bulkJob.value.job_id}/cancel`)
+    await loadBulkJob(bulkJob.value.job_id)
+  } catch {
+    bulkError.value = 'Gagal membatalkan job.'
+  } finally {
+    bulkCancelling.value = false
+  }
+}
+
+// Menyambung kembali job yang masih berjalan setelah refresh atau pindah menu —
+// pelajaran yang sama dengan tombol Reprocess per baris: state komponen hilang
+// bersama komponennya, jadi keadaan sebenarnya harus ditanyakan ke server.
+async function resumeBulkJob() {
+  if (!canReprocessAll.value) return
+  try {
+    const res = await apiClient.get('/reprocess_jobs', { params: { limit: 5 } })
+    const running = (res.data.jobs || []).find((j) => j.status === 'running')
+    if (running) await loadBulkJob(running.job_id)
+  } catch { /* strip progres memang tidak wajib ada */ }
 }
 
 const docModalResultId = ref(null)
@@ -872,6 +1495,51 @@ function slaInfo(item) {
   return { text: `${dur} lagi`, cls, title }
 }
 
+// Passing Grade cell: percentage only ("90%") from LLM passing_grade / maximum_score.
+// Kolom SCORECARD tata letak Demo: kode item yang belum beres, apa adanya dari
+// backend (`_scorecard_issues` di api/routers/stats.py). Sengaja TIDAK dihitung
+// ulang di sini — daftar ini harus sepakat dengan skor pada kolom Grade, dan skor
+// itu pun dihitung backend dari scorecard yang sama.
+function scorecardIssues(item) {
+  return Array.isArray(item.scorecard_issues) ? item.scorecard_issues : []
+}
+
+// Kolom Call Duration tata letak Demo: satu butir per PDF. `audio_durations`
+// ditulis worker sejak 27 Agustus 2026; tiket yang diproses sebelum itu belum
+// punya rinciannya, jadi berkasnya tetap disebut dengan durasi "—" agar jumlah
+// panggilan tetap terbaca.
+function callDurations(item) {
+  const rows = Array.isArray(item.audio_durations) ? item.audio_durations : []
+  if (rows.length) {
+    return rows.map((r) => ({ file: r.file || '—', duration: r.duration || '—' }))
+  }
+  const files = Array.isArray(item.source_files) ? item.source_files : []
+  return files.map((f) => ({ file: f, duration: '—' }))
+}
+
+// Angka nilai: buang desimal nol yang tidak berarti (149.0 -> "149") tapi
+// pertahankan yang berarti (148.75 -> "148.75").
+function formatGradeNumber(n) {
+  const num = Number(n)
+  if (!Number.isFinite(num)) return '—'
+  return String(Math.round(num * 100) / 100)
+}
+
+// "Grade" versi Demo: nilai akhir (ai_score) / passing grade, mis. 149/135.
+// `passed` menentukan warna nilai akhir — hijau bila memenuhi, merah bila tidak.
+// Sengaja TIDAK memakai ai_status: kolom ini menerangkan angkanya sendiri,
+// sedangkan ai_status bisa Not Qualified karena sebab non-skor (badword, dokumen).
+function gradePair(item) {
+  const score = item.ai_score
+  const passing = item.passing_grade
+  if (score == null || passing == null) return null
+  return {
+    score: formatGradeNumber(score),
+    passing: formatGradeNumber(passing),
+    passed: Number(score) >= Number(passing),
+  }
+}
+
 function passingGradeDisplay(item) {
   const pg = item?.passing_grade
   const max = item?.maximum_score
@@ -979,20 +1647,6 @@ async function fetchItems({ silent = false } = {}) {
   else stopPolling()
 }
 
-// Active campaign names for the Campaign filter dropdown, dipersempit ke cakupan
-// campaign login ini (campaignsInScope) — campaign di luar cakupan selalu memberi
-// hasil kosong, jadi tidak ditawarkan.
-// [FIX] Versi duplikat tanpa campaignsInScope dihapus.
-async function fetchCampaigns() {
-  try {
-    const res = await apiClient.get('/list_campaigns')
-    campaignOptions.value = campaignsInScope(
-      (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
-    )
-  } catch {
-    campaignOptions.value = []
-  }
-}
 
 async function fetchResult(id) {
   if (!id || results.value[id]) return
@@ -1020,6 +1674,20 @@ async function fetchAgentSummary(id) {
   }
 }
 
+// Active campaign names for the Campaign filter dropdown, dipersempit ke cakupan
+// campaign login ini (campaignsInScope) — campaign di luar cakupan selalu memberi
+// hasil kosong, jadi tidak ditawarkan.
+async function fetchCampaigns() {
+  try {
+    const res = await apiClient.get('/list_campaigns')
+    campaignOptions.value = campaignsInScope(
+      (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
+    )
+  } catch {
+    campaignOptions.value = []
+  }
+}
+
 // --- Auto-refresh (polling) ------------------------------------------------
 // The backend has no push channel, so we poll /list_results while any row is
 // pending/processing and stop once everything is done/failed.
@@ -1027,7 +1695,12 @@ const POLL_INTERVAL_MS = 7000
 let pollTimer = null
 
 function hasInProgress() {
-  const inProgress = (r) => r.status === 'pending' || r.status === 'processing'
+  // `reprocess_active` ikut dihitung supaya poll 7 detik ini yang MELEPAS tombol
+  // Reprocess begitu jobnya selesai. Baris yang sedang direproses statusnya tetap
+  // `done` (hasil barunya row terpisah, row lama baru dihapus setelah berhasil),
+  // jadi tanpa syarat ini tidak ada yang menyalakan polling dan tombolnya baru
+  // hidup lagi kalau Admin kebetulan me-refresh halaman sendiri.
+  const inProgress = (r) => r.status === 'pending' || r.status === 'processing' || r.reprocess_active
   if (GROUPING_MODE === 'server') return serverGroups.value.some((g) => g.results.some(inProgress))
   return rawItems.value.some(inProgress)
 }
@@ -1148,25 +1821,6 @@ async function exportVerification() {
   }
 }
 
-// Simpan respons blob sebagai unduhan, memakai nama file dari Content-Disposition
-// bila ada (backend mengirim "<kategori>_<timestamp>.xlsx").
-function downloadBlob(res, fallbackName) {
-  const url = URL.createObjectURL(
-    new Blob([res.data], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    })
-  )
-  const disposition = res.headers['content-disposition'] || ''
-  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = match ? decodeURIComponent(match[1]) : fallbackName
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(url)
-}
-
 // --- Export SEMUA tiket pada rentang yang dipilih (SPQ Head & Admin) -------
 // Filter yang sedang aktif ikut dikirim supaya isi file sama dengan yang terlihat
 // di tabel — bukan hanya rentang tanggalnya. Backend menerapkan cakupan role di
@@ -1195,6 +1849,25 @@ async function exportTickets() {
   } finally {
     exportingTickets.value = false
   }
+}
+
+// Simpan respons blob sebagai unduhan, memakai nama file dari Content-Disposition
+// bila ada (backend mengirim "<kategori>_<timestamp>.xlsx").
+function downloadBlob(res, fallbackName) {
+  const url = URL.createObjectURL(
+    new Blob([res.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    })
+  )
+  const disposition = res.headers['content-disposition'] || ''
+  const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = match ? decodeURIComponent(match[1]) : fallbackName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 
@@ -1288,13 +1961,21 @@ function onDocUploaded(payload) {
   // Mark the row as uploaded (button -> "Uploaded") and surface the documents in
   // the expanded section if the row is open. Only the types just uploaded are
   // cleared — a still-missing type keeps the button active.
-  // [FIX] dulu mencari di `items.value` yang sudah tidak ada; sekarang lewat
-  // findResult() supaya jalan di mode client maupun server.
+  // [FIX] dulu mencari di `items.value` yang sudah tidak ada di model grouping;
+  // sekarang lewat findResult() supaya jalan di mode client maupun server.
   const item = findResult(payload.resultId)
   if (!item) return
   item.has_documents = true
   const uploaded = (payload.documents || []).map((d) => d.doc_type)
   item.document_missing_types = (docMissing(item) || []).filter((t) => !uploaded.includes(t))
+}
+
+function openManualCheck(item) {
+  manualCheckItem.value = item
+}
+
+function openApproval(item) {
+  approvalItem.value = item
 }
 
 // --- Manual Status column (semua role) ---
@@ -1366,12 +2047,16 @@ onMounted(() => {
   fetchItems()
   fetchCampaigns()
   loadHierarchyOptions()
+  loadDocSla()
+  resumeBulkJob()
   document.addEventListener('visibilitychange', onVisibilityChange)
   if (isPendingCheck) slaTimer = setInterval(() => { nowTs.value = Date.now() }, 30000)
 })
 
 onBeforeUnmount(() => {
   stopPolling()
+  stopReprocessPolling()
+  stopBulkPolling()
   if (slaTimer) clearInterval(slaTimer)
   clearTimeout(debounceTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -1380,6 +2065,31 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+
+/* Indikator kebijakan SLA H+2. Tampil untuk semua peran; tombolnya hanya admin.
+   Warna sengaja dibedakan tajam — NONAKTIF adalah keadaan tidak biasa yang harus
+   langsung terlihat, karena selama itu tidak ada tiket yang pernah jatuh tempo. */
+.sla-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 16px;
+  border: 1.5px solid; border-radius: 8px; font-size: 13px; line-height: 1.5;
+}
+.sla-bar .sla-text { flex: 1 1 320px; }
+.sla-bar .sla-meta { font-size: 12px; opacity: 0.75; white-space: nowrap; }
+.sla-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.sla-on  { background: #f0f7ff; border-color: #b9d9f7; color: #14406b; }
+.sla-on  .sla-dot { background: #2f7fd1; }
+.sla-off { background: #fff6e8; border-color: #f0c78a; color: #7a4a06; }
+.sla-off .sla-dot { background: #d98614; }
+.sla-toggle {
+  padding: 7px 14px; border-radius: 8px; border: 1.5px solid currentColor;
+  background: #fff; color: inherit; font-size: 12px; font-weight: 600;
+  cursor: pointer; white-space: nowrap; transition: opacity 0.2s;
+}
+.sla-toggle:hover:not(:disabled) { opacity: 0.75; }
+.sla-toggle:disabled { opacity: 0.5; cursor: default; }
+.sla-error { color: var(--red, #c0392b); font-size: 12px; flex-basis: 100%; }
+
 .select-input, .text-input, .date-input {
   padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px;
   font-size: 13px; color: var(--text); outline: none; background: #fff; transition: border-color 0.2s;
@@ -1394,6 +2104,41 @@ onBeforeUnmount(() => {
   border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--text-muted); transition: all 0.15s;
 }
 .btn-clear:hover { background: #e2e8f0; color: var(--text); }
+
+/* Reprocess All: bersebelahan dengan Reset tapi sengaja TIDAK senada dengannya.
+   Reset itu murah dan bisa dibatalkan; yang ini menghabiskan ratusan panggilan
+   LLM dan menghapus entry lama, jadi ia harus terbaca sebagai aksi, bukan
+   pelengkap filter. */
+.btn-reprocess-all {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; background: #fff; border: 1.5px solid var(--blue);
+  border-radius: 8px; font-size: 13px; font-weight: 700; color: var(--blue);
+  transition: all 0.15s;
+}
+.btn-reprocess-all:hover:not(:disabled) { background: var(--blue); color: #fff; }
+.btn-reprocess-all:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Strip progres job Reprocess All (di bawah filter bar). */
+.bulk-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 14px; margin-bottom: 16px;
+  background: #f0f7ff; border: 1.5px solid #b9d9f7; border-radius: 8px;
+  font-size: 13px; color: #14406b;
+}
+.bulk-bar .bulk-text { flex: 1 1 320px; }
+.bulk-cancel {
+  padding: 7px 14px; border-radius: 8px; border: 1.5px solid currentColor;
+  background: transparent; font-size: 12px; font-weight: 700; color: inherit;
+}
+.bulk-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
+.bulk-err { font-size: 12px; font-weight: 700; color: var(--red); }
+
+/* Rincian di modal konfirmasi Reprocess All. */
+.bulk-filters { margin: 4px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
+.bulk-count { width: 100%; margin: 4px 0 12px; border-collapse: collapse; font-size: 13px; }
+.bulk-count td { padding: 5px 0; }
+.bulk-count td:last-child { text-align: right; }
+.bulk-count-total td { border-top: 1.5px solid var(--border); padding-top: 8px; }
 
 /* Pesan gagal muat data (fetchError). */
 .error-box {
@@ -1466,7 +2211,29 @@ onBeforeUnmount(() => {
 .ccc-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; }
 .dot-green { background: #16a34a; }
 .dot-red { background: var(--red); }
+/* PENDING: menunggu dokumen pendukung, skornya belum dipotong. */
+.dot-amber { background: var(--yellow); }
 .ccc-req { flex: 1; word-break: break-word; color: var(--text); }
+
+/* Call Duration tata letak Demo: satu baris per PDF. Nama berkas dibiarkan utuh
+   (itu identitas panggilannya) dan boleh melipat; durasinya tidak ikut melipat. */
+.call-duration-list { list-style: none; margin: 0; padding: 0; }
+.call-duration-list li { display: block; font-size: 11px; line-height: 1.5; position: relative; padding-left: 10px; }
+.call-duration-list li::before { content: '•'; position: absolute; left: 0; color: var(--text-muted); }
+.cd-file { word-break: break-all; }
+.cd-sep { color: var(--text-muted); margin: 0 2px; }
+.cd-dur { white-space: nowrap; font-weight: 700; color: var(--text); }
+
+/* Grade tata letak Demo: <nilai akhir>/<passing grade>. Passing grade biru (angka
+   acuan), nilai akhir hijau bila memenuhi dan merah bila tidak. */
+.grade-pair { font-weight: 700; white-space: nowrap; }
+.grade-sep { color: var(--text-muted); margin: 0 1px; font-weight: 400; }
+/* Biru literal, BUKAN var(--blue): token itu sudah dipetakan ke oranye Bank Mega
+   (lihat App.vue), jadi memakainya di sini justru tidak menghasilkan warna biru. */
+.grade-passing { color: #2563EB; }
+.grade-pass { color: var(--green); }
+.grade-fail { color: var(--red); }
+
 .expand-icon { margin-right: 4px; color: var(--text-muted); font-size: 10px; }
 .cell-strong { font-weight: 700; word-break: break-all; }
 .cell-date { color: var(--text-muted); font-size: 12px; }
@@ -1569,13 +2336,28 @@ onBeforeUnmount(() => {
   background-size: 200%; border-radius: 8px; animation: shimmer 1.2s infinite;
 }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-.cell-delete { text-align: center; }
+
+/* Kolom Action (Admin only): Reprocess di atas, Delete di bawah — satu kolom,
+   dua tombol bertumpuk, sama seperti kolom Document. */
+.cell-actions { display: flex; flex-direction: column; align-items: stretch; gap: 5px; }
+.btn-reprocess-row {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 5px 10px; background: var(--blue-bg); border: 1.5px solid var(--blue);
+  border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--blue);
+  transition: all 0.15s; white-space: nowrap; cursor: pointer;
+}
+.btn-reprocess-row:hover:not(:disabled) { background: var(--blue); color: #fff; }
+.btn-reprocess-row:disabled { opacity: 0.6; cursor: not-allowed; }
+.row-reprocess-err { font-size: 11px; font-weight: 700; color: var(--red); cursor: help; }
 .btn-delete-row {
   padding: 5px 10px; background: #fef2f2; border: 1.5px solid #dc2626;
   border-radius: 8px; font-size: 12px; font-weight: 700; color: #dc2626;
   transition: all 0.15s; white-space: nowrap; cursor: pointer;
 }
-.btn-delete-row:hover { background: #dc2626; color: #fff; }
+.btn-delete-row:hover:not(:disabled) { background: #dc2626; color: #fff; }
+.btn-delete-row:disabled { opacity: 0.5; cursor: not-allowed; }
+.spinner-blue { border-color: rgba(37, 99, 235, 0.25); border-top-color: var(--blue); width: 12px; height: 12px; }
+
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.55);
   display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px;
@@ -1589,7 +2371,7 @@ onBeforeUnmount(() => {
   padding: 16px 20px; border-bottom: 1px solid #e2e8f0;
 }
 .del-modal-title { font-size: 16px; font-weight: 800; color: #dc2626; margin: 0; }
-.del-close-x { background: none; border: none; font-size: 16px; color: #64748b; cursor: pointer; }
+.del-close-x { background: none; border: none; font-size: 16px; color: #1E1F21; cursor: pointer; }
 .del-modal-body { padding: 18px 20px; font-size: 14px; color: #334155; line-height: 1.5; }
 .del-modal-body p { margin: 0 0 10px; }
 .del-warn { color: #dc2626; font-weight: 700; }
@@ -1614,6 +2396,15 @@ onBeforeUnmount(() => {
   border-radius: 8px; font-size: 13px; font-weight: 800; color: #fff; cursor: pointer;
 }
 .del-btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Modal Reprocess memakai kerangka modal Delete, hanya warnanya biru — aksinya
+   memang mengganti data, tapi bukan penghapusan tanpa hasil pengganti. */
+.title-blue { color: var(--blue); }
+.del-btn-run {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; background: var(--blue); border: 1.5px solid var(--blue);
+  border-radius: 8px; font-size: 13px; font-weight: 800; color: #fff; cursor: pointer;
+}
+.del-btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
 /* Kolom Document: dua aksi bertumpuk (atas-bawah) supaya tetap satu kolom. */
 .doc-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
 .btn-doc-view { background: transparent; }
@@ -1626,8 +2417,8 @@ onBeforeUnmount(() => {
 .mstatus-note { display: block; margin-top: 3px; font-size: 10.5px; font-weight: 600; color: #b45309; white-space: normal; }
 /* Keterangan kenapa AI Status = PENDING (dokumen apa yang ditunggu + SLA H+2). */
 .ai-status-note { margin-top: 3px; font-size: 10.5px; font-weight: 600; color: #b45309; line-height: 1.3; white-space: normal; }
-/* Indikasi fraud dibedakan dari catatan Pending: merah, bukan amber. */
-.ai-status-note.note-fraud { color: var(--red); font-weight: 700; }
+/* Catatan kegagalan (badword) dibedakan dari catatan Pending: merah, bukan amber. */
+.ai-status-note.note-fail { color: var(--red); font-weight: 700; }
 /* Masih mengikuti AI Status (belum disentuh human) — dibuat lebih redup. */
 .mstatus-inherited { opacity: 0.55; font-weight: 600; }
 </style>

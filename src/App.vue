@@ -50,7 +50,12 @@ body {
   --gray: #9E9FA3;
   --border: #E4E5E8;
   --text: #1E1F21;
-  --text-muted: #818489;
+  /* 28 Agustus 2026 — permintaan bisnis: SEMUA tulisan hitam, tidak ada teks
+     abu-abu. Token ini dipakai ~220 kali sebagai warna teks sekunder (label,
+     caption, hint), jadi cukup diarahkan ulang di sini alih-alih menyisir tiap
+     berkas. Nama tokennya sengaja tidak diubah supaya diff-nya kecil.
+     Nilai lamanya: #818489. */
+  --text-muted: #1E1F21;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
 

@@ -23,6 +23,7 @@ export const P = {
   MENU_GET_RESULT: 'menu.get_result',
   MENU_UPLOAD_SALES_DATABASE: 'menu.upload_sales_database',
   MENU_UPLOAD_QC_DATABASE: 'menu.upload_qc_database',
+  MENU_REPROCESS_TICKETS: 'menu.reprocess_tickets',
   MENU_DELETE_CAMPAIGN: 'menu.delete_campaign',
   MENU_MANAGE_USER: 'menu.manage_user',
   MENU_MANAGE_ROLE: 'menu.manage_role',
@@ -42,12 +43,15 @@ export const P = {
   ERROR_CODE_REVIEW_TL: 'results.error_code.review_tl',
   ERROR_CODE_REVIEW_SPQ: 'results.error_code.review_spq',
   DOCUMENT_UPLOAD: 'results.document.upload',
+  DOCUMENT_UPLOAD_LOCKED_TICKET: 'results.document.upload_locked_ticket',
   DOCUMENT_VIEW: 'results.document.view',
   DOCUMENT_VERIFICATION_TABLE: 'results.document.verification',
   QC_MANUAL_CHECK_APPROVE: 'results.manual_check.approve',
   RESULTS_FILTER_QC_SIDE: 'results.filter.qc_side',
   RESULTS_EXPORT_VERIFICATION: 'results.export.verification',
   RESULTS_EXPORT_TICKETS: 'results.export.tickets',
+  // Varian tata letak kolom Results untuk Demo — lihat api/permissions.py.
+  RESULTS_LAYOUT_DEMO: 'results.layout.demo',
 
   // Fitur di halaman Stats
   STATS_FAILURE_REASON: 'stats.failure_reason',
@@ -58,6 +62,8 @@ export const P = {
   // Administrasi
   ADMIN_ROLE_WRITE: 'admin.role.write',
   ADMIN_TICKET_DELETE: 'admin.ticket.delete',
+  ADMIN_TICKET_REPROCESS: 'admin.ticket.reprocess',
+  ADMIN_DOC_SLA_WRITE: 'admin.doc_sla.write',
 }
 
 // Peta path -> capability yang dibutuhkan, dipakai guard router. Path yang tidak
@@ -77,6 +83,7 @@ export const ROUTE_PERMISSIONS = {
   '/upload/campaign': P.MENU_UPLOAD_CAMPAIGN,
   '/upload/sales-database': P.MENU_UPLOAD_SALES_DATABASE,
   '/upload/qc-database': P.MENU_UPLOAD_QC_DATABASE,
+  '/upload/reprocess': P.MENU_REPROCESS_TICKETS,
   '/delete/campaign': P.MENU_DELETE_CAMPAIGN,
   '/spq-head/users': P.MENU_MANAGE_USER,
   '/spq-head/manage-roles': P.MENU_MANAGE_ROLE,

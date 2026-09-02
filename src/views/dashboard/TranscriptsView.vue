@@ -1,6 +1,15 @@
 <template>
   <SidebarLayout title="Recording Tickets">
     <div class="filter-bar">
+      <input
+        v-model="searchTiketId"
+        type="text"
+        class="text-input"
+        placeholder="Cari Tiket ID / ID…"
+        title="Substring, case-insensitive. Kosongkan tanggal untuk cari semua tanggal."
+        @input="debouncedFilter"
+      />
+
       <select v-model="filterAiStatus" class="select-input" @change="applyFilter">
         <option value="">Semua AI Status</option>
         <option value="PASS">Qualified</option>
@@ -137,21 +146,22 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
-import { campaignsInScope } from '../../utils/campaignScope.js'
 
-// --- Konfigurasi App C (recording_tms_api + PDF stream) ---
-// Same-origin call-qc; base dipakai untuk /tickets-daily dan /api/view-streams.
-const C_API_BASE = (import.meta.env.VITE_TMS_API_URL || 'https://call-qc.bankmega.local').replace(/\/+$/, '')
-
-// KEAMANAN: fallback key literal DIHAPUS dari source (key lama sudah bocor ke git
-// -> harus di-rotate). Perlu diingat: semua VITE_* di-inline ke bundle JS, jadi
-// key ini TETAP terlihat di DevTools siapa pun yang membuka aplikasi. Solusi
-// jangka menengah: pindahkan X-API-Key ke backend call-qc dan proxy
-// /tickets-daily + /api/view-streams lewat apiClient (ikut auth session user).
-const X_API_KEY = import.meta.env.VITE_TMS_API_KEY || ''
-
-const FETCH_LIMIT = 100 // /tickets-daily maks 100 per page
-const MAX_FETCH_PAGES = 100 // pengaman loop
+// Baris tiket sekarang diambil lewat App B (`GET /tickets_daily`), BUKAN lagi
+// menembak App C langsung dari browser. Dua alasannya:
+//
+// 1. RBAC. Permintaan langsung ke App C tidak pernah melewati App B, jadi
+//    pembatasan campaign (`rbac.effective_campaigns_for`) tidak berlaku dan login
+//    yang dibatasi ke campaign Collection tetap melihat tiket ACT02/LOC26.
+//    Sekarang server yang menyaring baris, per cakupan campaign login ini
+//    (api/routers/tickets_daily.py). Karena itu TIDAK ADA filter campaign di layar
+//    ini: dropdown campaign dulu diisi NAMA campaign App B (Cashline/Collection)
+//    padahal App C mencocokkannya dengan KODE (ACT02/LOC26/CLENTB), jadi memilih
+//    apa pun selalu menghasilkan tabel kosong.
+// 2. X-API-Key App C tidak lagi ikut ter-inline ke bundle JS.
+//
+// Paginasi ke App C (maks 100/halaman) juga pindah ke server, jadi di sini cukup
+// SATU request. `truncated` dari server menandai hasil pencarian yang dipotong.
 const GROUP_LIMIT = 20 // paginasi grup (per id) di layar
 
 const allItems = ref([])
@@ -161,21 +171,21 @@ const error = ref(null)
 const expandedId = ref(null)
 
 const searchTiketId = ref('')
-const searchCampaign = ref('')
 const searchDate = ref('')
 const filterAiStatus = ref('') // filter AI status (client-side): PASS / FAIL / PENDING
-
-// PORT dari TranscriptsView: daftar campaign aktif untuk dropdown.
-const campaignOptions = ref([])
+const truncated = ref(false) // true bila server memotong hasil pencarian
 
 // Guard anti race-condition: hanya respons dari request TERAKHIR yang dipakai.
 let requestId = 0
 let inFlight = null // AbortController
 let debounceTimer = null
 
+const isSearching = computed(() => !!searchTiketId.value.trim())
+
 const modeHint = computed(() => {
-  if (searchDate.value) return `Mode: tanggal ${searchDate.value}`
-  if (searchTiketId.value.trim() || searchCampaign.value.trim()) return 'Mode: pencarian (semua tanggal)'
+  const suffix = truncated.value ? ' — hasil dipotong, persempit pencarian' : ''
+  if (searchDate.value) return `Mode: tanggal ${searchDate.value}${suffix}`
+  if (isSearching.value) return `Mode: pencarian (semua tanggal)${suffix}`
   return 'Mode: load_date kemarin'
 })
 
@@ -274,53 +284,28 @@ async function fetchTickets() {
   expandedId.value = null
 
   try {
-    const collected = []
-    let p = 1
-    while (p <= MAX_FETCH_PAGES) {
-      const url = new URL(`${C_API_BASE}/tickets-daily`)
-      if (searchTiketId.value.trim()) url.searchParams.set('tiket_id', searchTiketId.value.trim())
-      if (searchCampaign.value.trim()) url.searchParams.set('campaign', searchCampaign.value.trim())
-      if (searchDate.value) url.searchParams.set('load_date', searchDate.value)
-      url.searchParams.set('page', String(p))
-      url.searchParams.set('limit', String(FETCH_LIMIT))
+    const params = {}
+    if (searchTiketId.value.trim()) params.tiket_id = searchTiketId.value.trim()
+    if (searchDate.value) params.load_date = searchDate.value
 
-      const res = await fetch(url, {
-        headers: { Accept: 'application/json', 'X-API-Key': X_API_KEY },
-        signal: ctrl.signal,
-      })
-      if (!res.ok) throw new Error(`Gagal memuat data tiket (HTTP ${res.status})`)
-      const data = await res.json()
-      const items = data.items || []
-      collected.push(...items)
-      if (collected.length >= (data.total || 0) || items.length === 0) break
-      p += 1
-    }
+    // Satu request: server yang memaginasi App C, menyaringnya ke cakupan campaign
+    // login ini, lalu mengirim seluruh barisnya sekaligus.
+    const res = await apiClient.get('/tickets_daily', { params, signal: ctrl.signal })
 
     if (myId !== requestId) return // sudah ada request yang lebih baru
-    allItems.value = collected
+    allItems.value = res.data.items || []
+    truncated.value = !!res.data.truncated
   } catch (e) {
-    if (e.name === 'AbortError') return
+    if (e.name === 'AbortError' || e.name === 'CanceledError') return
     if (myId !== requestId) return
-    error.value = e.message || 'Gagal memuat data'
+    error.value = e.response?.data?.detail || e.message || 'Gagal memuat data'
     allItems.value = []
+    truncated.value = false
   } finally {
     if (myId === requestId) {
       loading.value = false
       inFlight = null
     }
-  }
-}
-
-// Active campaign names for the Campaign filter dropdown, dipersempit ke cakupan
-// campaign login ini (campaignsInScope).
-async function fetchCampaigns() {
-  try {
-    const res = await apiClient.get('/list_campaigns')
-    campaignOptions.value = campaignsInScope(
-      (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
-    )
-  } catch {
-    campaignOptions.value = []
   }
 }
 
@@ -336,7 +321,6 @@ function debouncedFilter() {
 
 function clearSearch() {
   searchTiketId.value = ''
-  searchCampaign.value = ''
   searchDate.value = ''
   filterAiStatus.value = ''
   applyFilter()
@@ -364,7 +348,6 @@ function pdfRoute(item) {
 
 onMounted(() => {
   fetchTickets()
-  fetchCampaigns()
 })
 
 // FIX: bersihkan timer & request yang menggantung saat komponen di-unmount.

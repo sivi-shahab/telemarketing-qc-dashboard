@@ -17,7 +17,12 @@
           <tr class="row-section row-head">
             <td class="ct-label">
               <span class="ct-name">Pengurangan – Penilaian scorecard</span>
-              <span class="info" tabindex="0">ⓘ<span class="tip">Skor maksimal dikurangi bobot tiap item scorecard yang tidak dipenuhi agen.</span></span>
+              <span class="info" tabindex="0">ⓘ<span class="tip">Skor maksimal dikurangi bobot tiap item scorecard yang tidak dipenuhi agen. Angka yang dikurangi adalah BOBOT ITEM SCORECARD. Error code tidak mengurangi poin — ia diterbitkan sebagai akibat item yang gagal, bukan sebagai penyebabnya.</span></span>
+              <div v-if="belumSesuai.length" class="ct-note">
+                Yang mengurangi poin adalah <b>bobot item scorecard</b> yang tidak terpenuhi.
+                Error code di tiap baris adalah <b>akibat</b> dari item itu, bukan penyebab
+                pengurangan — nilainya sendiri tidak pernah masuk perhitungan.
+              </div>
               <div v-if="!belumSesuai.length" class="ct-reason">Semua item scorecard terpenuhi.</div>
             </td>
             <td class="ct-change"></td>
@@ -25,9 +30,34 @@
           </tr>
           <tr v-for="(it, i) in belumSesuai" :key="'sc' + i" class="row-sub">
             <td class="ct-label">
-              <span class="ct-sub-name"><strong>{{ scorecardErrorCode(it) }}</strong> - {{ deductionCategory(it) }} - <strong>{{ it.item_code || '—' }}</strong> - {{ negatedRequirement(it) }}</span>
+              <!-- Urutannya SENGAJA: item scorecard dulu, error code terakhir dan
+                   diberi tanda panah. Sampai 28 Agustus 2026 barisnya dimulai dengan
+                   error code, sehingga terbaca "B10 -> -1 poin" — padahal yang
+                   mengurangi adalah bobot SC_CL_26. Error code tidak pernah masuk
+                   perhitungan skor mana pun (ai_score_phase_2 / _verification /
+                   _critical_compliance_check semuanya menjumlahkan item_score). -->
+              <span class="ct-sub-name">
+                <strong>{{ it.item_code || '—' }}</strong> - {{ deductionCategory(it) }} - {{ negatedRequirement(it) }}
+                <span class="ct-code-tag" :title="'Error code yang diterbitkan akibat item ini — tidak mengurangi poin'">
+                  → error code <strong>{{ scorecardErrorCode(it) }}</strong>
+                </span>
+              </span>
             </td>
             <td class="ct-change deduct">{{ negWeight(it.weight) }}</td>
+            <td class="ct-result"></td>
+          </tr>
+          <!-- ZERO-SCORE RULE diberi barisnya SENDIRI. Tanpa ini kolom "Perubahan"
+               tidak menjumlah ke "Hasil": skor maksimal 108,75 dengan pengurangan
+               scorecard −7,5 tetapi hasilnya 0, sehingga terbaca seperti salah hitung. -->
+          <tr v-if="noProductInterest" class="row-sub">
+            <td class="ct-label">
+              <span class="ct-sub-name">
+                <strong>Nasabah tidak berminat</strong> — tidak tertarik Mega Cashline maupun
+                Mega Ultima Shield, sehingga skor dipaksa menjadi 0 berapa pun item
+                scorecard yang terpenuhi.
+              </span>
+            </td>
+            <td class="ct-change deduct">{{ deltaText(zeroScoreCut) }}</td>
             <td class="ct-result"></td>
           </tr>
           <tr class="row-subtotal">
@@ -43,14 +73,21 @@
           <tr class="row-section row-head">
             <td class="ct-label">
               <span class="ct-name">Pengurangan – Verifikasi data</span>
-              <span class="info" tabindex="0">ⓘ<span class="tip">Nilai dikurangi karena data yang disebut agen tidak cocok dengan data nasabah (mis. data finansial pencairan).</span></span>
+              <span class="info" tabindex="0">ⓘ<span class="tip">Nilai dikurangi karena data yang disebut agen tidak cocok dengan data nasabah (mis. data finansial pencairan). Yang dikurangi adalah bobot field yang mismatch; error code tidak mengurangi poin.</span></span>
             </td>
             <td class="ct-change"></td>
             <td class="ct-result"></td>
           </tr>
           <tr v-for="(v, i) in verificationDeductions" :key="'vd' + i" class="row-sub">
             <td class="ct-label">
-              <span class="ct-sub-name"><strong>{{ v.error_code }}</strong> - {{ titleizeField(v.field) }}<template v-if="v.reason"> - {{ v.reason }}</template></span>
+              <!-- Sama seperti bagian scorecard: yang mengurangi poin adalah
+                   item_score field verifikasi, bukan error code-nya. -->
+              <span class="ct-sub-name">
+                {{ titleizeField(v.field) }}<template v-if="v.reason"> - {{ v.reason }}</template>
+                <span class="ct-code-tag" :title="'Error code yang diterbitkan akibat mismatch ini — tidak mengurangi poin'">
+                  → error code <strong>{{ v.error_code }}</strong>
+                </span>
+              </span>
             </td>
             <td class="ct-change deduct">{{ fmtScore(v.item_score) }}</td>
             <td class="ct-result"></td>
@@ -239,8 +276,8 @@
                   {{ c.earned_score ?? '—' }}
                 </td>
                 <td v-if="j === 0" :rowspan="c.rowspan">
-                  <span :class="['badge', c.category_result === 'PASS' ? 'badge-green' : 'badge-red']">
-                    {{ c.category_result || '—' }}
+                  <span :class="['badge', categoryResultBadgeClass(c.category_result)]">
+                    {{ categoryResultLabel(c.category_result) }}
                   </span>
                 </td>
                 <td class="strong">{{ it?.item_code || '—' }}</td>
@@ -300,6 +337,7 @@
               <th>Match</th>
               <th>Reason</th>
               <th>Similarity</th>
+              <th v-if="showThresholds" title="Ambang similarity yang berlaku untuk field ini">Threshold Similarity</th>
             </tr>
           </thead>
           <tbody>
@@ -323,6 +361,10 @@
                     :class="{ 'mention-used': mn.value === v.extracted_value }"
                   >
                     <span v-if="mn.ts" class="mention-ts">{{ mn.ts }}</span>{{ mn.value }}
+                    <!-- Nama PDF tempat ucapan itu berada (prompt v56): sejak saringan
+                         tanggal berlaku, QC perlu tahu ucapan mana datang dari
+                         panggilan yang mana. -->
+                    <span v-if="mn.file" class="mention-file">{{ mn.file }}</span>
                   </li>
                 </ol>
                 <template v-else>{{ v.extracted_value ?? '—' }}</template>
@@ -330,6 +372,11 @@
               <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
               <td class="reason">{{ v.reason || '—' }}</td>
               <td>{{ v.similarity_percent != null ? v.similarity_percent + '%' : '—' }}</td>
+              <td v-if="showThresholds">
+                <ul class="threshold-list">
+                  <li v-for="(t, ti) in cardHolderThresholds(v.field)" :key="ti">{{ t }}</li>
+                </ul>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -352,6 +399,7 @@
               <th>Match</th>
               <th>Reason</th>
               <th>Similarity</th>
+              <th v-if="showThresholds" title="Ambang similarity yang berlaku untuk field ini">Threshold Similarity</th>
             </tr>
           </thead>
           <tbody>
@@ -363,6 +411,11 @@
               <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
               <td class="reason">{{ v.reason || '—' }}</td>
               <td>{{ v.similarity_percent != null ? v.similarity_percent + '%' : '—' }}</td>
+              <td v-if="showThresholds">
+                <ul class="threshold-list">
+                  <li v-for="(t, ti) in cashlineThresholds(v.field)" :key="ti">{{ t }}</li>
+                </ul>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -448,7 +501,7 @@
                 <!-- Team Leader QC (cek) / SPQ Head (final): Review Banding -->
                 <td v-if="showReviewCol" class="mc-cell">
                   <template v-if="row.appeal && resultId">
-                    <button class="mc-btn" @click="openReview(row)">{{ isTlQc ? 'Cek Banding' : 'Review Banding' }}</button>
+                    <button class="mc-btn" @click="openReview(row)">{{ canReviewTl ? 'Cek Banding' : 'Review Banding' }}</button>
                   </template>
                   <span v-else>—</span>
                 </td>
@@ -482,7 +535,7 @@
       :result-id="resultId"
       :display-id="displayId"
       :row="manualCheckRow"
-      :direct="isReviewer"
+      :direct="canDirectEdit"
       @close="manualCheckRow = null"
       @submitted="onAppealChanged"
     />
@@ -491,7 +544,7 @@
       :result-id="resultId"
       :display-id="displayId"
       :row="manualCheckRow"
-      :direct="isReviewer"
+      :direct="canDirectEdit"
       @close="manualCheckRow = null"
       @submitted="onAppealChanged"
     />
@@ -509,7 +562,7 @@
       :result-id="resultId"
       :display-id="displayId"
       :evaluation="ev"
-      :direct="isReviewer"
+      :direct="canDirectEdit"
       @close="showAddModal = false"
       @submitted="onAddSubmitted"
     />
@@ -635,7 +688,12 @@
                 </td>
                 <td class="num">{{ weightPct(it.weight) }}</td>
                 <td>
-                  <span :class="['badge', it.status === 'SESUAI' ? 'badge-green' : 'badge-red']">
+                  <!-- Tiga keadaan, bukan dua. PENDING (verifikasi statik di zona
+                       abu-abu, dokumen pendukung masih ditunggu dalam tenggat H+2)
+                       dipropagasikan dari card_holder_verification sejak 28 Agustus
+                       2026 — mewarnainya merah akan membacanya sebagai kegagalan,
+                       padahal skornya sengaja TIDAK dipotong. -->
+                  <span :class="['badge', scorecardStatusBadge(it.status)]">
                     {{ it.status || '—' }}
                   </span>
                 </td>
@@ -739,6 +797,10 @@ const canReviewSpq = computed(() => auth.can(P.ERROR_CODE_REVIEW_SPQ))
 // "Ringkasan Kategori": kolom Bobot & Skor disembunyikan khusus untuk QC —
 // QC menilai lolos/tidaknya kategori, bukan angka bobot/skornya.
 const showCategoryScore = computed(() => auth.can(P.RESULTS_CATEGORY_SCORE))
+// Kolom "Threshold Similarity" pada kedua tabel verifikasi. Ikut capability tata
+// letak Demo (27 Agustus 2026) — melepas gate ini akan memunculkannya untuk semua
+// role, dan isinya memang tidak rahasia bagi siapa pun.
+const showThresholds = computed(() => auth.can(P.RESULTS_LAYOUT_DEMO))
 
 const showManualCheckCol = computed(() => canAppeal.value && !!props.resultId)
 // Both reviewers see a review column: Team Leader QC does the intermediate check
@@ -899,12 +961,32 @@ function deltaClass(v) {
 const maxScore = computed(() =>
   maxScoreBreakdown.value.length ? maxScoreTotal.value : numOr0(ev.value?.maximum_score)
 )
-const phase2 = computed(() => {
-  const belum = (ev.value?.scorecard_result || [])
+// ZERO-SCORE RULE — cermin persis compliance/scoring.py::no_product_interest().
+// Nasabah yang tidak berminat pada Mega Cashline MAUPUN Mega Ultima Shield mendapat
+// skor 0 dan vonis TIDAK LULUS, berapa pun item scorecard yang terpenuhi: panggilan
+// yang tidak menghasilkan minat tidak layak dinilai bagus hanya karena prosedurnya
+// rapi. Evaluasi lama tanpa kedua blok minat dikecualikan — tanpa datanya "tidak
+// berminat" hanyalah tebakan, dan menebak di sini menolkan tiket yang tidak bersalah.
+const noProductInterest = computed(() => {
+  const cl = ev.value?.cashline_interest
+  const mus = ev.value?.mus_interest
+  if (!cl && !mus) return false
+  return cl?.status !== 'INTERESTED' && mus?.status !== 'INTERESTED'
+})
+const scorecardBelumWeight = computed(() =>
+  (ev.value?.scorecard_result || [])
     .filter((it) => it?.status === 'BELUM_SESUAI')
     .reduce((s, it) => s + numOr0(it?.weight), 0)
-  return maxScore.value - belum
+)
+const phase2 = computed(() => {
+  if (noProductInterest.value) return 0
+  return maxScore.value - scorecardBelumWeight.value
 })
+// Sisa yang dipangkas aturan nol setelah pengurangan scorecard biasa — dipakai
+// sebagai baris tersendiri supaya kolom "Perubahan" tetap menjumlah ke "Hasil".
+const zeroScoreCut = computed(() =>
+  noProductInterest.value ? -(maxScore.value - scorecardBelumWeight.value) : 0
+)
 const verifScore = computed(() => numOr0(ev.value?.ai_score_verification))
 const criticalScore = computed(() => numOr0(ev.value?.ai_score_critical_compliance_check))
 const phase3 = computed(() => phase2.value + verifScore.value + criticalScore.value)
@@ -920,6 +1002,16 @@ const lulus = computed(() => {
   if (Number.isNaN(pass)) return false
   return phase3.value >= pass
 })
+
+// Warna badge status item scorecard. PENDING = penangguhan (menunggu dokumen),
+// bukan kegagalan — karena itu amber, sewarna dengan PENDING di tabel verifikasi.
+function scorecardStatusBadge(status) {
+  const s = String(status || '').trim().toUpperCase()
+  if (s === 'SESUAI') return 'badge-green'
+  if (s === 'PENDING') return 'badge-amber'
+  if (s === 'TIDAK_DINILAI') return 'badge-gray'
+  return 'badge-red'
+}
 
 // Executive summary: scorecard items flagged BELUM_SESUAI.
 const belumSesuai = computed(() =>
@@ -993,15 +1085,22 @@ function mentionsOf(v) {
   // Sejak prompt v52 tiap elemen berupa objek { timestamp, value } — dua ucapan yang
   // kata-katanya identik di menit berbeda tidak lagi bisa digabung. Hasil lama
   // menyimpan string telanjang, jadi keduanya diterima.
+  // Sejak prompt v56 tiap elemen juga membawa `source_file` (nama PDF panggilannya) —
+  // untuk PENELUSURAN saja: sejak v59 tidak ada syarat tanggal panggilan, jadi semua
+  // penyebutan setara dan tidak ada yang dicoret. Hasil lama tidak punya field ini.
   const raw = Array.isArray(v?.extracted_mentions) ? v.extracted_mentions : []
   const list = raw
     .map((m) => (m && typeof m === 'object'
-      ? { ts: String(m.timestamp || ''), value: String(m.value ?? '') }
-      : { ts: '', value: String(m ?? '') }))
+      ? {
+          ts: String(m.timestamp || ''),
+          value: String(m.value ?? ''),
+          file: String(m.source_file || ''),
+        }
+      : { ts: '', value: String(m ?? ''), file: '' }))
     .filter((m) => m.value !== '')
   if (list.length) return list
   return v?.extracted_value != null && v.extracted_value !== ''
-    ? [{ ts: '', value: String(v.extracted_value) }]
+    ? [{ ts: '', value: String(v.extracted_value), file: '' }]
     : []
 }
 function scorecardErrorCode(it) {
@@ -1215,9 +1314,13 @@ function titleizeField(field) {
     .join(' ')
 }
 
+// PENDING (verifikasi statik): nilainya di zona abu-abu dan dokumen pendukungnya
+// masih ditunggu dalam tenggat H+2. Amber, bukan hijau — belum terbukti cocok — dan
+// bukan merah, karena belum tentu salah. Lewat tenggat tanpa unggah ia menjadi MISMATCH.
 function matchBadgeClass(match) {
   return {
     MATCH: 'badge-green',
+    PENDING: 'badge-amber',
     MISMATCH: 'badge-red',
     SKIPPED_NULL: 'badge-gray',
   }[match] || 'badge-gray'
@@ -1239,8 +1342,73 @@ function cardHolderVerificationType(field) {
   return CARD_HOLDER_DYNAMIC_FIELDS.includes(field) ? 'DINAMIS' : 'STATIK'
 }
 
+// --- Kolom "Threshold Similarity" -----------------------------------------
+// Ambang yang BERLAKU untuk tiap field, ditulis apa adanya dari sumbernya:
+//   · statik (tanggal_lahir / nama_ibu_kandung) — CARD_HOLDER_DOC_BANDS(_V2) di
+//     compliance/documents.py, tabel yang sama yang menentukan zona abu-abu dokumen;
+//   · nama_pemilik_rekening — _CASHLINE_DOC_FIELDS + blok "AMBANG KHUSUS" prompt;
+//   · sisanya — ambang fuzzy umum 80% pada prompt campaign.
+// Kalau ambang di sana berubah, daftar ini HARUS ikut diubah: ini salinan tampilan,
+// bukan pembacaan langsung, karena angka aslinya hidup di Python + teks prompt.
+const ADDRESS_FIELDS = ['alamat_kantor', 'alamat_rumah', 'alamat_pengiriman_tagihan']
+const GENERIC_THRESHOLD = ['≥ 80% → MATCH', '< 80% → MISMATCH']
+
+// Ambang nama_ibu_kandung BERBEDA antara tiket lama dan baru, dan versinya dicap ke
+// dalam evaluasi saat tiket diproses (`static_rules_version`). Dibaca dari cap itu,
+// bukan dari tanggal, supaya tiket lama tetap menampilkan ambang yang benar-benar
+// dipakai untuk menilainya.
+const staticRulesVersion = computed(() => (Number(ev.value?.static_rules_version) >= 2 ? 2 : 1))
+
+function cardHolderThresholds(field) {
+  if (field === 'tanggal_lahir') {
+    return [
+      '100% → MATCH',
+      '87,5% s/d < 100% → MATCH, perlu KTP',
+      '< 87,5% → MISMATCH',
+    ]
+  }
+  if (field === 'nama_ibu_kandung') {
+    return staticRulesVersion.value >= 2
+      ? ['≥ 80% → MATCH', '50% s/d < 80% → MATCH, perlu KK', '< 50% → MISMATCH']
+      : ['≥ 90% → MATCH', '80% s/d < 90% → MATCH, perlu KK', '< 80% → MISMATCH']
+  }
+  if (ADDRESS_FIELDS.includes(field)) {
+    return ['Nilai pendek termuat utuh di nilai panjang → MATCH (100%)', ...GENERIC_THRESHOLD]
+  }
+  return [...GENERIC_THRESHOLD]
+}
+
+function cashlineThresholds(field) {
+  if (field === 'nama_pemilik_rekening') {
+    return ['≥ 90% → MATCH', '< 90% → MISMATCH, perlu cover buku tabungan']
+  }
+  if (field === 'bunga') {
+    return [
+      'Acuan berada di dalam rentang yang disebut → MATCH (100%)',
+      'Acuan di luar rentang → MISMATCH (0%)',
+      'Kedua sisi nilai tunggal → ambang 80%',
+    ]
+  }
+  return [...GENERIC_THRESHOLD]
+}
+
 function verificationTypeBadgeClass(type) {
   return type === 'DINAMIS' ? 'badge-blue' : 'badge-gray'
+}
+
+// Kategori yang SELURUH itemnya TIDAK_DINILAI (item MUS saat nasabah tidak berminat)
+// bukan lulus dan bukan gagal — bobotnya nol dan tidak ada yang dinilai. Diberi abu-abu
+// supaya tidak terbaca sebagai PASS bernilai penuh (yang selama ini terjadi) maupun
+// sebagai kegagalan agent.
+function categoryResultBadgeClass(result) {
+  if (result === 'PASS') return 'badge-green'
+  if (result === 'TIDAK_DINILAI') return 'badge-gray'
+  return 'badge-red'
+}
+
+function categoryResultLabel(result) {
+  if (!result) return '—'
+  return result === 'TIDAK_DINILAI' ? 'TIDAK DINILAI' : result
 }
 
 // Verifikasi Dinamis helpers (revisi2): expand verified_parameters into rows
@@ -1335,6 +1503,20 @@ const Evidence = {
 .row-sub .ct-label { padding-left: 30px; }
 .ct-sub-name { font-size: 12px; color: var(--text-muted); }
 .ct-sub-name strong { color: var(--text); font-weight: 700; }
+/* Catatan pada kepala bagian: menegaskan error code bukan penyebab pengurangan. */
+.ct-note {
+  font-size: 12px; color: var(--text); line-height: 1.45; margin-top: 6px;
+  background: #F4F5F6; border-left: 3px solid var(--mega-gold);
+  padding: 7px 10px; border-radius: 0 6px 6px 0; max-width: 640px;
+}
+/* Error code ditampilkan sebagai AKIBAT, bukan penyebab — chip abu-abu di ekor
+   baris, bukan angka tebal di kepalanya. */
+.ct-code-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  background: #EEEFF1; border-radius: 999px;
+  font-size: 11px; color: var(--text); white-space: nowrap;
+}
+.ct-code-tag strong { font-weight: 700; }
 .row-subtotal td { border-top: 1px solid var(--border); }
 .row-subtotal .ct-name { font-weight: 700; }
 .row-subtotal .ct-result { background: #eef2f6; }
@@ -1429,6 +1611,12 @@ const Evidence = {
 }
 .tbl td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
 .tbl .num { text-align: right; }
+
+/* Kolom "Threshold Similarity": daftar ambang per field. Butirnya rapat karena
+   isinya baris-baris pendek yang dibaca sekaligus, bukan paragraf. */
+.threshold-list { list-style: none; margin: 0; padding: 0; }
+.threshold-list li { position: relative; padding-left: 11px; font-size: 12px; line-height: 1.45; white-space: normal; }
+.threshold-list li::before { content: '•'; position: absolute; left: 0; color: var(--text-muted); }
 .strong { font-weight: 700; }
 .cat-sub { font-size: 11px; color: var(--text-muted); font-weight: 500; margin-top: 2px; }
 .tbl-scroll { overflow-x: auto; }
@@ -1444,6 +1632,9 @@ const Evidence = {
 .mention-used { font-weight: 700; }
 /* Waktu ucapan — QC bisa melompat ke titik percakapannya di transkrip. */
 .mention-ts { display: inline-block; min-width: 44px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+/* Nama PDF panggilan (prompt v56) — kecil dan redup: penjelas, bukan isi utama. */
+.mention-file { display: block; margin-left: 50px; font-size: 10.5px; color: var(--text-muted); word-break: break-all; }
+
 
 /* Product T&C from the RIPLAY: an envelope (range / allowed set / fee table), not
    this ticket's value — muted so the TMS column stays the one that reads first. */
@@ -1476,6 +1667,8 @@ const Evidence = {
 .badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
 .badge-green { background: var(--green-bg); color: #16a34a; }
 .badge-red { background: var(--red-bg); color: var(--red); }
+/* PENDING verifikasi statik: menunggu dokumen pendukung dalam tenggat H+2. */
+.badge-amber { background: #fef3c7; color: #b45309; }
 .badge-gray { background: #f1f5f9; color: var(--text-muted); }
 .badge-blue { background: var(--blue-bg); color: var(--blue); }
 

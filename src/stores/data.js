@@ -44,7 +44,7 @@ export const useDataStore = defineStore('data', () => {
     return res.data // { granularity, start, end, buckets: [{ key, label, approve, return }] }
   }
 
-  // `campaign` kosong = seluruh campaign (filter di tab Hierarki Error Rate).
+  // `campaign` kosong = seluruh campaign (filter di tab Hierarki Failure Rate).
   async function fetchHierarchy(campaign = '') {
     const res = await apiClient.get('/stats/hierarchy', { params: campaign ? { campaign } : {} })
     return res.data // { all_telesales, area_managers }
