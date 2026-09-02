@@ -18,6 +18,12 @@ services:
         # App B di nginx depan (/api-b/ -> :4000). Tanpa prefix, /auth/login
         # nyasar ke App C :8008 dan balas 422.
         VITE_API_URL: ${VITE_API_URL:-/api-b}
+        # Diteruskan dari .env repo ini; tanpa baris-baris ini nilainya hilang
+        # saat build lewat Docker karena .env tidak ikut ke build context.
+        VITE_API_BASE: ${VITE_API_BASE:-/api-a}
+        VITE_PDF_API_BASE: ${VITE_PDF_API_BASE:-}
+        VITE_PDF_API_KEY: ${VITE_PDF_API_KEY:-}
+        VITE_RESULTS_GROUPING: ${VITE_RESULTS_GROUPING:-client}
     image: ${REGISTRY:-local}/qc-dashboard:${TAG:-latest}
     ports:
       - "4006:4006"
