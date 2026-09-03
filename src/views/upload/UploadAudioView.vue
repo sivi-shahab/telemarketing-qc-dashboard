@@ -182,13 +182,6 @@
                   >
                     🔍 Result
                   </RouterLink>
-                  <span
-                    v-else-if="job.status === 'completed'"
-                    class="result-waiting"
-                    title="Menunggu evaluasi AI Score selesai diproses"
-                  >
-                    ⏳ Menyiapkan...
-                  </span>
                 </div>
               </td>
             </tr>
@@ -264,9 +257,9 @@
             >
               🔍 Lihat di Get Result
             </RouterLink>
-            <span v-else class="result-waiting">
-              ⏳ Menunggu evaluasi AI Score selesai diproses...
-            </span>
+            <!-- Alur ini hanya menghasilkan transkrip PDF, tanpa penilaian AI,
+                 jadi tautan Get Result cuma muncul bila kebetulan ada baris
+                 Result — bukan sesuatu yang ditunggu. -->
           </div>
         </div>
 
@@ -538,8 +531,11 @@ async function downloadPDF(displayName) {
 function needsPolling(job) {
   // 'queued' = sudah di folder antrian, belum diambil consumer. Tanpa status ini
   // di daftar, polling tidak pernah mulai dan baris diam selamanya.
-  return ['queued', 'accepted', 'pending', 'processing'].includes(job.status) ||
-    (job.status === 'completed' && !job.result_id)
+  // 'completed' TIDAK ikut dipoll lagi. Sebelumnya ada syarat tambahan
+  // (completed && !result_id) untuk menunggu evaluasi AI menyusul — di jalur
+  // antrian result_id memang tidak pernah terisi (webhook register_stt_result
+  // tidak dipanggil), jadi syarat itu membuat polling berjalan selamanya.
+  return ['queued', 'accepted', 'pending', 'processing'].includes(job.status)
 }
 
 function isProcessing(status) {
