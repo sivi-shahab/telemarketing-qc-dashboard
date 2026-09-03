@@ -149,7 +149,43 @@ template Vue baru ketahuan di tahap ini, tidak saat menyunting.
 
 ---
 
-## 7. Masalah yang pernah terjadi
+## 7. Halaman Upload Audio
+
+Halaman ini memakai **dua backend berbeda**, dan itu disengaja:
+
+| Aksi | Tujuan | Lewat |
+|---|---|---|
+| Unggah | `/upload_audio` | App B `:4000` (`apiClient`, prefix `/api-b`) |
+| Polling status | `/audio_job_status?audio_name=...` | App B `:4000` |
+| Download PDF | `/api/downloads/<stem>` | `:8010` (`VITE_PDF_API_BASE` + `VITE_PDF_API_KEY`) |
+| Daftar campaign | `/list_campaigns` | App B `:4000` |
+
+**Kuncinya nama berkas, bukan `job_id`.** `job_id` STT baru terbit di dalam
+consumer antrian, jadi tidak pernah sampai ke dashboard. Nama berkas dipakai
+untuk dua-duanya: polling status, dan `pdfIdentifierFromAudioName()` yang
+menurunkan id PDF (nama tanpa ekstensi). Karena kuncinya satu, status dan
+unduhan tidak bisa saling bertentangan.
+
+**Campaign opsional.** Alur ini hanya menghasilkan transkrip PDF tanpa penilaian
+AI, jadi campaign tidak berpengaruh ke hilir. Kalau diisi, API tetap
+memvalidasi keaktifannya.
+
+**Diarization & bahasa tidak ada di UI.** Producer antrian mem-publish dengan
+setelan global (`DEFAULT_LANGUAGE`, `ENABLE_DIARIZATION`), bukan pilihan
+per-unggahan — dropdown-nya dihapus, bukan disembunyikan, karena kontrol yang
+tidak berefek lebih menyesatkan daripada tidak ada.
+
+**Ekstensi hanya `.wav`, `.wave`, `.mp3`.** Format lain ditolak API dengan 422
+berisi daftar yang didukung.
+
+> Kalau sebuah job diam di `processing` terlalu lama, kegagalan di tengah
+> antrian memang tidak terdeteksi (tidak berubah jadi `failed`). Periksa
+> daemon producer/consumer di host — lihat
+> `telemarketing-qc-worker/deployment_guidelines.md`.
+
+---
+
+## 8. Masalah yang pernah terjadi
 
 | Gejala | Sebab & penanganan |
 |---|---|
@@ -160,3 +196,5 @@ template Vue baru ketahuan di tahap ini, tidak saat menyunting.
 | Menu tidak muncul untuk suatu role | Menu digerakkan capability, bukan kode. Cek `permissions.js` dan izin role di menu Manage Role — dashboard tidak perlu di-build ulang untuk ini. |
 | Pengguna masih melihat versi lama | Cache browser. Hard reload; pastikan aturan `index.html` di `nginx.conf` tidak diubah. |
 | Compose gagal: network `qc-net` not found | `docker network create qc-net`. |
+| Upload Audio "processing" selamanya | Daemon producer/consumer di host mati, atau PDF belum terbit. Cek `ps aux \| grep producer_watch` dan isi `/data/recording`. |
+| Tombol Download PDF gagal padahal status completed | `VITE_PDF_API_KEY` tidak ikut saat build. |
