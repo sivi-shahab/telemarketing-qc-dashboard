@@ -74,9 +74,11 @@
 
         <!-- Campaign dropdown -->
         <div class="field">
-          <label>Campaign <span class="required">*</span></label>
+          <!-- Opsional: keluaran alur ini hanya transkrip PDF (tanpa penilaian
+               LLM), jadi campaign tidak berpengaruh sama sekali ke hilir. -->
+          <label>Campaign <span class="optional">(opsional)</span></label>
           <select v-model="campaign" class="select-input">
-            <option value="" disabled>Pilih campaign...</option>
+            <option value="">Tanpa campaign</option>
             <option v-for="c in campaigns" :key="c.id" :value="c.name">{{ c.name }}</option>
           </select>
           <span v-if="!campaigns.length" class="field-hint">
@@ -92,7 +94,7 @@
         <!-- Upload Button -->
         <button
           class="btn-upload"
-          :disabled="!selectedFiles.length || !campaign || uploading"
+          :disabled="!selectedFiles.length || uploading"
           @click="uploadFiles"
         >
           <span v-if="uploading" class="spinner"></span>
@@ -450,10 +452,6 @@ function handleDrop(e) {
 // Functions - Upload
 async function uploadFiles() {
   if (!selectedFiles.value.length) return
-  if (!campaign.value) {
-    uploadError.value = 'Pilih campaign terlebih dahulu.'
-    return
-  }
 
   uploading.value = true
   uploadError.value = ''
@@ -465,7 +463,9 @@ async function uploadFiles() {
     // ('/api-a') seperti jalur lama ke STT.
     const form = new FormData()
     for (const file of selectedFiles.value) form.append('files', file)
-    form.append('campaign', campaign.value)
+    // Hanya dikirim kalau dipilih; backend memperlakukannya opsional dan
+    // tetap memvalidasi keaktifannya bila diisi.
+    if (campaign.value) form.append('campaign', campaign.value)
 
     const res = await apiClient.post('/upload_audio', form)
     const names = res.data?.audio_names || []
@@ -939,6 +939,8 @@ watch(
 .required {
   color: #dc2626;
 }
+.optional { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+
 
 .field-hint {
   font-size: 12px;
