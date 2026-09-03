@@ -317,16 +317,11 @@ const POLLING_INTERVAL = 5000 // 5 seconds
 const STORAGE_KEY = 'stt_jobs_history'
 
 // API Base & Key
-// [FIX CORS] Default SEBELUMNYA 'http://10.158.32.26:8000' -- absolute URL ke
-// IP:port langsung, browser anggap ini origin BEDA dari
-// https://call-qc.bankmega.local, kena CORS preflight block (server STT
-// tidak kirim Access-Control-Allow-Origin). Nginx SUDAH proxy port 8000
-// sebagai prefix /api-a/ (lihat komentar di nginx.conf: "VITE_API_BASE=/api-a"
-// -- ini memang desain yang direncanakan, cuma env var-nya belum ter-set
-// dengan benar). Ganti default ke path RELATIF /api-a supaya request jadi
-// same-origin -- CORS tidak berlaku sama sekali untuk same-origin request.
+// Halaman ini TIDAK lagi memanggil App A (/api-a, port 8000) sejak upload
+// dialihkan ke /upload_audio milik App B lewat apiClient. `VITE_API_BASE`
+// karena itu sudah tidak dirujuk di berkas ini.
 
-// [FIX CORS] Sama seperti apiBase -- nginx SUDAH punya location /api/download
+// [FIX CORS] nginx SUDAH punya location /api/download
 // dan /api/view-streams/ yang proxy ke port 8010 TANPA perlu prefix tambahan
 // (proxy_pass TANPA trailing slash -> path asli diteruskan utuh). Default
 // SEBELUMNYA 'http://10.158.32.26:8010' bikin request PDF juga kena CORS.
@@ -459,8 +454,8 @@ async function uploadFiles() {
   try {
     // Satu request untuk semua berkas: /upload_audio menerima `files` jamak.
     // Ini App B (API kita, prefix /api-b) -- pakai apiClient yang sudah membawa
-    // Authorization dan baseURL-nya, jadi TIDAK boleh digabung dengan apiBase
-    // ('/api-a') seperti jalur lama ke STT.
+    // Authorization dan baseURL-nya ('/api-b'), jadi TIDAK boleh digabung
+    // dengan prefix App A seperti jalur lama ke STT.
     const form = new FormData()
     for (const file of selectedFiles.value) form.append('files', file)
     // Hanya dikirim kalau dipilih; backend memperlakukannya opsional dan
