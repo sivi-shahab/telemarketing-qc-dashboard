@@ -61,21 +61,15 @@
           </div>
         </div>
 
-        <!-- Options -->
+        <!-- Options DIHAPUS (bukan sekadar disembunyikan).
+             Audio kini masuk lewat antrian STT: producer_watch.py mem-publish
+             pesan dengan DEFAULT_LANGUAGE + ENABLE_DIARIZATION dari env-nya
+             sendiri, bukan pilihan per-unggahan. Menampilkan dropdown yang
+             tidak berpengaruh lebih buruk daripada tidak menampilkannya. -->
         <div class="upload-options">
-          <div class="option-group">
-            <label class="checkbox-label">
-              <input type="checkbox" v-model="diarization" />
-              <span>Enable Diarization (Pisahkan per Speaker)</span>
-            </label>
-          </div>
-          <div class="option-group">
-            <label for="stt-language">Bahasa</label>
-            <select id="stt-language" v-model="language" class="select-input">
-              <option value="id">🇮🇩 Indonesia</option>
-              <option value="en">🇺🇸 English</option>
-            </select>
-          </div>
+          <p class="option-note">
+            Diarization dan bahasa mengikuti setelan global pipeline STT.
+          </p>
         </div>
 
         <!-- Campaign dropdown -->
@@ -134,21 +128,18 @@
           <thead>
             <tr>
               <th>File Name</th>
-              <th>Job ID</th>
               <th>Status</th>
-              <th>Diarization</th>
-              <th>Language</th>
               <th>Created At</th>
               <th>Action</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="filteredJobs.length === 0">
-              <td colspan="7" class="empty-row">Tidak ada data</td>
+              <td colspan="4" class="empty-row">Tidak ada data</td>
             </tr>
             <tr
               v-for="job in filteredJobs"
-              :key="job.job_id"
+              :key="job.audio_name"
               class="job-row"
               @click="selectJobDetail(job)"
             >
@@ -157,9 +148,6 @@
                   <span class="file-icon">🎵</span>
                   <span class="file-name">{{ job.audio_name }}</span>
                 </div>
-              </td>
-              <td class="job-id-cell">
-                <code class="job-id">{{ truncateId(job.job_id) }}</code>
               </td>
               <td class="status-cell">
                 <span
@@ -171,12 +159,6 @@
                   {{ job.status }}
                 </span>
               </td>
-              <td class="diarization-cell">
-                {{ job.diarization ? '✓ Yes' : '✗ No' }}
-              </td>
-              <td class="language-cell">
-                {{ job.language === 'id' ? '🇮🇩 ID' : '🇺🇸 EN' }}
-              </td>
               <td class="date-cell">
                 {{ formatDate(job.created_at) }}
               </td>
@@ -185,7 +167,7 @@
                   <button
                     class="btn-download"
                     :disabled="job.status !== 'completed'"
-                    @click="downloadPDF(job.job_id, job.audio_name)"
+                    @click="downloadPDF(job.audio_name)"
                     title="Download PDF Transkrip"
                   >
                     📥 PDF
@@ -251,8 +233,8 @@
               <span class="info-value">{{ selectedJobDetail.audio_name }}</span>
             </div>
             <div class="info-row">
-              <span class="info-label">Job ID:</span>
-              <code class="info-code">{{ selectedJobDetail.job_id }}</code>
+              <span class="info-label">File:</span>
+              <code class="info-code">{{ selectedJobDetail.audio_name }}</code>
             </div>
             <div v-if="selectedJobDetail.result_id" class="info-row">
               <span class="info-label">Result ID:</span>
@@ -265,20 +247,12 @@
               </span>
             </div>
             <div class="info-row">
-              <span class="info-label">Language:</span>
-              <span>{{ selectedJobDetail.language === 'id' ? 'Indonesia' : 'English' }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Diarization:</span>
-              <span>{{ selectedJobDetail.diarization ? '✓ Enabled' : '✗ Disabled' }}</span>
-            </div>
-            <div class="info-row">
               <span class="info-label">Created:</span>
               <span>{{ formatDateTime(selectedJobDetail.created_at) }}</span>
             </div>
           </div>
           <div v-if="selectedJobDetail.status === 'completed'" class="detail-actions">
-            <button class="btn-download" @click="downloadPDF(selectedJobDetail.job_id, selectedJobDetail.audio_name)">
+            <button class="btn-download" @click="downloadPDF(selectedJobDetail.audio_name)">
               📥 Download PDF
             </button>
             <RouterLink
@@ -295,7 +269,7 @@
         </div>
 
         <!-- Diarization Results (if available) -->
-        <div v-if="selectedJobDetail.diarization && selectedJobDetail.status === 'completed'" class="detail-card">
+        <div v-if="diarizationData.length && selectedJobDetail.status === 'completed'" class="detail-card">
           <div class="card-title">👥 Diarization Results</div>
           <div class="diarization-content">
             <div v-if="diarizationData.length === 0" class="empty-detail">
@@ -349,7 +323,6 @@ const STORAGE_KEY = 'stt_jobs_history'
 // -- ini memang desain yang direncanakan, cuma env var-nya belum ter-set
 // dengan benar). Ganti default ke path RELATIF /api-a supaya request jadi
 // same-origin -- CORS tidak berlaku sama sekali untuk same-origin request.
-const apiBase = import.meta.env.VITE_API_BASE || '/api-a'
 
 // [FIX CORS] Sama seperti apiBase -- nginx SUDAH punya location /api/download
 // dan /api/view-streams/ yang proxy ke port 8010 TANPA perlu prefix tambahan
@@ -372,10 +345,7 @@ const selectedFiles = ref([])
 const campaigns = ref([])
 const campaignScoped = computed(() => isCampaignScoped())
 const campaign = ref('')
-// [FIX] `diarization` dan `language` dipakai template + uploadFiles() tapi
 // deklarasinya hilang saat merge.
-const diarization = ref(false)
-const language = ref('id')
 const isDragging = ref(false)
 const uploading = ref(false)
 const uploadError = ref('')
@@ -441,15 +411,6 @@ const weekJobs = computed(() => {
   return allJobs.value.filter(j => new Date(j.created_at) >= weekAgo).length
 })
 
-// Helper: ambil Authorization header yang sama seperti dipakai apiClient
-// (request fetch() manual di bawah tidak otomatis kena axios interceptor)
-function authHeaders(extra = {}) {
-  const token = localStorage.getItem('access_token')
-  return {
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...extra
-  }
-}
 
 function isAudio(name) {
   const lower = (name || '').toLowerCase()
@@ -498,56 +459,37 @@ async function uploadFiles() {
   uploadError.value = ''
 
   try {
-    for (const file of selectedFiles.value) {
-      const form = new FormData()
-      form.append('audio_file', file)
-      form.append('enable_diarization', diarization.value ? '1' : '0')
-      form.append('language', language.value)
-      // [FIX] Dropdown Campaign wajib diisi di layar ini, tapi nilainya tidak
-      // pernah ikut terkirim setelah merge -- backend diam-diam jatuh ke
-      // DEFAULT_UPLOAD_TRANSCRIPT_CAMPAIGN, jadi tiket masuk ke campaign yang
-      // salah. Sekarang dikirim eksplisit.
-      form.append('campaign', campaign.value)
+    // Satu request untuk semua berkas: /upload_audio menerima `files` jamak.
+    // Ini App B (API kita, prefix /api-b) -- pakai apiClient yang sudah membawa
+    // Authorization dan baseURL-nya, jadi TIDAK boleh digabung dengan apiBase
+    // ('/api-a') seperti jalur lama ke STT.
+    const form = new FormData()
+    for (const file of selectedFiles.value) form.append('files', file)
+    form.append('campaign', campaign.value)
 
-      // [FIX] apiClient (axios) punya baseURL bawaan '/api-b' (App B) --
-      // dipakai bareng apiBase ('/api-a') bikin numpuk jadi
-      // '/api-b/api-a/...' (404). Endpoint ini App A (port 8000), BUKAN
-      // App B -- pakai fetch() polos (tanpa baseURL apa pun), sama pola
-      // seperti pollOneJob() di bawah yang sudah benar.
-      const res = await fetch(`${apiBase}/api/v1/speech/stt/save_dashboard`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: form,
+    const res = await apiClient.post('/upload_audio', form)
+    const names = res.data?.audio_names || []
+
+    // Kunci job = NAMA BERKAS, bukan job_id STT. job_id baru terbit setelah
+    // consumer mengunggah ke STT, jadi tidak ada yang bisa dikembalikan di sini.
+    // Nama berkas juga sudah jadi kunci download (pdf id = nama tanpa ekstensi),
+    // sehingga status dan unduhan memakai kunci yang sama.
+    const sekarang = new Date().toISOString()
+    for (const nama of names) {
+      allJobs.value.unshift({
+        audio_name: nama,
+        result_id: null,
+        campaign: campaign.value,
+        status: 'queued',
+        created_at: sekarang,
       })
-      const resData = res.ok ? await res.json() : null
-      if (!res.ok) {
-        throw new Error((resData && resData.detail) || `Upload gagal (HTTP ${res.status})`)
-      }
-
-      if (resData?.job_id) {
-        allJobs.value.unshift({
-          job_id: resData.job_id,
-          // Diisi dari main_backend_result_id (bukan result_id) setelah
-          // /upload_transcript (cabang evaluasi LLM) selesai diproses.
-          // Lihat applyStatusUpdate() — result_id polos dari
-          // /webhook/register_stt_result TIDAK dipakai di sini karena
-          // itu transkrip plain tanpa skor/evaluasi.
-          result_id: null,
-          audio_name: file.name,
-          campaign: campaign.value,
-          status: 'processing',
-          diarization: diarization.value,
-          language: language.value,
-          created_at: new Date().toISOString()
-        })
-      }
     }
 
     selectedFiles.value = []
     currentPage.value = 1
     startPolling()
   } catch (e) {
-    uploadError.value = e.message || 'Upload gagal. Coba lagi.'
+    uploadError.value = e?.response?.data?.detail || e.message || 'Upload gagal. Coba lagi.'
   } finally {
     uploading.value = false
   }
@@ -563,7 +505,7 @@ function pdfIdentifierFromAudioName(audioName) {
   return (audioName || '').replace(/\.[^/.]+$/, '')
 }
 
-async function downloadPDF(jobId, displayName) {
+async function downloadPDF(displayName) {
   const pdfId = pdfIdentifierFromAudioName(displayName)
   if (!pdfId) {
     alert('Nama file audio tidak ditemukan, tidak bisa download PDF.')
@@ -599,12 +541,14 @@ async function downloadPDF(jobId, displayName) {
 // (yang memicu evaluasi AI Score lewat /upload_transcript) berjalan async
 // setelah STT selesai.
 function needsPolling(job) {
-  return ['accepted', 'pending', 'processing'].includes(job.status) ||
+  // 'queued' = sudah di folder antrian, belum diambil consumer. Tanpa status ini
+  // di daftar, polling tidak pernah mulai dan baris diam selamanya.
+  return ['queued', 'accepted', 'pending', 'processing'].includes(job.status) ||
     (job.status === 'completed' && !job.result_id)
 }
 
 function isProcessing(status) {
-  return ['accepted', 'pending', 'processing'].includes(status)
+  return ['queued', 'accepted', 'pending', 'processing'].includes(status)
 }
 
 // [FIX] Sebelumnya field ini dibaca dari `data.result_id`, yaitu hasil
@@ -618,43 +562,31 @@ function isProcessing(status) {
 // result_id yang di-generate oleh /upload_transcript — endpoint itulah
 // yang men-trigger pipeline evaluasi LLM penuh (scorecard, skor,
 // passing grade, dst) lewat Celery task process_transcript.
-function applyStatusUpdate(jobId, data) {
-  const idx = allJobs.value.findIndex(j => j.job_id === jobId)
+function applyStatusUpdate(audioName, data) {
+  const idx = allJobs.value.findIndex(j => j.audio_name === audioName)
   if (idx === -1) return
   allJobs.value[idx].status = data.status
   if (data.error_message) allJobs.value[idx].error_message = data.error_message
-  if (data.main_backend_result_id) {
-    allJobs.value[idx].result_id = data.main_backend_result_id
-  }
+  // result_id baru ada setelah /webhook/register_stt_result membuat barisnya.
+  if (data.result_id) allJobs.value[idx].result_id = data.result_id
 }
 
-// [FIX] Kalau job_id sudah tidak ditemukan di server (404) — entah karena
-// TTL job_storage di STT service kadaluarsa (2 jam) atau service di-restart
-// (job_storage in-memory, hilang total saat restart) — job HARUS ditandai
-// failed di sini. Tanpa ini, status job tetap "processing" selamanya,
-// needsPolling() terus return true, dan setInterval retry tanpa henti
-// (inilah penyebab ratusan request 404 berulang yang terlihat di console).
-function markJobExpired(jobId) {
-  const idx = allJobs.value.findIndex(j => j.job_id === jobId)
-  if (idx === -1) return
-  allJobs.value[idx].status = 'failed'
-  allJobs.value[idx].error_message = 'Job kadaluarsa atau STT service di-restart. Silakan upload ulang.'
-}
 
 async function pollOneJob(job) {
   try {
-    const res = await fetch(`${apiBase}/api/v1/speech/stt/status/${job.job_id}`, { headers: authHeaders() })
-    if (res.ok) {
-      const data = await res.json()
-      applyStatusUpdate(job.job_id, data)
-    } else if (res.status === 404) {
-      markJobExpired(job.job_id)
-    }
-    // status lain (500, dll) sengaja dibiarkan retry di interval berikutnya
+    // Status dibaca dari API kita (App B), bukan dari STT: audio masuk lewat
+    // antrian, jadi API-lah yang tahu tahapannya (queued/processing/completed).
+    const res = await apiClient.get('/audio_job_status', {
+      params: { audio_name: job.audio_name },
+    })
+    applyStatusUpdate(job.audio_name, res.data)
   } catch (e) {
-    console.error(`Polling error for ${job.job_id}:`, e)
+    // Sengaja tidak menandai gagal: kegagalan jaringan sesaat bukan berarti
+    // job-nya batal. Dicoba lagi di interval berikutnya.
+    console.error(`Polling error for ${job.audio_name}:`, e)
   }
 }
+
 
 function stopPolling() {
   if (!pollTimer) return
@@ -721,12 +653,6 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-// [FIX] truncateId / formatDate / formatDateTime dipakai template tapi
-// definisinya hilang saat merge.
-function truncateId(id) {
-  const s = String(id || '')
-  return s.length > 12 ? `${s.slice(0, 8)}…${s.slice(-4)}` : (s || '—')
-}
 
 function formatDate(iso) {
   if (!iso) return '—'
