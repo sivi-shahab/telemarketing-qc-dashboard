@@ -171,10 +171,17 @@ test('describeSplit: habis dibagi', () => {
   assert.equal(describeSplit(60, 12), '60 ticket dibagi ke 12 QC — 5 ticket per QC.')
 })
 
-test('describeSplit: sisa disebut terpisah dan jatuh ke QC terakhir', () => {
+test('describeSplit: sisa disebar satu-satu ke QC pertama', () => {
   assert.equal(
     describeSplit(134, 12),
-    '134 ticket dibagi ke 12 QC — 11 ticket per QC, QC terakhir 13 (sisa 2).',
+    '134 ticket dibagi ke 12 QC — 11 ticket per QC, 2 QC pertama dapat 12.',
+  )
+})
+
+test('describeSplit: sisa satu ticket disebut tunggal', () => {
+  assert.equal(
+    describeSplit(281, 10),
+    '281 ticket dibagi ke 10 QC — 28 ticket per QC, 1 QC pertama dapat 29.',
   )
 })
 

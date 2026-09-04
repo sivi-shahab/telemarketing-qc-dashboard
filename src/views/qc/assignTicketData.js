@@ -77,9 +77,8 @@ export function joinLocalResults(groups, localItems, assignments) {
  *
  * Angkanya HARUS sama dengan pembagian di server
  * (`api/routers/qc_assignment.py` :: `split_evenly`): `floor(n/k)` per QC dan
- * sisanya ke QC terakhir, kecuali saat ticket lebih sedikit daripada QC — di
- * situ dibagikan satu-satu supaya tidak menumpuk ke satu orang. Kalau kedua sisi
- * berbeda, orang menyetujui pembagian yang bukan yang benar-benar terjadi.
+ * sisanya disebar satu-satu ke QC pertama. Kalau kedua sisi berbeda, orang
+ * menyetujui pembagian yang bukan yang benar-benar terjadi.
  */
 export function describeSplit(n, k) {
   if (!k) return 'Tidak ada QC aktif untuk dibagikan.'
@@ -89,5 +88,5 @@ export function describeSplit(n, k) {
   const base = Math.floor(n / k)
   const rem = n % k
   const head = `${n} ticket dibagi ke ${k} QC — ${base} ticket per QC`
-  return rem ? `${head}, QC terakhir ${base + rem} (sisa ${rem}).` : `${head}.`
+  return rem ? `${head}, ${rem} QC pertama dapat ${base + 1}.` : `${head}.`
 }
