@@ -1,0 +1,104 @@
+/* Lapisan teks pdf.js — inilah yang membuat ctrl+F bekerja di halaman transkrip.
+ *
+ * Halaman PDF digambar ke <canvas>, dan piksel tidak bisa dicari: find-in-page
+ * Chrome hanya menelusuri DOM. (Memakai <iframe> pun tidak menolong — PDF di
+ * dalam frame dirender PDFium di proses terpisah, teksnya tak pernah masuk DOM
+ * halaman, jadi ctrl+F tidak menemukan apa pun.) Karena itu `createPdfPageRenderer`
+ * menumpuk teks asli di atas canvas: transparan, terposisi tepat di atas
+ * glifnya, tapi berupa <span> biasa yang bisa dicari, disorot, dan disalin.
+ *
+ * Aturan di bawah adalah petikan seperlunya dari `pdfjs-dist/web/pdf_viewer.css`
+ * (bagian .textLayer saja). Berkas aslinya 100 KB dan sebagian besar isinya milik
+ * annotation/editor layer yang tidak kita render. Saat menaikkan versi pdfjs-dist,
+ * bandingkan lagi blok .textLayer di sana dengan berkas ini.
+ *
+ * Diimpor oleh `src/utils/pdfRender.js` supaya setiap pemakai renderer itu
+ * otomatis kebagian; jangan diimpor manual per komponen.
+ */
+
+/* Wadah per halaman: jangkar posisi untuk .textLayer (inset: 0) di bawah. */
+.pdf-page {
+  position: relative;
+}
+
+.pdf-page-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+}
+
+/* Teksnya transparan: yang terlihat tetap canvas di bawahnya. Sorotan ctrl+F
+   dan blok seleksi digambar browser di atas span ini, jadi tetap kelihatan. */
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+}
+
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.textLayer span[role='img'] {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.textLayer ::-moz-selection {
+  background: rgba(0 0 255 / 0.25);
+  background: color-mix(in srgb, AccentColor, transparent 75%);
+}
+
+.textLayer ::selection {
+  background: rgba(0 0 255 / 0.25);
+  background: color-mix(in srgb, AccentColor, transparent 75%);
+}
+
+.textLayer br::-moz-selection {
+  background: transparent;
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+.textLayer.selecting .endOfContent {
+  top: 0;
+}

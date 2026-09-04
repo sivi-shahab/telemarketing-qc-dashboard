@@ -8,8 +8,10 @@
     </header>
     <div class="viewer-body">
       <!-- PDF diambil lewat App B (`GET /tickets_daily_pdf/{tiket_id}`) lalu dirender
-           pdf.js ke canvas. Tidak bisa memakai <iframe>: elemen itu tak bisa
-           mengirim header Authorization. -->
+           pdf.js ke canvas + lapisan teks. Tidak bisa memakai <iframe>: elemen itu
+           tak bisa mengirim header Authorization, dan isi PDF di dalam frame tak
+           pernah masuk DOM halaman sehingga ctrl+F tidak menemukan apa pun.
+           Lapisan teksnya dipasang createPdfPageRenderer (utils/pdfRender.js). -->
       <div v-if="loading" class="viewer-loading">
         <span class="spinner"></span> Memuat PDF…
       </div>
