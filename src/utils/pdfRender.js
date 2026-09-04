@@ -9,14 +9,30 @@
 import { TextLayer } from 'pdfjs-dist'
 import '../assets/pdf-text-layer.css'
 
+// Di bawah angka ini yang terukur hampir pasti bukan lebar tampilan: wadah yang
+// ukurannya mengikuti isi (shrink-to-fit) menyisakan padding saja begitu isinya
+// dikosongkan tepat sebelum render. Merendernya apa adanya menghasilkan halaman
+// selebar 1px — tidak melempar galat, layarnya sekadar kosong.
+const MIN_SANE_WIDTH = 80
+
+function boxWidth(el) {
+  if (!el) return 0
+  const style = getComputedStyle(el)
+  const pad = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
+  return (el.clientWidth || 0) - pad
+}
+
 // Lebar KOTAK ISI wadahnya. `clientWidth` sudah termasuk padding, sedangkan
 // halaman ditampilkan selebar 100% kotak isi; memakai clientWidth mentah bikin
 // canvas dirender lebih lebar dari tampilannya, dan lapisan teks — yang
 // diposisikan dari skala, bukan dari CSS — jadi meleset dari glifnya.
 function contentWidth(container) {
-  const style = getComputedStyle(container)
-  const pad = parseFloat(style.paddingLeft || '0') + parseFloat(style.paddingRight || '0')
-  return Math.max(1, (container.clientWidth || 800) - pad)
+  const own = boxWidth(container)
+  if (own >= MIN_SANE_WIDTH) return own
+  // Wadahnya belum punya lebar sendiri: pakai kotak isi induknya, yang lebarnya
+  // ditentukan tata letak halaman dan bukan oleh isi wadah ini.
+  const parent = boxWidth(container.parentElement)
+  return parent >= MIN_SANE_WIDTH ? parent : 800
 }
 
 export function createPdfPageRenderer() {

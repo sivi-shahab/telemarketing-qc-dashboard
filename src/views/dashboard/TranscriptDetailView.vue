@@ -124,7 +124,15 @@ onUnmounted(() => {
   background: var(--blue-bg); color: var(--blue); text-transform: uppercase; letter-spacing: 0.04em;
 }
 .viewer-body { flex: 1; display: flex; overflow: auto; }
-.pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px; max-width: 900px; margin: 0 auto; }
+/* `flex: 1` + `min-width: 0` WAJIB: .viewer-body adalah flex row, dan tanpa ini
+   wadah ini lebarnya mengikuti isi (shrink-to-fit). Saat renderer mengukurnya,
+   isinya baru saja dikosongkan — yang terukur cuma padding, dan halaman pun
+   dirender selebar 1px: tidak ada error, layarnya sekadar kosong.
+   `margin: 0 auto` tetap menengahkan karena max-width menyisakan ruang bebas. */
+.pdf-pages {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  flex: 1; min-width: 0; padding: 20px; max-width: 900px; margin: 0 auto;
+}
 :deep(.pdf-page) { display: block; width: 100%; box-shadow: 0 2px 8px rgba(0,0,0,0.4); background: #fff; }
 .viewer-loading { display: flex; align-items: center; gap: 10px; color: #fff; font-size: 14px; padding: 40px; justify-content: center; }
 .viewer-failed { color: #fca5a5; font-size: 14px; padding: 40px; text-align: center; }
