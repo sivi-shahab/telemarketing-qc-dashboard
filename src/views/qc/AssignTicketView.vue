@@ -17,10 +17,19 @@
             <option v-for="q in qcUsers" :key="q.username" :value="q.username">{{ q.name || q.username }}</option>
           </select>
           <span class="count">{{ filtered.length }} / {{ tickets.length }} ticket</span>
+          <!-- Membagi SEMUA ticket yang belum punya QC, bukan hanya yang lolos
+               filter di atas: filternya alat pandang, bukan pilihan pembagian. -->
+          <button
+            class="btn-auto"
+            :disabled="loading || autoBusy || !unassigned.length || !qcUsers.length"
+            :title="describeSplit(unassigned.length, qcUsers.length)"
+            @click="autoAssign"
+          >{{ autoBusy ? 'Membagi…' : `⚡ Assign Otomatis (${unassigned.length})` }}</button>
           <button class="btn-refresh" :disabled="loading" @click="loadAll">↻ Muat ulang</button>
         </div>
 
         <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
+        <div v-if="autoMsg" class="ok-msg">{{ autoMsg }}</div>
 
         <div class="table-wrap">
           <table class="assign-table">
@@ -80,7 +89,7 @@
 import { ref, computed, onMounted } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
-import { groupTickets, joinLocalResults } from './assignTicketData.js'
+import { groupTickets, joinLocalResults, describeSplit } from './assignTicketData.js'
 
 // Baris tiket diambil lewat App B (`GET /tickets_daily`), bukan menembak App C
 // langsung dari browser: permintaan langsung tidak melewati App B sehingga
@@ -102,6 +111,8 @@ const assigneeFilter = ref('')
 const loadDate = ref('')   // kosong -> tidak dikirim -> API pakai mode "yesterday"
 const pick = ref({})       // ticket_id -> selected qc username
 const busy = ref(null)     // ticket_id currently mutating
+const autoBusy = ref(false)
+const autoMsg = ref('')
 
 let inFlight = null        // AbortController permintaan tickets-daily terakhir
 let requestId = 0          // penanda anti balapan antar-permintaan
@@ -110,6 +121,10 @@ function qcLabel(username) {
   const q = qcUsers.value.find((u) => u.username === username)
   return q?.name || username
 }
+
+// Yang belum punya QC — dihitung dari SELURUH ticket yang dimuat, bukan dari
+// `filtered`, karena tombol Assign Otomatis membagi semuanya.
+const unassigned = computed(() => tickets.value.filter((t) => !t.assigned_qc))
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
@@ -225,6 +240,47 @@ async function assign(t) {
   }
 }
 
+// Pembagiannya dihitung SERVER (POST /qc_assignment/auto), bukan di sini: satu
+// transaksi untuk semuanya, dan daftar ticket dari browser diperiksa ulang di
+// sana terhadap cakupan campaign login ini. Melakukannya di browser berarti
+// ratusan POST /qc_assignment yang bisa putus di tengah dan meninggalkan
+// pembagian timpang.
+async function autoAssign() {
+  const pending = unassigned.value
+  if (!pending.length || !qcUsers.value.length) return
+  if (!window.confirm(`${describeSplit(pending.length, qcUsers.value.length)}\n\nLanjutkan?`)) return
+
+  autoBusy.value = true
+  errorMsg.value = ''
+  autoMsg.value = ''
+  try {
+    const form = new FormData()
+    for (const t of pending) form.append('ticket_ids', t.id)
+    const res = await apiClient.post('/qc_assignment/auto', form)
+
+    // Baris diperbarui dari jawaban server, bukan dari tebakan pembagian di sini:
+    // server bisa saja membuang sebagian ticket (di luar cakupan, atau keburu
+    // di-assign orang lain) dan tabel harus menampilkan yang benar-benar terjadi.
+    const byTicket = new Map()
+    for (const [qc, ids] of Object.entries(res.data?.per_qc || {})) {
+      for (const id of ids) byTicket.set(id, qc)
+    }
+    for (const t of tickets.value) {
+      const qc = byTicket.get(t.id)
+      if (!qc) continue
+      t.assigned_qc = qc
+      t.assigned_at = res.data?.assigned_at
+    }
+    const skipped = res.data?.skipped || 0
+    autoMsg.value = `${res.data?.assigned || 0} ticket dibagi ke ${res.data?.qc_count || 0} QC.`
+      + (skipped ? ` ${skipped} dilewati (di luar cakupan atau sudah di-assign).` : '')
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Gagal membagi ticket otomatis.'
+  } finally {
+    autoBusy.value = false
+  }
+}
+
 async function unassign(t) {
   busy.value = t.id
   errorMsg.value = ''
@@ -254,6 +310,17 @@ onMounted(loadAll)
 .search { flex: 1 1 220px; min-width: 180px; }
 .filter { min-width: 160px; cursor: pointer; }
 .count { margin-left: auto; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.btn-auto {
+  padding: 8px 14px; border: 1px solid var(--blue); border-radius: 6px; background: var(--blue);
+  color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.btn-auto:hover:not(:disabled) { filter: brightness(0.94); }
+.btn-auto:disabled { opacity: 0.5; cursor: not-allowed; }
+.ok-msg {
+  margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px;
+  background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;
+}
+
 .btn-refresh { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
 .btn-refresh:disabled { opacity: 0.5; }
 

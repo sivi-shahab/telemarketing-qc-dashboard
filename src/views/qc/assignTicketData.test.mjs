@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { groupTickets, groupStatus, joinLocalResults } from './assignTicketData.js'
+import { groupTickets, groupStatus, joinLocalResults, describeSplit } from './assignTicketData.js'
 
 test('groupTickets mengelompokkan beberapa tiket ke satu ticket id', () => {
   const groups = groupTickets([
@@ -160,4 +160,32 @@ test('joinLocalResults: ticket tanpa assignment tetap null', () => {
   const [row] = joinLocalResults(groups, [], [{ ticket_id: 'LAIN', qc_username: 'qc01' }])
   assert.equal(row.assigned_qc, null)
   assert.equal(row.assigned_at, null)
+})
+
+// --- describeSplit ---------------------------------------------------------
+// Kalimat konfirmasi tombol "Assign Otomatis". Angkanya harus sama dengan yang
+// dihitung server (api/routers/qc_assignment.py :: split_evenly) — kalau kedua
+// sisi berbeda, orang menyetujui pembagian yang bukan yang terjadi.
+
+test('describeSplit: habis dibagi', () => {
+  assert.equal(describeSplit(60, 12), '60 ticket dibagi ke 12 QC — 5 ticket per QC.')
+})
+
+test('describeSplit: sisa disebut terpisah dan jatuh ke QC terakhir', () => {
+  assert.equal(
+    describeSplit(134, 12),
+    '134 ticket dibagi ke 12 QC — 11 ticket per QC, QC terakhir 13 (sisa 2).',
+  )
+})
+
+test('describeSplit: tiket lebih sedikit daripada QC dibagi satu-satu', () => {
+  assert.equal(describeSplit(3, 12), '3 ticket dibagi ke 3 QC pertama — 1 ticket per QC.')
+})
+
+test('describeSplit: tanpa QC aktif', () => {
+  assert.equal(describeSplit(10, 0), 'Tidak ada QC aktif untuk dibagikan.')
+})
+
+test('describeSplit: tanpa ticket', () => {
+  assert.equal(describeSplit(0, 12), 'Tidak ada ticket yang belum di-assign.')
 })
