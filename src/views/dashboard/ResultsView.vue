@@ -959,8 +959,15 @@ function uploadLockedByStatus(item) {
 // Kolom Document berguna kalau ada aksi di dalamnya ATAU ada kebutuhan dokumen yang
 // perlu dibaca. Yang terakhir itu untuk Sales Agent: mereka tidak boleh mengunggah
 // maupun membuka dokumen, tetapi tetap perlu tahu berkas apa yang diminta tiketnya.
+// [FIX] dulu membaca `items.value` yang sudah tidak ada sejak model grouping;
+// sekarang lewat `pagedGroups` (jalan di mode client maupun server) dan tepat
+// pada baris yang benar-benar dirender. Bug-nya hanya terlihat pada role tanpa
+// kedua capability dokumen — Sales Agent — karena role lain sudah
+// men-short-circuit di `||` sebelum ekspresi ketiga ini sempat dievaluasi.
+// Selnya menampilkan `group.primary`, jadi pengecekannya memakai primary juga.
 const showDocumentColumn = computed(() =>
-  canUploadDocument.value || canViewDocument.value || items.value.some((i) => docNeeds(i).length))
+  canUploadDocument.value || canViewDocument.value ||
+  pagedGroups.value.some((g) => docNeeds(g.primary).length))
 // Aksi Manual Status & banding kini murni capability. Ini juga yang membuat
 // pembatasan role "admin" (menu sama dengan SPQ Head, tanpa aksi QC) berlaku di
 // SATU tempat, bukan tersebar sebagai perbandingan nama role.
