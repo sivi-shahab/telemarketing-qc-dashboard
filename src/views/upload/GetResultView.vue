@@ -89,6 +89,7 @@ const fetchError = ref('')
 const currentResult = ref(null)
 const polling = ref(false)
 let pollTimer = null
+let fetchSeq = 0
 
 function statusClass(status) {
   return {
@@ -108,11 +109,20 @@ function stopPoll() {
 async function fetchResult() {
   const id = resultId.value.trim()
   if (!id) return
+  // Nomor urut permintaan. Yang menentukan isi layar adalah permintaan TERAKHIR
+  // yang diminta Admin, bukan yang jawabannya kebetulan datang belakangan: dua ID
+  // yang ditempel beruntun berangkat bersamaan, dan tanpa penjaga ini respons ID
+  // lama yang lebih lambat akan menimpa ID baru — layar menampilkan evaluasi
+  // ticket yang tidak sedang dicari siapa pun, tanpa tanda apa pun bahwa itu keliru.
+  // Poll ikut memakainya: `clearInterval` menghentikan poll BERIKUTNYA, bukan
+  // permintaan yang sudah terbang.
+  const seq = ++fetchSeq
   fetching.value = true
   fetchError.value = ''
   stopPoll()
   try {
     const res = await apiClient.get(`/result/${id}`)
+    if (seq !== fetchSeq) return
     currentResult.value = res.data
 
     if (['pending', 'processing'].includes(res.data.status)) {
@@ -120,12 +130,14 @@ async function fetchResult() {
       pollTimer = setInterval(async () => {
         try {
           const r = await apiClient.get(`/result/${id}`)
+          if (seq !== fetchSeq) return
           currentResult.value = r.data
           if (['done', 'failed'].includes(r.data.status)) stopPoll()
-        } catch { stopPoll() }
+        } catch { if (seq === fetchSeq) stopPoll() }
       }, 10000)
     }
   } catch (e) {
+    if (seq !== fetchSeq) return
     // 403 dibedakan dari kegagalan biasa: `ensure_can_view_result` menolak ticket
     // di luar cakupan role, dan itu keadaan TETAP. "Coba lagi" pada pesan umum
     // membuat QC menekan tombolnya berulang kali untuk sesuatu yang tidak akan
@@ -140,7 +152,7 @@ async function fetchResult() {
     }
     currentResult.value = null
   } finally {
-    fetching.value = false
+    if (seq === fetchSeq) fetching.value = false
   }
 }
 
