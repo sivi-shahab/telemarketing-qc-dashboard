@@ -66,6 +66,24 @@
         <span v-if="bulkPreviewLoading" class="spinner spinner-blue"></span>
         {{ bulkPreviewLoading ? 'Menghitung...' : 'Reprocess All' }}
       </button>
+      <!-- Delete All (Admin only, capability admin.ticket.delete): menghapus SELURUH
+           ticket yang cocok dengan filter di atas, bukan hanya halaman yang tampak.
+           Gerbangnya sama dengan Reprocess All — Manual Check & Pending Check adalah
+           antrean review, dan filter antreannya bukan dasar yang masuk akal untuk
+           perintah yang tidak bisa dibatalkan. Ditahan selama job Reprocess All
+           berjalan: ticket yang sedang diproses memang dilewati server, tapi
+           menghapus di tengah job hanya membuat progresnya membingungkan. -->
+      <button
+        v-if="canDeleteAll"
+        class="btn-delete-all"
+        :disabled="delAllPreviewLoading || !!bulkJob"
+        title="Hapus semua ticket yang cocok dengan filter saat ini"
+        @click="openDelAllModal"
+      >
+        <span v-if="delAllPreviewLoading" class="spinner spinner-red"></span>
+        {{ delAllPreviewLoading ? 'Menghitung...' : 'Delete All' }}
+      </button>
+      <span v-if="delAllBarError" class="bulk-err">{{ delAllBarError }}</span>
     </div>
 
     <!-- Strip progres job Reprocess All. Tombol per baris tidak perlu diurus di
@@ -761,6 +779,80 @@
         </div>
       </div>
     </Teleport>
+
+    <!-- Delete All: dua langkah, sama seperti Delete per-ticket, karena ongkos
+         salahnya jauh lebih besar daripada Reprocess All — tidak ada worker yang
+         bisa mengembalikan entry yang sudah terhapus. Langkah 1 menyebut apa yang
+         tersasar, langkah 2 meminta diketik supaya tidak ada yang terhapus karena
+         salah klik. -->
+    <Teleport to="body">
+      <div v-if="delAllPreview" class="modal-overlay" @click.self="closeDelAllModal">
+        <div class="del-modal-card" role="dialog" aria-modal="true">
+          <header class="del-modal-head">
+            <h2 class="del-modal-title">Delete All</h2>
+            <button class="del-close-x" @click="closeDelAllModal">✕</button>
+          </header>
+
+          <div v-if="delAllStep === 1" class="del-modal-body">
+            <p v-if="activeFilterLabels.length">Filter yang berlaku:</p>
+            <ul v-if="activeFilterLabels.length" class="bulk-filters">
+              <li v-for="f in activeFilterLabels" :key="f">{{ f }}</li>
+            </ul>
+            <p v-else class="del-warn"><strong>Tidak ada filter aktif</strong> — ini
+              menghapus SELURUH ticket yang bisa Anda lihat.</p>
+
+            <table class="bulk-count">
+              <tr><td>Cocok dengan filter</td><td>{{ delAllPreview.matched }} ticket</td></tr>
+              <tr v-if="delAllPreview.skipped">
+                <td>Sedang direproses</td><td>{{ delAllPreview.skipped }} ticket → dilewati</td>
+              </tr>
+              <tr class="bulk-count-total">
+                <td>Dihapus</td>
+                <td><strong>{{ delAllPreview.will_delete }} ticket · {{ delAllPreview.results }} entry</strong></td>
+              </tr>
+            </table>
+
+            <p v-if="delAllPreview.campaigns.length">Campaign yang tersentuh:
+              <strong>{{ delAllPreview.campaigns.join(', ') }}</strong>.</p>
+            <p class="del-warn"><strong>Tindakan ini tidak bisa dibatalkan.</strong>
+              Banding Error Code, usulan/approval Manual Status, dan dokumen pendukung
+              pada entry tersebut ikut terhapus permanen.</p>
+          </div>
+
+          <div v-else class="del-modal-body">
+            <p>Konfirmasi sekali lagi. Ketik <strong>{{ DEL_ALL_PHRASE }}</strong> untuk
+              menghapus <strong>{{ delAllPreview.will_delete }} ticket</strong>
+              ({{ delAllPreview.results }} entry) secara permanen.</p>
+            <input
+              v-model="delAllConfirmText"
+              class="del-input"
+              :placeholder="`Ketik ${DEL_ALL_PHRASE}...`"
+              @keyup.enter="confirmDeleteAll"
+            />
+            <p v-if="delAllModalError" class="del-error">{{ delAllModalError }}</p>
+          </div>
+
+          <footer class="del-modal-foot">
+            <button class="del-btn-cancel" :disabled="delAllDeleting" @click="closeDelAllModal">Batal</button>
+            <button
+              v-if="delAllStep === 1"
+              class="del-btn-next"
+              :disabled="!delAllPreview.will_delete"
+              @click="delAllStep = 2"
+            >Lanjut</button>
+            <button
+              v-else
+              class="del-btn-confirm"
+              :disabled="delAllDeleting || delAllConfirmText.trim() !== DEL_ALL_PHRASE"
+              @click="confirmDeleteAll"
+            >
+              <span v-if="delAllDeleting" class="spinner"></span>
+              {{ delAllDeleting ? 'Menghapus...' : 'Hapus Permanen' }}
+            </button>
+          </footer>
+        </div>
+      </div>
+    </Teleport>
   </SidebarLayout>
 </template>
 
@@ -1374,6 +1466,82 @@ async function resumeBulkJob() {
     const running = (res.data.jobs || []).find((j) => j.status === 'running')
     if (running) await loadBulkJob(running.job_id)
   } catch { /* strip progres memang tidak wajib ada */ }
+}
+
+// --- Delete All: seluruh tiket yang cocok dengan filter ---------------------
+// Kembaran Reprocess All dan memakai bentuk filter yang SAMA (bulkFilterBody),
+// jadi kedua tombol tidak mungkin menyasar himpunan tiket yang berbeda.
+// Bedanya cuma satu, tapi menentukan seluruh rancangan layarnya: penghapusan
+// tidak bisa dibatalkan. Tidak ada job, tidak ada strip progres, tidak ada
+// "ticket yang gagal dipertahankan apa adanya" — sekali ditekan, hilang. Karena
+// itu konfirmasinya dua langkah dengan ketikan, sama seperti Delete per-ticket.
+const DEL_ALL_PHRASE = 'HAPUS SEMUA'
+const canDeleteAll = computed(() =>
+  canDeleteTicket.value && !isPendingCheck && !isBandingReview
+)
+const delAllPreview = ref(null)      // hasil /delete_tickets_preview -> modal
+const delAllPreviewLoading = ref(false)
+const delAllStep = ref(1)
+const delAllConfirmText = ref('')
+const delAllDeleting = ref(false)
+const delAllModalError = ref('')     // kegagalan di dalam modal
+const delAllBarError = ref('')       // kegagalan saat menghitung, di samping tombol
+
+async function openDelAllModal() {
+  delAllPreviewLoading.value = true
+  delAllBarError.value = ''
+  delAllModalError.value = ''
+  delAllStep.value = 1
+  delAllConfirmText.value = ''
+  try {
+    const res = await apiClient.post('/delete_tickets_preview', bulkFilterBody())
+    delAllPreview.value = res.data
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    delAllBarError.value = typeof detail === 'string' ? detail : 'Gagal menghitung jumlah ticket.'
+  } finally {
+    delAllPreviewLoading.value = false
+  }
+}
+
+function closeDelAllModal() {
+  if (delAllDeleting.value) return
+  delAllPreview.value = null
+  delAllStep.value = 1
+  delAllConfirmText.value = ''
+  delAllModalError.value = ''
+}
+
+async function confirmDeleteAll() {
+  if (!delAllPreview.value) return
+  if (delAllConfirmText.value.trim() !== DEL_ALL_PHRASE) {
+    delAllModalError.value = `Ketikan tidak cocok — ketik persis ${DEL_ALL_PHRASE}.`
+    return
+  }
+  delAllDeleting.value = true
+  delAllModalError.value = ''
+  try {
+    // Filternya dikirim ULANG, bukan daftar tiket dari preview: server menghitung
+    // sasarannya sendiri, jadi tiket yang baru masuk antrean reproses di sela Admin
+    // membaca modal tetap dilewati.
+    await apiClient.post('/delete_tickets_filtered', bulkFilterBody())
+    delAllPreview.value = null
+    delAllStep.value = 1
+    delAllConfirmText.value = ''
+    // Halaman yang sedang dibuka besar kemungkinan sudah tidak ada isinya.
+    page.value = 1
+    await fetchItems()
+  } catch (e) {
+    const st = e.response?.status
+    const detail = e.response?.data?.detail
+    if (st === 403) delAllModalError.value = 'Anda tidak punya izin menghapus record.'
+    else if (st === 404) delAllModalError.value = typeof detail === 'string'
+      ? detail
+      : 'Tidak ada ticket yang cocok (mungkin sudah terhapus).'
+    else delAllModalError.value = 'Gagal menghapus record. Coba lagi.'
+  } finally {
+    delAllDeleting.value = false
+  }
 }
 
 const docModalResultId = ref(null)
@@ -2159,6 +2327,18 @@ onBeforeUnmount(() => {
 }
 .btn-reprocess-all:hover:not(:disabled) { background: var(--blue); color: #fff; }
 .btn-reprocess-all:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Delete All — bentuknya sama dengan Reprocess All, warnanya merah: keduanya
+   bersebelahan dan hanya warna yang membedakan "mahal" dari "tidak bisa dibatalkan". */
+.btn-delete-all {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 16px; background: #fff; border: 1.5px solid #dc2626;
+  border-radius: 8px; font-size: 13px; font-weight: 700; color: #dc2626;
+  transition: all 0.15s;
+}
+.btn-delete-all:hover:not(:disabled) { background: #dc2626; color: #fff; }
+.btn-delete-all:disabled { opacity: 0.55; cursor: not-allowed; }
+.spinner-red { border-color: rgba(220, 38, 38, 0.25); border-top-color: #dc2626; width: 12px; height: 12px; }
 
 /* Strip progres job Reprocess All (di bawah filter bar). */
 .bulk-bar {
