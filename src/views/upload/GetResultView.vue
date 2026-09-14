@@ -49,9 +49,23 @@
             <div v-if="currentResult.error" class="failed-error">{{ currentResult.error }}</div>
           </div>
 
-          <!-- Done -->
-          <template v-else-if="currentResult.status === 'done' && currentResult.result">
-            <EvaluationView :result="currentResult.result" />
+          <!-- Done.
+               Cabang `v-else` di dalamnya BUKAN kelengkapan yang dibuat-buat:
+               backend mengembalikan `result: null` kalau baris `result_data`
+               ticket ini hilang (mis. terhapus di sela reproses), dan tanpa
+               cabang ini yang tampil hanya badge hijau "done" di atas ruang
+               kosong — gejala yang terbaca sebagai "halaman rusak", bukan
+               sebagai datanya yang tidak ada. -->
+          <template v-else-if="currentResult.status === 'done'">
+            <EvaluationView v-if="currentResult.result" :result="currentResult.result" />
+            <div v-else class="failed-box">
+              <div class="failed-title">Hasil evaluasi tidak tersedia</div>
+              <div class="failed-error">
+                Ticket ini berstatus <strong>done</strong>, tetapi isi evaluasinya tidak
+                ada di database — kemungkinan terhapus. Coba proses ulang ticket-nya
+                dari menu Results.
+              </div>
+            </div>
           </template>
         </template>
       </div>
@@ -112,8 +126,15 @@ async function fetchResult() {
       }, 10000)
     }
   } catch (e) {
-    if (e.response?.status === 404) {
+    // 403 dibedakan dari kegagalan biasa: `ensure_can_view_result` menolak ticket
+    // di luar cakupan role, dan itu keadaan TETAP. "Coba lagi" pada pesan umum
+    // membuat QC menekan tombolnya berulang kali untuk sesuatu yang tidak akan
+    // pernah berhasil.
+    const st = e.response?.status
+    if (st === 404) {
       fetchError.value = 'Result ID tidak ditemukan.'
+    } else if (st === 403) {
+      fetchError.value = 'Anda tidak punya akses ke ticket ini — di luar cakupan role Anda.'
     } else {
       fetchError.value = 'Gagal mengambil data. Coba lagi.'
     }
