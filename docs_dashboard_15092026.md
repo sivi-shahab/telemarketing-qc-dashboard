@@ -327,3 +327,71 @@ vite build  : ✓ built in 3.38s
 point_of_improvement / poi-note -> ada di dist/assets/ResultsView-*.js
 poi-note di dist/assets/EvaluationView-*.js -> 0 (tidak dirender dua kali)
 ```
+
+## 13. D5 — Auto Assign: angka dari server + tiga tahap terpisah
+
+`AssignTicketView.vue` **tidak** diambil utuh. Berkas ini dibangun di atas fondasi repo
+ini — proxy `/tickets_daily`, helper `assignTicketData.js`, `AbortController`, filter
+tanggal — sedangkan versi monolit memakai sumber data yang sama sekali lain
+(`/list_results`, baris ber-`result_id` dan `campaign`, tabel 8 kolom vs 7 di sini).
+Mengambilnya utuh akan membuang proxy ber-RBAC itu. Jadi tiga hal saja yang diambil.
+
+### 13.1 Angka antrean datang dari server
+
+Tombol dan tooltip dulu memakai `unassigned.length` — panjang baris yang **termuat di
+tabel** (ticket H-1 yang lolos filter). Auto Assign membagi **seluruh** antrean dalam
+cakupan login, jadi angka itu menjanjikan jumlah yang salah.
+
+Sekarang `scopeUnassigned` diisi `GET /qc_assignment/unassigned` (endpoint yang datang
+bersama A7) dan dimuat bersama tabel serta **disegarkan sesudah pembagian**. Bila
+endpointnya gagal, angkanya jatuh kembali ke hitungan baris yang termuat — tombolnya
+tetap bisa dipakai, hanya angkanya konservatif.
+
+### 13.2 Tiga tahap, tiga kolom
+
+Kolom bernama **"Approved At" ternyata diisi `qc_checked_at`** — dua peristiwa berbeda
+ditampilkan sebagai satu. Sekarang terpisah, sesuai alurnya:
+
+```
+Assign Date  kapan Team Leader QC menugaskannya
+Checked At   kapan QC men-SUBMIT Manual Status-nya
+Approved At  kapan vonis itu DISETUJUI atasan
+```
+
+`joinLocalResults` ikut membawa `manual_approved_at` / `manual_approved_by` — field yang
+sudah dikirim api sejak A2/A4.
+
+### 13.3 `describeSplit` ternyata BERBOHONG sesudah A7
+
+Ini ditemukan saat mengerjakan D5, bukan direncanakan.
+
+Kalimat konfirmasi tombol Auto Assign berbunyi *"134 ticket dibagi ke 12 QC — 11 ticket
+per QC, 2 QC pertama dapat 12."* Rumus itu `split_evenly`, dan **A7 sudah menggantinya**
+dengan `split_by_load` (jatah dihitung dari beban yang sudah dipegang, seri diundi,
+antrean dikocok). Sejak A7 dialog itu meminta orang menyetujui pembagian yang tidak akan
+terjadi.
+
+Jumlah per QC **tidak bisa dihitung di browser** — beban yang sudah ada hanya diketahui
+server, dan tidak ada endpoint yang memberikan pratinjau per QC. Jadi kalimatnya berhenti
+pada apa yang benar-benar dijanjikan:
+
+> *"134 ticket dibagi ke 12 QC aktif, didahulukan yang bebannya paling sedikit sehingga
+> totalnya berakhir merata. Jumlah per QC ditentukan server."*
+
+### Test
+
+Empat test `describeSplit` lama **gagal** begitu fungsinya diubah — persis gunanya. Blok
+itu ditulis ulang: dua test memeriksa kalimatnya menyebut jumlah ticket, jumlah QC, dan
+aturannya; satu test memeriksa kalimatnya **tidak lagi** memuat "ticket per QC" maupun
+"QC pertama dapat" untuk empat kombinasi angka. Ditambah dua test `joinLocalResults`:
+ketiga tahap terbawa sebagai field berbeda, dan Approved At tetap kosong bila tiket baru
+dicek — bukan meminjam Checked At.
+
+```
+npm test    : 24 pass, 0 fail   (sebelumnya 23)
+vite build  : ✓ built in 3.52s
+
+di dist/assets/AssignTicketView-*.js
+  qc_assignment/unassigned, manual_approved_at, "Checked At", "ditentukan server" -> ada
+  "ticket per QC"  -> TIDAK ADA di bundle mana pun
+```

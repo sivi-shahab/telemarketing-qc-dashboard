@@ -68,6 +68,12 @@ export function joinLocalResults(groups, localItems, assignments) {
       assigned_at: assigned?.assigned_at ?? local?.assigned_at ?? null,
       qc_checked_at: local?.qc_checked_at ?? null,
       qc_checked_by: local?.qc_checked_by ?? null,
+      // Tahap KETIGA, terpisah dari qc_checked_*: "Checked At" adalah kapan QC
+      // men-SUBMIT Manual Status, "Approved At" kapan vonis itu disetujui atasan.
+      // Sebelumnya kolom bernama "Approved At" diisi qc_checked_at — dua peristiwa
+      // berbeda yang ditampilkan sebagai satu.
+      manual_approved_at: local?.manual_approved_at ?? null,
+      manual_approved_by: local?.manual_approved_by ?? null,
     }
   })
 }
@@ -75,18 +81,19 @@ export function joinLocalResults(groups, localItems, assignments) {
 /**
  * Kalimat konfirmasi untuk tombol "Assign Otomatis".
  *
- * Angkanya HARUS sama dengan pembagian di server
- * (`api/routers/qc_assignment.py` :: `split_evenly`): `floor(n/k)` per QC dan
- * sisanya disebar satu-satu ke QC pertama. Kalau kedua sisi berbeda, orang
- * menyetujui pembagian yang bukan yang benar-benar terjadi.
+ * Server TIDAK lagi membagi rata per batch. Sejak aturan 4 September 2026
+ * (`api/routers/qc_assignment.py` :: `split_by_load`) jatah dihitung dari beban yang
+ * SUDAH dipegang tiap QC: yang paling sedikit dapat lebih dulu, seri diundi, dan
+ * antreannya dikocok.
+ *
+ * Karena itu jumlah per QC TIDAK bisa dihitung di browser — beban yang sudah ada hanya
+ * diketahui server. Kalimat ini sengaja berhenti pada apa yang benar-benar dijanjikan:
+ * berapa ticket, ke berapa QC, dan aturan pembagiannya. Menyebut "n ticket per QC"
+ * seperti rumus lama berarti orang menyetujui pembagian yang bukan yang akan terjadi.
  */
 export function describeSplit(n, k) {
   if (!k) return 'Tidak ada QC aktif untuk dibagikan.'
   if (!n) return 'Tidak ada ticket yang belum di-assign.'
-  if (n < k) return `${n} ticket dibagi ke ${n} QC pertama — 1 ticket per QC.`
-
-  const base = Math.floor(n / k)
-  const rem = n % k
-  const head = `${n} ticket dibagi ke ${k} QC — ${base} ticket per QC`
-  return rem ? `${head}, ${rem} QC pertama dapat ${base + 1}.` : `${head}.`
+  return `${n} ticket dibagi ke ${k} QC aktif, didahulukan yang bebannya paling `
+    + `sedikit sehingga totalnya berakhir merata. Jumlah per QC ditentukan server.`
 }
