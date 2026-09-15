@@ -567,3 +567,82 @@ di dist/assets/StatsView-*.js
 Salinan test hierarki di repo api ikut diselaraskan — ia mengimpor `_avg_of` dan
 **menggagalkan seluruh collection** begitu helper itu hilang. Ketahuan saat menjalankan
 suite api, bukan dari membaca core saja.
+
+---
+
+# BAGIAN III — Berkas konfigurasi yang belum dibandingkan
+
+Diperiksa 15 September 2026, menutup daftar "belum dibandingkan baris per baris".
+Catatan: `4-service-telemarketing-qc-system/*` adalah versi **dev**; keempat repo
+terpisah adalah versi **prod**.
+
+## 18. Hasil pemeriksaan
+
+| Berkas | Putusan |
+|---|---|
+| `api/routers/qc_database.py` | **tidak di-port** |
+| `api/requirements.txt` | **tidak di-port** |
+| `api/Dockerfile` | **tidak di-port** |
+| `dashboard/package.json` | **tidak di-port** |
+| `dashboard/nginx.conf` | **tidak di-port** |
+| `dashboard/index.html` | **DI-PORT** — memperbaiki favicon yang 404 |
+| `dashboard/vite.config.js` | **DI-PORT sebagian** — mekanismenya, bukan nilainya |
+
+### Yang tidak di-port, beserta alasannya
+
+* **`qc_database.py`** — dev masih mengaktifkan `POST /upload_qc_database`; prod sengaja
+  meng-comment seluruh endpoint karena `minio_bucket_qc_database` juga di-comment di
+  `api/dependencies.py:58` (bucket `qc-database` dinonaktifkan di mapping multi-bucket).
+  Mengambil versi dev berarti menghidupkan endpoint yang tidak punya bucket tujuan.
+* **`api/requirements.txt`** — bentuknya memang beda: dev memakai
+  `-r ../core/requirements.txt`, prod menulis daftarnya eksplisit. Diperiksa paket per
+  paket: gabungan `core` + `api` di prod sudah mencakup semua yang dev punya, kecuali
+  `minio` yang memang digantikan `boto3`.
+* **`api/Dockerfile`** — prod jauh lebih maju: sertifikat `cdn.bankmega.local`,
+  `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`, salin datar `core/` ke `/app`, image
+  self-contained. Dev masih versi bind-mount monorepo.
+* **`package.json`** — prod punya script `test`; dev tidak.
+* **`nginx.conf`** — prod punya aturan cache yang dev tidak punya, lengkap dengan
+  catatan insidennya: 28 Agustus 2026, tujuh jam sesudah deploy, empat browser masih
+  menjalankan bundle lama dan memanggil `/tickets-daily` langsung ke App C tanpa gate
+  campaign. `index.html` `no-store`, `/assets/` immutable, dan `=404` alih-alih fallback
+  supaya deploy basi gagal terang-terangan.
+
+## 19. Yang di-port: favicon 404 di prod
+
+Ini bukan sekadar penyelarasan — **prod memang salah**, dan ketahuan justru dari
+membandingkan berkas yang tersisa.
+
+```
+prod index.html : href="/telemarketing_qc_system/bank-mega-mark.png"
+prod vite base  : '/'
+nginx depan     : location / -> :4006   (dashboard dilayani di ROOT)
+dist/           : bank-mega-mark.png ada di root, /telemarketing_qc_system/ TIDAK ADA
+```
+
+Jadi ikonnya menunjuk path yang tidak pernah ada. Dev memakai idiom Vite `%BASE_URL%`
+yang diganti saat build, sehingga benar di base mana pun.
+
+Sesudah perbaikan, hasil build:
+
+```
+favicon: href="/bank-mega-mark.png"        (berkasnya memang ada di dist root)
+asset  : src="/assets/index-*.js"          (tidak berubah)
+```
+
+### `vite.config.js` — mekanismenya diambil, nilainya tidak
+
+Dev: `base: process.env.VITE_BASE_PATH || '/telemarketing_qc_system/'`.
+Prod sekarang: `base: process.env.VITE_BASE_PATH || '/'`.
+
+Yang diambil hanya kemampuan menimpanya lewat build arg. **Bawaannya tetap `/`** —
+mengambil bawaan dev akan memindahkan seluruh bundle ke `/telemarketing_qc_system/assets/`
+sementara nginx depan melayani di root, dan seluruh aplikasi berhenti memuat.
+
+Dua perubahan ini sepasang: `%BASE_URL%` baru berguna kalau base-nya memang ditentukan
+satu tempat.
+
+```
+npm test   : 24 pass, 0 fail
+vite build : ✓
+```
