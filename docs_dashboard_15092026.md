@@ -195,3 +195,43 @@ Konvensi test repo ini (`node --test` atas modul `.js` murni — lihat
 hidup di dalam `EvaluationView.vue`; mengeluarkannya adalah refactor tersendiri yang
 justru akan menjauhkan berkas ini dari repo monolit. Jadi D1 **tidak** menambah test —
 yang menjaganya hanya pemeriksaan bundle di atas.
+
+## 10. D2 — slot "Konfirmasi Pengecualian MUS" + pratinjau gambar
+
+Dua berkas, keduanya diambil **utuh** dari repo monolit setelah diperiksa: seluruh baris
+yang sebelumnya hanya ada di sini adalah versi PDF-saja yang digeneralisasi versi monolit.
+Tidak ada fondasi repo ini di keduanya, dan impornya identik.
+
+| Berkas | Perubahan |
+|---|---|
+| `components/UploadDocumentModal.vue` | slot kelima `mus_exception_confirmation`; `accept` per slot (`acceptFor`) menggantikan `accept=".pdf"` yang seragam; validasi `isAllowedFile(key, file)` menggantikan `isPdf(file)`; label thumbnail mengikuti ekstensi berkas, bukan selalu "PDF"; teks bantuan menyebut JPG/PNG **hanya** bila slot itu memang tampil |
+| `components/DocumentsSection.vue` | `isImageDoc()` — dokumen ber-`mime_type` `image/*` dirender `<img>`, bukan `<iframe>`; `Blob` memakai `doc.mime_type`, bukan `'application/pdf'` mati |
+
+Pesan galatnya ikut menyesuaikan: sebelumnya selalu "bukan PDF", sekarang menyebut format
+yang benar-benar diterima slot itu ("PDF/JPG/JPEG/PNG").
+
+### Prasyarat yang diperiksa
+
+`isImageDoc` bergantung pada `mime_type` yang dikirim server. Diverifikasi ada di
+`telemarketing-qc-api`: kolom `Document.mime_type` di model, diisi saat unggah
+(`document.py:165`), dan ikut dikirim di daftar dokumen (`document.py:201`). Tanpa itu
+`isImageDoc` selalu `false` dan pratinjau gambarnya tidak akan pernah muncul — diam-diam.
+
+### Verifikasi
+
+```
+npm test    : 23 pass, 0 fail
+vite build  : ✓ built in 3.50s
+
+di dist/assets/ResultsView-*.js
+  mus_exception_confirmation     -> ada
+  "Konfirmasi Pengecualian MUS"  -> ada
+  image/jpeg, image/png          -> ada
+```
+
+Sama seperti D1: yang diperiksa artefak yang benar-benar dikirim ke browser, bukan
+sumbernya. Keempatnya masuk ke chunk `ResultsView` karena modal dan section itu di-import
+dari sana.
+
+Pasangannya di server sudah siap sejak A1 (slot `mus_exception_confirmation` di
+`/upload_document`, dan konversi JPEG/PNG → PDF sebelum OCR di worker).
