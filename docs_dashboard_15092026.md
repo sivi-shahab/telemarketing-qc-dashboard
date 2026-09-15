@@ -450,3 +450,61 @@ Kelas `stage-*` sengaja dicek di CSS, bukan di JS: ia dirakit dinamis
 (`:class="'stage-' + st.state"`), jadi namanya tidak pernah muncul utuh di bundle JS.
 Kalau CSS-nya tertinggal, tabelnya tetap tampil tetapi tanpa warna dan ikon status —
 gagal yang tidak menimbulkan error apa pun.
+
+## 15. D7a — dropdown AI Status di menu Transkrip disembunyikan
+
+Keputusan §6.2: ikut repo monolit.
+
+`views/dashboard/TranscriptsView.vue` — blok `<select>` "Semua AI Status" dibuang.
+Alasannya (14 Agustus 2026): menu ini mengurus transkrip yang MASUK, bukan vonis
+penilaiannya — untuk itu ada menu Results.
+
+`filterAiStatus` beserta penyaringnya **sengaja dipertahankan**, sama seperti di repo
+monolit. Nilainya tetap `''` sehingga penyaringnya tidak berbuat apa-apa, dan
+menghidupkan kembali dropdown-nya cukup dengan mengembalikan satu blok `<select>`.
+`resetFilters` juga tetap membersihkannya.
+
+Fondasi repo ini di berkas yang sama (proxy `/tickets_daily`, `AbortController`, filter
+tanggal) tidak tersentuh — hanya satu blok template yang dibuang.
+
+```
+npm test   : 24 pass, 0 fail
+vite build : ✓ built in 3.54s
+"Semua AI Status" di dist/assets/TranscriptsView-*.js -> 0 kemunculan
+```
+
+## 16. D7b — `StatsView`: KOREKSI atas §6.1, belum dikerjakan
+
+§6.1 menyebut perbedaan `StatsView` sebagai **soal istilah** ("Total Submission" vs
+"Data Leads") dan menyarankan keputusan bisnis. **Pembacaan itu tidak lengkap.**
+
+Sesudah diperiksa baris per baris, yang berbeda bukan hanya namanya — melainkan
+**rumus yang dijelaskan kepada pembaca**:
+
+| | repo ini | repo monolit |
+|---|---|---|
+| Header tabel | `Total Recording` + `Avg Failure Rate` | `Data Leads` + `Error Rate` |
+| Keterangannya | "Avg Failure Rate = **Total Failure ÷ Total Recording**, ditulis sebagai **kelipatan** (mis. 2.8x) dan bukan persen" | "Error Rate = **Total Risk ÷ Data Leads** — berapa **persen**" |
+| Arti kolom angka | jumlah **rekaman (PDF)** yang dinilai | jumlah **ticket id** |
+
+Penyebutnya berbeda (rekaman vs tiket) dan satuannya berbeda (kelipatan vs persen).
+
+**Servernya memakai rumus repo ini.** Saat port `core` (Batch 6) `_avg`/`_avg_of`
+sengaja dipertahankan dan versi monolit (`_rate`/`_rate_of`) ditolak — tercatat di
+`telemarketing-qc-api/docs_api_15092026.md`. Jadi mengambil label monolit akan membuat
+layar menuliskan **"2.8%"** untuk angka yang sebenarnya berarti **"2.8×"**, dengan
+penyebut yang juga bukan yang disebutkan.
+
+Itu bukan perbedaan istilah — itu salah baca sebesar satu faktor, dan tidak menimbulkan
+error apa pun.
+
+### Tiga jalan keluar
+
+| | Isi | Akibat |
+|---|---|---|
+| **a** | Ambil istilah "Data Leads" HANYA di tempat yang tidak menyentuh rumus (judul tab, label KPI), pertahankan `Total Recording` + `Avg Failure Rate` beserta keterangannya | layar tetap sejalan dengan server; istilah "Data Leads" masuk sebagian |
+| b | Ambil `StatsView` monolit apa adanya | layar bertentangan dengan server, angka terbaca salah faktor |
+| c | Ambil versi monolit DAN kembalikan `_avg`→`_rate` di core | membatalkan keputusan port core, mengubah angka di seluruh jalur Statistics |
+
+**Usul: (a).** Perlu konfirmasi sebelum dikerjakan — pilihan (b) dan (c) mengubah angka
+yang dibaca orang.
