@@ -235,3 +235,61 @@ dari sana.
 
 Pasangannya di server sudah siap sejak A1 (slot `mus_exception_confirmation` di
 `/upload_document`, dan konversi JPEG/PNG → PDF sebelum OCR di worker).
+
+## 11. D3 — keterangan hierarki di `ManualCheckModal`
+
+Pasangan sisi layar untuk A8 (jalan pintas `qc_confirm` dicabut di server).
+
+| Berkas | Perubahan |
+|---|---|
+| `components/ManualCheckModal.vue` | diambil utuh dari repo monolit |
+| `views/dashboard/ResultsView.vue` | satu baris: prop `:by-human` dibuang |
+
+### Kalimat yang berubah
+
+```
+sebelum (dua cabang)
+  "Sama dengan AI Status (X) — berlaku langsung, tanpa approval Team Leader QC / SPQ Head."
+  "Berbeda dari AI Status (X) — usulan ini ditinjau Team Leader QC (bisa diteruskan ke SPQ Head)."
+
+sesudah (satu kalimat)
+  "Usulan ini ditinjau Team Leader QC (bisa diteruskan ke SPQ Head) dan baru berlaku
+   setelah disetujui — termasuk bila nilainya sama dengan AI Status (X)."
+```
+
+Kalimat lama **berbohong** sejak A8: ia menjanjikan vonis berlaku langsung padahal server
+sudah tidak pernah memfinalkannya. Frasa "termasuk bila nilainya sama dengan AI Status"
+sengaja ada — justru kasus itu yang dulu berlaku langsung, jadi QC yang terbiasa perlu
+diberi tahu bahwa aturannya berubah.
+
+Perhitungan `confirmsAiStatus` dan `firstVerdict` ikut hilang; `willNeedApproval` kini
+cukup `!isDirectSetter && !!statusVal`.
+
+### Prop `:by-human` dibuang dari pemanggilnya
+
+Versi baru tidak lagi punya prop `byHuman` — ia hanya ada untuk menghitung "penetapan
+pertama". Membiarkan `:by-human` terkirim akan membuatnya jatuh sebagai atribut
+fallthrough di elemen root. Satu baris di `ResultsView.vue` ikut dibuang.
+
+`manual_status_by_human` **tetap dipakai** untuk tiga hal lain di berkas yang sama (kelas
+badge "mengikuti AI Status", tooltip-nya, dan label tombol Set vs Ubah) — ketiganya tidak
+disentuh.
+
+### Catatan
+
+`.hint-ok` (CSS hijau untuk kalimat "berlaku langsung") kini tidak terpakai, dan repo
+monolit pun membiarkannya. Dipertahankan apa adanya supaya berkas ini tetap sama persis
+dengan sumbernya — satu baris CSS mati lebih murah daripada divergensi yang menyulitkan
+port berikutnya.
+
+### Verifikasi
+
+```
+npm test    : 23 pass, 0 fail
+vite build  : ✓ built in 3.40s
+
+di dist/assets/ResultsView-*.js
+  "berlaku langsung, tanpa approval"          -> 0 kemunculan  (kalimat jalan pintas hilang)
+  "termasuk bila nilainya sama dengan AI Status" -> ada
+  confirmsAiStatus                            -> tidak ada di bundle mana pun
+```

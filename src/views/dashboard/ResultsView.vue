@@ -648,7 +648,6 @@
       :display-id="manualCheckItem.id"
       :existing="manualCheckItem.qc_request"
       :ai-status="manualCheckItem.ai_status"
-      :by-human="!!manualCheckItem.manual_status_by_human"
       @close="manualCheckItem = null"
       @submitted="onQcRequestChanged"
     />
