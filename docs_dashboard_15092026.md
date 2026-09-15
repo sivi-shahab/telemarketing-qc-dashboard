@@ -508,3 +508,62 @@ error apa pun.
 
 **Usul: (a).** Perlu konfirmasi sebelum dikerjakan — pilihan (b) dan (c) mengubah angka
 yang dibaca orang.
+
+## 17. D7b — `StatsView` diselaraskan ke repo monolit, SERVER ikut disesuaikan
+
+Keputusan: opsi **b** dari §16 — ambil `StatsView` monolit apa adanya — **dan sesuaikan
+servernya** supaya keduanya sepakat. Menyentuh **empat repo**.
+
+| Repo | Berkas | Perubahan |
+|---|---|---|
+| dashboard | `views/dashboard/StatsView.vue` | diambil utuh dari repo monolit |
+| core (paket) | `compliance/stats_aggregate.py` | `_avg`/`_avg_of` dibuang; lima call site hierarki kembali ke `_rate`/`_rate_of` |
+| core (salinan api & worker) | idem | idem — ketiganya diverifikasi identik sesudahnya |
+| core + api | `tests/test_hierarchy_avg_failure_rate.py` → `test_hierarchy_failure_rate.py` | ditulis ulang ke satuan persen |
+
+### Istilah yang ikut berganti
+
+```
+Total Recording      -> Total Sales Call Activity   (rekaman/PDF yang dinilai)
+Total Submission     -> Total Data Leads            (label KPI)
+Avg Failure Rate     -> Error Rate                  (persen, bukan kelipatan)
++ kolom baru "Data Leads" (jumlah ticket id), terpisah dari kolom rekaman
+```
+
+### PENYEBUTNYA TIDAK BERUBAH
+
+Yang berganti hanya **satuannya**: `_rate` mengalikan 100, `_avg` tidak. Penyebutnya
+tetap `transcripts` (jumlah rekaman yang dinilai) dengan fallback ke `submissions` —
+sama persis di kedua versi. Jadi tidak ada angka yang berpindah basis; 2.7 menjadi 273.9.
+
+### Konsekuensi yang DISENGAJA dan harus diketahui
+
+`_avg_of` dipilih pada 2 September 2026 karena satu tiket Not Qualified menyumbang
+**seluruh** risk base-nya (`risk_base_tally`), sehingga pembilangnya rutin melebihi
+penyebut dan angkanya melewati 100% — tidak terbaca sebagai persentase.
+
+Dengan kembali ke persen, **nilai di atas 100% akan muncul lagi di tab Hierarki Failure
+Rate.** Itu bukan kesalahan hitung. Supaya tidak dibaca sebagai bug lalu "diperbaiki"
+diam-diam oleh orang berikutnya, alasannya ditulis di dua tempat: catatan sejarah di
+`stats_aggregate.py` tepat di tempat `_avg` dulu berdiri, dan test
+`test_rasio_di_atas_100_persen_wajar` yang mengunci harapan itu (`200.0` untuk 10 risk
+atas 5 rekaman).
+
+### Verifikasi
+
+```
+core    : 247 passed, 5 skipped
+api     : 5 failed, 180 passed, 62 skipped   (kelima kegagalan pra-ada: fixture transkrip)
+dashboard: 24 pass, 0 fail; vite build ✓
+
+ketiga salinan stats_aggregate.py identik (modulo namespace qc_core.)
+_avg( / _avg_of( : nol pemakaian di ketiga repo, dan tidak dipakai api/ maupun worker/
+
+di dist/assets/StatsView-*.js
+  "Data Leads", "Total Sales Call Activity", "Error Rate" -> ada
+  "Avg Failure Rate", "Total Recording"                   -> 0 kemunculan
+```
+
+Salinan test hierarki di repo api ikut diselaraskan — ia mengimpor `_avg_of` dan
+**menggagalkan seluruh collection** begitu helper itu hilang. Ketahuan saat menjalankan
+suite api, bukan dari membaca core saja.
