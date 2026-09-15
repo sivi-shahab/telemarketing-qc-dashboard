@@ -293,3 +293,37 @@ di dist/assets/ResultsView-*.js
   "termasuk bila nilainya sama dengan AI Status" -> ada
   confirmsAiStatus                            -> tidak ada di bundle mana pun
 ```
+
+## 12. D4 — Point of Improvement di tabel Agent Error Summary
+
+`components/AgentErrorTable.vue` diambil utuh; perubahannya kecil dan searah.
+
+Kolom **Reason** kini dua paragraf: alasan errornya, lalu — bila ada —
+`point_of_improvement` dalam kotak biru. **Bukan kolom terpisah.** Sarannya
+LLM-generated untuk baris bersumber scorecard (personal per item) dan deterministik untuk
+baris verifikasi (B17/B02/B03/B05).
+
+### Prasyarat yang diperiksa
+
+Sama seperti D2: fieldnya harus benar-benar dikirim server. `point_of_improvement` muncul
+16 kali di `core/compliance/error_codes.py` — termasuk sebagai parameter `_row(...)` dan
+kunci baris tabel (`error_codes.py:1162`), diisi dari item scorecard (`:1201`, `:1226`) —
+dan `call_ownership.agent_name_verdict` menuliskannya untuk tiga kasus nama on-air.
+Tanpa itu kotak birunya tidak akan pernah muncul, diam-diam.
+
+### Tidak dobel
+
+Field yang sama pernah tampil di tabel **Hasil Scorecard**. Diperiksa sesudah port:
+`EvaluationView.vue` hanya menyimpan komentar yang menerangkan kepindahannya, dan
+`poi-note` **nol kemunculan** di chunk `EvaluationView` hasil build. Jadi sarannya tampil
+di satu tempat saja.
+
+### Verifikasi
+
+```
+npm test    : 23 pass, 0 fail
+vite build  : ✓ built in 3.38s
+
+point_of_improvement / poi-note -> ada di dist/assets/ResultsView-*.js
+poi-note di dist/assets/EvaluationView-*.js -> 0 (tidak dirender dua kali)
+```
