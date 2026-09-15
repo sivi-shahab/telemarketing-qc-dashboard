@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Bank Mega — Telemarketing QC System</title>
-  <link rel="icon" type="image/png" href="/telemarketing_qc_system/bank-mega-mark.png" />
+  <!-- %BASE_URL% diganti Vite dengan `base` saat build (lihat vite.config.js), jadi
+       ikon ini benar di base mana pun. Sebelumnya path-nya ditulis mati sebagai
+       /telemarketing_qc_system/... padahal aplikasinya dilayani di root (nginx depan:
+       `location /` -> :4006) — berkasnya tidak pernah ada di sana dan ikonnya 404. -->
+  <link rel="icon" type="image/png" href="%BASE_URL%bank-mega-mark.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap">

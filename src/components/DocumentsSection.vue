@@ -23,10 +23,12 @@
         </div>
 
         <div class="doc-body">
-          <!-- PDF preview (multi-page; browser's built-in viewer). Hidden by
+          <!-- Preview (multi-page PDF via browser's built-in viewer, or an <img>
+               for screenshot uploads e.g. konfirmasi pengecualian MUS). Hidden by
                default; only loaded/rendered once the user opens it. -->
           <div v-if="openDocs[d.id]" class="doc-image">
-            <iframe v-if="fileUrls[d.id]" :src="fileUrls[d.id]" class="doc-pdf" :title="d.label"></iframe>
+            <img v-if="fileUrls[d.id] && isImageDoc(d)" :src="fileUrls[d.id]" class="doc-img" :alt="d.label" />
+            <iframe v-else-if="fileUrls[d.id]" :src="fileUrls[d.id]" class="doc-pdf" :title="d.label"></iframe>
             <div v-else class="img-placeholder"><span class="spinner"></span></div>
           </div>
 
@@ -164,6 +166,10 @@ function verifications(d) {
   return Array.isArray(list) ? list : []
 }
 
+function isImageDoc(d) {
+  return (d?.mime_type || '').startsWith('image/')
+}
+
 function formatVal(val) {
   if (val == null || val === '') return '—'
   if (typeof val === 'object') return JSON.stringify(val)
@@ -174,7 +180,7 @@ async function loadFile(doc) {
   if (fileUrls[doc.id]) return
   try {
     const res = await apiClient.get(`/document_file/${doc.id}`, { responseType: 'blob' })
-    const blob = new Blob([res.data], { type: 'application/pdf' })
+    const blob = new Blob([res.data], { type: doc.mime_type || 'application/pdf' })
     fileUrls[doc.id] = URL.createObjectURL(blob)
   } catch {
     /* leave placeholder */
@@ -240,6 +246,7 @@ onBeforeUnmount(() => {
 
 .doc-image { background: #f1f5f9; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; min-height: 140px; }
 .doc-pdf { width: 100%; height: 85vh; min-height: 600px; border: 0; display: block; }
+.doc-img { max-width: 100%; max-height: 85vh; display: block; }
 .img-placeholder { padding: 30px; }
 
 .verif-table { width: 100%; border-collapse: collapse; }

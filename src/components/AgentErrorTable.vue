@@ -49,7 +49,17 @@
                  sebagai beberapa baris dengan evidence-nya masing-masing. -->
             <td class="category">{{ e.error_category || '—' }}</td>
             <td class="evidence">{{ e.evidence || '—' }}</td>
-            <td class="reason">{{ e.reason || '—' }}</td>
+            <!-- Point of Improvement (14 September 2026, dipindah dari tabel Hasil
+                 Scorecard, lalu 14 September 2026 disatukan lagi ke sini sebagai
+                 paragraf KEDUA di kolom Reason — bukan kolom terpisah): saran
+                 perbaikan, LLM-generated untuk baris bersumber scorecard (personal
+                 per item), deterministik untuk baris verifikasi (B17/B02/B03/B05) —
+                 lihat build_error_code_table di error_codes.py. Kotak biru sama
+                 seperti yang tadinya dipakai di Hasil Scorecard. -->
+            <td class="reason">
+              <div>{{ e.reason || '—' }}</div>
+              <div v-if="e.point_of_improvement" class="poi-note">{{ e.point_of_improvement }}</div>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -104,7 +114,14 @@ CampaignCell.props = ['campaign']
    berisi baris baru, jadi dibiarkan membungkus dan diberi lebar minimum sendiri
    supaya tidak menghimpit kolom Reason di sebelahnya. */
 .evidence { min-width: 260px; max-width: 420px; white-space: pre-line; }
-.reason { min-width: 260px; }
+.reason { min-width: 260px; max-width: 380px; }
+/* Point of Improvement: paragraf KEDUA di kolom Reason (bukan kolom terpisah) —
+   kotak biru sama seperti yang tadinya dipakai di tabel Hasil Scorecard. */
+.poi-note {
+  margin-top: 6px; padding: 6px 8px; border-left: 2px solid var(--m-info, #2563EB);
+  background: var(--m-info-soft, #EFF6FF); border-radius: 0 4px 4px 0;
+  font-size: 12px; line-height: 1.45; color: var(--text);
+}
 .ok-cell { color: #16a34a; font-weight: 600; }
 .camp { margin: 0; padding-left: 16px; }
 .camp li { margin: 1px 0; }

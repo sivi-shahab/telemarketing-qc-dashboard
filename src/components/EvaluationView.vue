@@ -43,11 +43,14 @@
                 </span>
               </span>
             </td>
-            <td class="ct-change deduct">{{ negWeight(it.weight) }}</td>
+            <!-- itemDeduction (bukan it.weight mentah): menghormati kredit parsial
+                 SC_CL_24 (weight - item_score), supaya baris per-item ini menjumlah
+                 persis ke scorecardBelumWeight/Hasil di bawahnya. -->
+            <td class="ct-change deduct">{{ negWeight(itemDeduction(it)) }}</td>
             <td class="ct-result"></td>
           </tr>
           <!-- ZERO-SCORE RULE diberi barisnya SENDIRI. Tanpa ini kolom "Perubahan"
-               tidak menjumlah ke "Hasil": skor maksimal 108,75 dengan pengurangan
+               tidak menjumlah ke "Hasil": skor maksimal 100 dengan pengurangan
                scorecard −7,5 tetapi hasilnya 0, sehingga terbaca seperti salah hitung. -->
           <tr v-if="noProductInterest" class="row-sub">
             <td class="ct-label">
@@ -150,11 +153,11 @@
 
           <tr>
             <td class="ct-label">
-              <span class="ct-name">Batas Lulus (90% × {{ fmtScore(ev?.maximum_score) }})</span>
+              <span class="ct-name">Batas Lulus (90% × {{ fmtScore(maxScore) }})</span>
               <span class="info" tabindex="0">ⓘ<span class="tip">Skor minimal agar LULUS, yaitu 90% dari Skor Maksimal.</span></span>
             </td>
             <td class="ct-change"></td>
-            <td class="ct-result">{{ fmtScore(ev?.passing_grade) }}</td>
+            <td class="ct-result">{{ fmtScore(passingGrade) }}</td>
           </tr>
 
           <tr>
@@ -162,12 +165,25 @@
               <span class="ct-name">Hasil</span>
               <span class="info" tabindex="0">ⓘ<span class="tip">LULUS bila Skor Akhir ≥ Batas Lulus; jika kurang, TIDAK LULUS.</span></span>
               <div class="ct-reason">
-                Skor Akhir {{ fmtScore(phase3) }} {{ lulus ? '≥' : '<' }} Batas Lulus {{ fmtScore(ev?.passing_grade) }}.
+                Skor Akhir {{ fmtScore(phase3) }} {{ lulus ? '≥' : '<' }} Batas Lulus {{ fmtScore(passingGrade) }}.
               </div>
             </td>
             <td class="ct-change"></td>
             <td class="ct-result">
               <span :class="['badge', lulus ? 'badge-green' : 'badge-red']">{{ lulus ? 'LULUS' : 'TIDAK LULUS' }}</span>
+            </td>
+          </tr>
+
+          <!-- Validitas rekaman menurut aturan Mega Ultima Shield (Bank Mega,
+               8 September 2026). Barisnya sendiri, di bawah Hasil: yang membuat
+               tiket gugur di sini BUKAN angkanya melainkan sifat rekamannya, dan
+               tanpa penjelasan ini "TIDAK LULUS" terbaca seperti salah hitung. -->
+          <tr v-if="musValidityNote" class="row-validity">
+            <td colspan="3">
+              <div :class="['validity-note', musValidityNote.tone === 'bad' ? 'validity-bad' : 'validity-ok']">
+                <span class="validity-title">{{ musValidityNote.tone === 'bad' ? '⚠' : 'ⓘ' }} {{ musValidityNote.title }}</span>
+                <span class="validity-body">{{ musValidityNote.body }}</span>
+              </div>
             </td>
           </tr>
         </tbody>
@@ -342,7 +358,7 @@
               <td>{{ v.reference_value ?? '—' }}</td>
               <td>{{ v.extracted_value ?? '—' }}</td>
               <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
-              <td class="reason">{{ v.reason || '—' }}</td>
+              <td class="reason">{{ campaignInterestReason(v) }}</td>
             </tr>
           </tbody>
         </table>
@@ -727,8 +743,21 @@
                 </td>
                 <td class="num skor-col">{{ it.item_score ?? '—' }}</td>
                 <td><Evidence :evidence="it.evidence" compact /></td>
+                <!-- Point of Improvement (14 September 2026): dipindah ke tabel Agent
+                     Error Summary (AgentErrorTable.vue), bukan di sini — scorecard
+                     tetap murni checklist requirement/status/reason. Data
+                     ``it.point_of_improvement`` tetap dihasilkan LLM per item (lihat
+                     prompt POINT OF IMPROVEMENT RULE); build_error_code_table di
+                     error_codes.py yang meneruskannya ke baris Error Code. -->
                 <td class="reason reason-cell">{{ it.reason || '—' }}</td>
-                <td class="ticket-cell">{{ it.evidence?.ticket_id || it.ticket_id || '—' }}</td>
+                <!-- Ticket ID = "<nama transkrip> - <jenis rekaman>", teks polos.
+                     Tag-nya ditempel worker secara deterministik
+                     (compliance/recording_type.stamp_evidence_tags), bukan ditebak di
+                     sini. Riwayat item — apakah ia baru terpenuhi di rekaman perbaikan,
+                     dan apakah lewat recap — TIDAK lagi ditampilkan sebagai chip di
+                     sini: sejak 5 September 2026 keterangan itu ditulis ke dalam kolom
+                     Reason, tempat orang membacanya saat menimbang vonisnya. -->
+                <td class="ticket-cell">{{ ticketCell(it) }}</td>
               </tr>
               <!-- Verifikasi Dinamis: satu baris per verified_parameter -->
               <template v-if="it.category === 'Verifikasi Dinamis' && dvdParams(it).length">
@@ -970,6 +999,11 @@ function numOr0(v) {
   const n = Number(v)
   return Number.isNaN(n) ? 0 : n
 }
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isNaN(n) ? null : n
+}
 
 // Signed change for the "Perubahan" column, e.g. 108.75 -> "+108,75", -15 -> "−15".
 function deltaText(v) {
@@ -1001,11 +1035,45 @@ const noProductInterest = computed(() => {
   if (!cl && !mus) return false
   return cl?.status !== 'INTERESTED' && mus?.status !== 'INTERESTED'
 })
-const scorecardBelumWeight = computed(() =>
-  (ev.value?.scorecard_result || [])
-    .filter((it) => it?.status === 'BELUM_SESUAI')
-    .reduce((s, it) => s + numOr0(it?.weight), 0)
-)
+const MUS_CATEGORIES = new Set([
+  'penjelasan mega ultima shield',
+  'final konfirmasi mega ultima shield',
+  'legal statement mega ultima shield',
+])
+const isMusItem = (it) => MUS_CATEGORIES.has(String(it?.category || '').trim().toLowerCase())
+
+// Cermin persis compliance/scoring.py::_item_deduction — HARUS menghormati kredit
+// parsial: bila ``item_score`` ada di ANTARA 0 dan ``weight`` (mis. SKOR BERTINGKAT
+// SC_CL_24, 28 Agustus 2026 — 1 dari 2 data dinamis terverifikasi -> item_score=7.5
+// dari bobot 15), yang hilang HANYA ``weight - item_score``, bukan bobot penuh.
+// Sebelum ini diperbaiki (14 September 2026), fungsi ini selalu memotong bobot PENUH
+// untuk setiap BELUM_SESUAI, sehingga skor di tabel "Ringkasan Penilaian AI" bisa
+// lebih RENDAH daripada kolom Grade (yang dihitung backend, sudah menghormati kredit
+// parsial) — ticket contoh: 030808fLO1 (28 vs 35,5).
+function itemDeduction(it) {
+  if ((it || {}).status !== 'BELUM_SESUAI') return 0
+  const weight = numOrNull(it?.weight)
+  if (weight === null) return 0
+  const earned = numOrNull(it?.item_score)
+  if (earned !== null && earned > 0 && earned < weight) return weight - earned
+  return weight
+}
+
+// Cermin persis compliance/scoring.py::scorecard_score. Item MUS yang masih
+// TIDAK_DINILAI ikut dipotong penuh ketika MUS wajib tetapi tidak dipenuhi: tanpa itu
+// skor maksimal sudah naik ke 135,5 sementara item MUS tidak dipotong apa pun, dan
+// tiket cashline-saja justru mendapat 35,5 poin gratis. Hanya menyentuh hasil LAMA —
+// prompt sejak v80 menilai item MUS apa adanya, jadi tidak ada yang TIDAK_DINILAI.
+const scorecardBelumWeight = computed(() => {
+  const items = ev.value?.scorecard_result || []
+  let total = items.reduce((s, it) => s + itemDeduction(it), 0)
+  if (musWajibTidakDipenuhi.value) {
+    total += items
+      .filter((it) => isMusItem(it) && it?.status === 'TIDAK_DINILAI')
+      .reduce((s, it) => s + numOr0(it?.weight), 0)
+  }
+  return total
+})
 const phase2 = computed(() => {
   if (noProductInterest.value) return 0
   return maxScore.value - scorecardBelumWeight.value
@@ -1025,9 +1093,19 @@ const runAfterVerif = computed(() => phase2.value + verifScore.value)
 // Net change of the scorecard section (= phase2 - skor maksimal), always <= 0.
 const scorecardDelta = computed(() => phase2.value - maxScore.value)
 
+// Batas lulus = 90% dari skor maksimal, dibulatkan 2 desimal — cermin
+// compliance/scoring.py::passing_grade. TIDAK dibaca apa adanya dari evaluation:
+// skor maksimal bisa berubah setelah hasil ditulis (aturan MUS 8 September 2026),
+// dan angka bawaan LLM ikut basi bersamanya.
+const passingGrade = computed(() => {
+  const m = maxScore.value
+  if (!Number.isFinite(m) || m <= 0) return Number(ev.value?.passing_grade)
+  return Math.round(m * 0.9 * 100) / 100
+})
+
 // PASS/FAIL: skor akhir deterministik vs batas lulus.
 const lulus = computed(() => {
-  const pass = Number(ev.value?.passing_grade)
+  const pass = Number(passingGrade.value)
   if (Number.isNaN(pass)) return false
   return phase3.value >= pass
 })
@@ -1197,6 +1275,7 @@ const interestedProducts = computed(() => {
   const arr = []
   if (ev.value?.cashline_interest?.status === 'INTERESTED') arr.push('Mega Cashline')
   if (ev.value?.mus_interest?.status === 'INTERESTED') arr.push('Mega Ultima Shield')
+  if (ev.value?.mus_cc_interest?.status === 'INTERESTED') arr.push('MUS CC')
   return arr
 })
 const maxScoreReason = computed(() => {
@@ -1205,13 +1284,96 @@ const maxScoreReason = computed(() => {
   return `Customer tertarik pada ${p.join(' dan ')}`
 })
 
-// Maximum-score breakdown by product interest: Mega Cashline = 108.75,
-// Mega Ultima Shield = 41.25. Summed at the end.
+// Aturan Bank Mega 8 September 2026 — rekaman valid = nasabah tertarik Mega Cashline
+// DAN Mega Ultima Shield. Cashline saja TIDAK valid kecuali nasabah memang tidak
+// eligible MUS (sakit / mengandung >7 bulan), yang tercatat di `mus_exemption`.
+// Cerminan dari compliance/scoring.py::mus_wajib_tidak_dipenuhi — dijaga tetap sama.
+const musExempt = computed(
+  () => String(ev.value?.mus_exemption?.status || '').toUpperCase() === 'EXEMPT'
+)
+const musWajibTidakDipenuhi = computed(() => {
+  if (ev.value?.cashline_interest?.status !== 'INTERESTED') return false
+  if (ev.value?.mus_interest?.status === 'INTERESTED') return false
+  return !musExempt.value
+})
+
+// Maximum-score breakdown by product interest — cermin persis
+// compliance/scoring.py::max_score() (revisi scorecard v4, 14 September 2026):
+// Mega Cashline = 100, Mega Ultima Shield = 35.5, MUS Kartu Kredit = 13.25.
+// Summed at the end.
+//
+// Bobot MUS TETAP masuk ketika MUS wajib tetapi tidak dipenuhi: di situlah aturan
+// baru menggigit. Menurunkan penyebut ke 100 persis kekeliruan aturan lama —
+// rekaman cashline-saja jadi bisa LULUS dengan nilai penuh.
+//
+// MUS Kartu Kredit (mus_cc_interest) TIDAK punya padanan "wajib tidak dipenuhi":
+// murni aditif, bobotnya HANYA masuk penyebut saat benar-benar INTERESTED — lihat
+// docstring max_score() untuk alasannya.
 const maxScoreBreakdown = computed(() => {
   const out = []
-  if (ev.value?.cashline_interest?.status === 'INTERESTED') out.push({ name: 'Mega Cashline', score: 108.75 })
-  if (ev.value?.mus_interest?.status === 'INTERESTED') out.push({ name: 'Mega Ultima Shield', score: 41.25 })
+  if (ev.value?.cashline_interest?.status === 'INTERESTED') out.push({ name: 'Mega Cashline', score: 100 })
+  if (ev.value?.mus_interest?.status === 'INTERESTED') {
+    out.push({ name: 'Mega Ultima Shield', score: 35.5 })
+  } else if (musWajibTidakDipenuhi.value) {
+    out.push({ name: 'Mega Ultima Shield (wajib, tidak dipenuhi)', score: 35.5 })
+  }
+  if (ev.value?.mus_cc_interest?.status === 'INTERESTED') out.push({ name: 'MUS Kartu Kredit', score: 13.25 })
   return out
+})
+
+// Reason baris "mega_ultima_shield" di tabel Campaign Interest Verification.
+// Konsekuensi validitasnya ditambahkan DI SINI, bukan hanya lewat prompt: hasil yang
+// sudah tersimpan tidak akan pernah menyebutnya sampai diproses ulang, sedangkan
+// aturannya berlaku untuk semua tiket. Kalimat dari LLM dipertahankan apa adanya dan
+// hanya disusuli satu kalimat turunan — dan tidak diulang bila LLM sudah menyebutnya.
+function campaignInterestReason(v) {
+  const base = v?.reason || ''
+  if (String(v?.field || '') !== 'mega_ultima_shield') return base || '—'
+  if (ev.value?.mus_interest?.status === 'INTERESTED') return base || '—'
+  const sudah = /tidak valid|tidak eligible|dikecualikan/i.test(base)
+  if (sudah) return base
+  const tail = musWajibTidakDipenuhi.value
+    ? 'MUS wajib untuk rekaman valid; tidak disetujui dan tanpa alasan ketidaklayakan — rekaman tidak valid.'
+    : musExempt.value
+      ? 'Nasabah tidak eligible MUS, sehingga rekaman tetap sah tanpa Mega Ultima Shield.'
+      : ''
+  if (!tail) return base || '—'
+  return base ? `${base.replace(/\s*$/, '').replace(/\.?$/, '.')} ${tail}` : tail
+}
+
+// Pesan yang tampil DI BAWAH baris Hasil. Diturunkan di sini, bukan diminta ke LLM:
+// hasil lama pun harus ikut menampilkannya tanpa perlu diproses ulang.
+const musValidityNote = computed(() => {
+  if (musWajibTidakDipenuhi.value) {
+    const st = ev.value?.mus_interest?.status
+    const sebab = st === 'NOT_STATED'
+      ? 'Mega Ultima Shield tidak pernah ditawarkan'
+      : 'nasabah tidak menyetujui Mega Ultima Shield'
+    return {
+      tone: 'bad',
+      title: 'REKAMAN TIDAK VALID',
+      body: `Rekaman baru sah bila nasabah tertarik Mega Cashline DAN Mega Ultima `
+        + `Shield. Di sini ${sebab}, dan tidak ada alasan ketidaklayakan. Bobot MUS `
+        + `(35,5) tetap dihitung sebagai bagian dari skor maksimal.`,
+    }
+  }
+  if (musExempt.value && ev.value?.mus_interest?.status !== 'INTERESTED') {
+    const kat = ev.value?.mus_exemption?.kategori
+    const label = kat === 'HAMIL' ? 'mengandung lebih dari 7 bulan'
+      : kat === 'XSELL' ? 'Xsell MUS tidak muncul di sistem'
+      : 'kondisi kesehatan pada pernyataan kesehatan'
+    const alasan = ev.value?.mus_exemption?.reason
+    const sumber = ev.value?.mus_exemption?.sumber === 'daftar_bank_mega'
+      ? 'daftar Not Eligible MUS dari Bank Mega'
+      : 'pernyataan nasabah di transkrip'
+    return {
+      tone: 'ok',
+      title: 'DIKECUALIKAN DARI KEWAJIBAN MUS',
+      body: `Rekaman tetap sah tanpa Mega Ultima Shield karena nasabah tidak eligible `
+        + `(${label}). Sumber: ${sumber}.` + (alasan ? ` Catatan: ${alasan}` : ''),
+    }
+  }
+  return null
 })
 const maxScoreTotal = computed(() => maxScoreBreakdown.value.reduce((s, p) => s + p.score, 0))
 
@@ -1245,6 +1407,16 @@ function codeForCashlineField(v, used) {
 // compliance/error_codes.py). Uses CARD_HOLDER_DYNAMIC_FIELDS defined below.
 const cardHolderTwoMatchSatisfied = (items) =>
   (items || []).filter((v) => CARD_HOLDER_DYNAMIC_FIELDS.includes(v?.field) && (v?.match === 'MATCH' || v?.event_verified === true)).length >= 2
+
+// Kolom Ticket ID tabel Hasil Scorecard: "<nama transkrip> - <jenis rekaman>".
+// Tiket lama (diproses sebelum 5 September 2026) tidak punya tag, jadi yang tampil
+// hanya nama berkasnya — bukan tanda hubung menggantung.
+function ticketCell(it) {
+  const file = it?.evidence?.ticket_id || it?.ticket_id || ''
+  const tag = it?.evidence?.recording_tag_label || ''
+  if (!file) return '—'
+  return tag ? `${file} - ${tag}` : file
+}
 
 // Verification deductions (item_score < 0) with their error code, for the
 // "Pengurangan – Verifikasi data" breakdown. Card holder mismatches -> B17.
@@ -1502,6 +1674,17 @@ const Evidence = {
       return h('div', { class: ['ev', { 'ev-compact': p.compact }] }, [
         e.timestamp ? h('span', { class: 'ev-ts' }, e.timestamp) : null,
         e.quote ? h('span', { class: 'ev-quote' }, `"${e.quote}"`) : null,
+        // HANYA untuk blok evidence yang berdiri sendiri (minat produk, verifikasi):
+        // di sana tidak ada kolom "asal berkas" maupun kolom Reason di sebelahnya, jadi
+        // tag rekamannya ikut di sini. Di tabel Hasil Scorecard (mode `compact`) kolom
+        // Evidence sengaja hanya memuat timestamp + kutipan — asal rekamannya dibaca
+        // dari kolom Ticket ID dan Reason.
+        !p.compact && e.recording_tag_label
+          ? h('span', {
+              class: ['ev-tag', e.recording_tag === 'recording_perbaikan' ? 'ev-tag-perbaikan' : ''],
+              title: e.ticket_id || undefined,
+            }, e.recording_tag_label)
+          : null,
       ])
     }
   },
@@ -1641,6 +1824,16 @@ const Evidence = {
 }
 .add-ec-btn:hover { background: #2563eb; }
 .exec-summary .tbl { background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+/* Tag asal evidence. Rekaman perbaikan dibedakan warnanya karena itulah yang perlu
+   ketahuan sekilas: bukti yang datang dari sana berarti item ini tidak terpenuhi di
+   rekaman utama. "diperbaiki" memakai warna sendiri lagi — ia menerangkan RIWAYAT
+   item, bukan asal berkasnya. */
+.ev-tag {
+  display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
+  background: #f1f3f5; color: var(--text-muted); font-size: 10px; white-space: nowrap;
+}
+.ev-tag-perbaikan { background: #eff6ff; color: #1d4ed8; }
+.ev-tag-pass2 { background: #ecfdf5; color: #047857; cursor: help; }
 .exec-evidence { font-size: 12px; color: var(--text); white-space: pre-wrap; max-width: 320px; }
 .group-row td { background: #eef2f6; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); padding: 6px 12px; }
 .src-cell { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
@@ -1738,4 +1931,21 @@ const Evidence = {
 :deep(.ev-quote) { font-size: 12px; color: var(--text); font-style: italic; font-weight: 600; }
 :deep(.ev-empty) { color: var(--text-muted); }
 :deep(.ev-compact) { max-width: 280px; }
+
+/* Catatan validitas rekaman di bawah baris Hasil (aturan MUS, 8 September 2026). */
+.row-validity td { padding-top: 10px; }
+.validity-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  border-left: 3px solid;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.validity-bad { background: #fef2f2; border-color: #dc2626; color: #7f1d1d; }
+.validity-ok  { background: #f0fdf4; border-color: #16a34a; color: #14532d; }
+.validity-title { font-weight: 700; letter-spacing: 0.02em; }
+.validity-body { font-weight: 400; }
 </style>

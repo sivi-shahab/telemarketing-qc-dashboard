@@ -32,7 +32,7 @@
               <input
                 :ref="el => (inputs[d.key] = el)"
                 type="file"
-                accept=".pdf,application/pdf"
+                :accept="acceptFor(d.key).accept"
                 class="hidden-input"
                 @change="onPick(d.key, $event)"
               />
@@ -44,7 +44,7 @@
 
               <!-- Selected state -->
               <div v-else class="file-chip">
-                <span class="thumb thumb-pdf">PDF</span>
+                <span class="thumb thumb-pdf">{{ thumbLabel(files[d.key]) }}</span>
                 <div class="file-meta">
                   <span class="file-name">{{ files[d.key].name }}</span>
                   <span class="file-size">{{ formatSize(files[d.key].size) }}</span>
@@ -55,7 +55,10 @@
           </div>
 
           <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
-          <p class="hint">Format yang diterima: PDF. Hanya file yang dipilih yang akan diproses (OCR).</p>
+          <p class="hint">
+            Format yang diterima: PDF<span v-if="hasImageSlot">, JPG, PNG (khusus Konfirmasi
+            Pengecualian MUS)</span>. Hanya file yang dipilih yang akan diproses (OCR).
+          </p>
         </div>
 
         <footer class="modal-foot">
@@ -92,15 +95,29 @@ const DOC_TYPES = [
   { key: 'kk', label: 'KK' },
   { key: 'npwp', label: 'NPWP' },
   { key: 'cover_buku_tabungan', label: 'Cover Buku Tabungan' },
+  { key: 'mus_exception_confirmation', label: 'Konfirmasi Pengecualian MUS' },
 ]
 
 // Only the slots matching the changed fields are shown.
 const visibleTypes = computed(() =>
   props.allowedTypes ? DOC_TYPES.filter((d) => props.allowedTypes.includes(d.key)) : DOC_TYPES
 )
+const hasImageSlot = computed(() => visibleTypes.value.some((d) => d.key === 'mus_exception_confirmation'))
 
-const ALLOWED = ['application/pdf']
-const ALLOWED_EXT = ['.pdf']
+const DEFAULT_ACCEPT = { mimes: ['application/pdf'], exts: ['.pdf'], accept: '.pdf,application/pdf' }
+// Konfirmasi pengecualian MUS adalah screenshot email (JPEG/PNG) — satu-satunya
+// slot yang boleh menerima gambar (dikonversi ke PDF di server sebelum OCR).
+const ACCEPT_BY_TYPE = {
+  mus_exception_confirmation: {
+    mimes: ['application/pdf', 'image/jpeg', 'image/png'],
+    exts: ['.pdf', '.jpg', '.jpeg', '.png'],
+    accept: '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png',
+  },
+}
+
+function acceptFor(key) {
+  return ACCEPT_BY_TYPE[key] || DEFAULT_ACCEPT
+}
 
 const inputs = {}
 const files = reactive({})
@@ -110,10 +127,17 @@ const submitting = ref(false)
 const selectedCount = computed(() => Object.values(files).filter(Boolean).length)
 const canSubmit = computed(() => selectedCount.value > 0 && !submitting.value)
 
-function isPdf(file) {
-  if (ALLOWED.includes(file.type)) return true
+function isAllowedFile(key, file) {
+  const cfg = acceptFor(key)
+  if (cfg.mimes.includes(file.type)) return true
   const name = (file.name || '').toLowerCase()
-  return ALLOWED_EXT.some(ext => name.endsWith(ext))
+  return cfg.exts.some(ext => name.endsWith(ext))
+}
+
+function thumbLabel(file) {
+  const name = (file?.name || '').toLowerCase()
+  const ext = name.slice(name.lastIndexOf('.') + 1).toUpperCase()
+  return ext || 'DOC'
 }
 
 function openPicker(key) {
@@ -124,8 +148,9 @@ function onPick(key, e) {
   const file = e.target.files?.[0]
   if (e.target) e.target.value = ''
   if (!file) return
-  if (!isPdf(file)) {
-    errorMsg.value = `File '${file.name}' bukan PDF. Hanya file PDF yang diterima.`
+  if (!isAllowedFile(key, file)) {
+    const label = acceptFor(key).exts.map(ext => ext.slice(1).toUpperCase()).join('/')
+    errorMsg.value = `File '${file.name}' bukan ${label}. Hanya file ${label} yang diterima.`
     return
   }
   errorMsg.value = ''

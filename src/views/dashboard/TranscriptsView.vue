@@ -1,5 +1,10 @@
 <template>
   <SidebarLayout title="Recording Tickets">
+    <!-- Dropdown AI Status disembunyikan (permintaan 14 Agustus 2026): menu ini
+         mengurus transkrip yang masuk, bukan vonis penilaiannya — untuk itu ada
+         menu Results. `filterAiStatus` sengaja DIPERTAHANKAN beserta penyaringnya,
+         supaya menghidupkan kembali dropdown-nya cukup dengan mengembalikan blok
+         <select> ini. Nilainya tetap '' sehingga penyaringnya tidak berbuat apa-apa. -->
     <div class="filter-bar">
       <input
         v-model="searchTiketId"
@@ -9,13 +14,6 @@
         title="Substring, case-insensitive. Kosongkan tanggal untuk cari semua tanggal."
         @input="debouncedFilter"
       />
-
-      <select v-model="filterAiStatus" class="select-input" @change="applyFilter">
-        <option value="">Semua AI Status</option>
-        <option value="PASS">Qualified</option>
-        <option value="FAIL">Not Qualified</option>
-        <option value="PENDING">Pending</option>
-      </select>
 
       <input
         v-model="searchDate"

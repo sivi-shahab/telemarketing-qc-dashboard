@@ -270,11 +270,25 @@
                     <span class="cd-file">{{ c.file }}</span>
                     <span class="cd-sep">-</span>
                     <span class="cd-dur">{{ c.duration }}</span>
-                    <!-- Panggilan agent lain: tidak ikut dinilai, jadi diberi
-                         keterangan siapa agent-nya alih-alih dibiarkan tampak
-                         setara dengan panggilan yang dinilai. -->
-                    <span v-if="c.excluded" class="cd-tag">
-                      tidak dinilai<template v-if="c.agent"> — {{ c.agent }}</template>
+                    <!-- SATU badge untuk SETIAP baris, tanpa kecuali: abu-abu menyebut
+                         PERAN rekaman yang dinilai, merah menyebut SEBAB rekaman itu
+                         dicoret (jenis rekaman atau milik agent lain). Sampai
+                         5 September 2026 baris "agent lain" tidak punya badge sama
+                         sekali sementara baris lain punya — satu kolom dengan dua
+                         bentuk baris, dan pembacanya harus menebak apakah badge yang
+                         hilang itu berarti sesuatu. -->
+                    <span v-if="c.badge" class="cd-tag" :class="{ 'cd-tag-drop': c.excluded }"
+                          :title="c.reason || undefined">
+                      {{ c.badge }}
+                    </span>
+                    <!-- Sumbu KEDUA, sengaja dipisah dari badge peran/sebab di atas:
+                         yang ini soal WAKTU, bukan isi. Rekaman di luar jendela 7 hari
+                         kalender TETAP DINILAI — ia hanya membuat tiketnya jatuh ke
+                         penilaian full alih-alih partial, jadi ia tidak boleh tampil
+                         sebagai berkas yang dicoret. -->
+                    <span v-if="c.outOfSla" class="cd-sla"
+                          title="Rekaman ini lebih dari 7 hari kalender sebelum rekaman terakhir tiket — di luar SLA, sehingga tiket dinilai penuh (bukan partial) dan perlu ditinjau.">
+                      ⧗ di luar SLA 7 hari
                     </span>
                   </li>
                 </ul>
@@ -447,6 +461,18 @@
                     class="doc-reason-line"
                   >Perlu Dokumen {{ n.doc_label }} karena {{ n.reason }}</span>
                 </div>
+                <!-- Dokumen yang JENISNYA benar tetapi isinya tidak cocok dengan acuan
+                     bank (3 September 2026). Berkas seperti ini tidak menutup
+                     kewajibannya — permintaannya tetap berdiri di atas — jadi sebabnya
+                     ditulis di sini supaya tidak terbaca sebagai kesalahan sistem. -->
+                <div v-if="group.primary.document_mismatches?.length" class="doc-reason doc-reason-bad">
+                  <span
+                    v-for="m in group.primary.document_mismatches"
+                    :key="m.label"
+                    class="doc-reason-line"
+                  >Dokumen {{ m.label }} tidak cocok dengan data bank<template
+                    v-if="m.fields?.length"> ({{ m.fields.join(', ') }})</template></span>
+                </div>
               </td>
               <!-- Kolom "Manual Check" untuk QC: ringkasan banding Error
                    Code miliknya (approved / rejected / menunggu). Murni Error Code —
@@ -588,8 +614,31 @@
                     ✗ Gagal: {{ results[group.primary.result_id]?.error || 'Unknown error' }}
                   </div>
                   <div v-else-if="showEvaluationDetail && results[group.primary.result_id]" class="result-pending">
-                    <span class="spinner"></span>
-                    Status: <strong>{{ results[group.primary.result_id]?.status }}</strong> — hasil belum tersedia.
+                    <div class="result-pending-status">
+                      <span class="spinner"></span>
+                      Status: <strong>{{ results[group.primary.result_id]?.status }}</strong> — hasil belum tersedia.
+                    </div>
+                    <!-- Tabel progres pipeline (14 September 2026): results[id].stages
+                         diisi backend (GET /result/{id}) hanya saat pending/processing,
+                         mengikuti PROCESSING_STAGES di compliance/processing_stages.py.
+                         Diperbarui otomatis lewat polling yang sudah ada — tidak butuh
+                         mekanisme baru. -->
+                    <table v-if="results[group.primary.result_id]?.stages?.length" class="stage-progress">
+                      <tbody>
+                        <tr v-for="st in results[group.primary.result_id].stages" :key="st.key"
+                            :class="'stage-' + st.state">
+                          <td class="stage-icon">
+                            <span v-if="st.state === 'selesai'">✓</span>
+                            <span v-else-if="st.state === 'berjalan'" class="stage-spinner"></span>
+                            <span v-else>—</span>
+                          </td>
+                          <td class="stage-label">{{ st.label }}</td>
+                          <td class="stage-state">
+                            {{ st.state === 'selesai' ? 'Selesai' : st.state === 'berjalan' ? 'Sedang berjalan' : 'Menunggu' }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
 
                   <DocumentsSection
@@ -648,7 +697,6 @@
       :display-id="manualCheckItem.id"
       :existing="manualCheckItem.qc_request"
       :ai-status="manualCheckItem.ai_status"
-      :by-human="!!manualCheckItem.manual_status_by_human"
       @close="manualCheckItem = null"
       @submitted="onQcRequestChanged"
     />
@@ -1690,25 +1738,64 @@ function scorecardIssues(item) {
 // punya rinciannya, jadi berkasnya tetap disebut dengan durasi "—" agar jumlah
 // panggilan tetap terbaca.
 function callDurations(item) {
+  // Jenis rekaman per berkas (`recording_types`, ditulis worker sejak 5 September
+  // 2026 — lihat compliance/recording_type.py). Dipetakan berdasarkan NAMA BERKAS,
+  // bukan urutan: `audio_durations` hanya memuat PDF yang dinilai sedangkan
+  // `recording_types` memuat semuanya, jadi indeksnya tidak sejajar.
+  const tags = {}
+  for (const t of Array.isArray(item.recording_types) ? item.recording_types : []) {
+    if (t && t.file) tags[t.file] = t
+  }
+  const decorate = (row) => ({ ...row, badge: tags[row.file]?.tag_label || '',
+                               reason: tags[row.file]?.reason || '',
+                               outOfSla: tags[row.file]?.out_of_sla === true })
   const rows = Array.isArray(item.audio_durations) ? item.audio_durations : []
   const scored = rows.length
-    ? rows.map((r) => ({ file: r.file || '—', duration: r.duration || '—', excluded: false }))
-    : (Array.isArray(item.source_files) ? item.source_files : []).map((f) => ({
+    ? rows.map((r) => decorate({ file: r.file || '—', duration: r.duration || '—', excluded: false }))
+    : (Array.isArray(item.source_files) ? item.source_files : []).map((f) => decorate({
         file: f,
         duration: '—',
         excluded: false,
       }))
-  // Panggilan milik agent LAIN: tetap disebut di sini — kalau tidak, satu PDF
-  // yang diupload seolah lenyap tanpa jejak dari layar. Ditandai `excluded`
-  // supaya jelas ia TIDAK ikut dinilai, berikut nama agent yang terdeteksi.
-  // Lihat compliance/call_ownership.py.
-  const skipped = (Array.isArray(item.excluded_calls) ? item.excluded_calls : []).map((c) => ({
-    file: c.filename || '—',
-    duration: c.duration || '—',
-    excluded: true,
-    agent: Array.isArray(c.detected_agent) ? c.detected_agent.join(', ') : (c.detected_agent || ''),
-  }))
+  // PDF yang TIDAK ikut dinilai — panggilan milik agent lain (compliance/call_ownership.py)
+  // maupun rekaman yang batal/ditunda/tidak terhubung (compliance/recording_type.py).
+  // Tetap disebut di sini: kalau tidak, satu PDF yang diupload seolah lenyap tanpa
+  // jejak dari layar.
+  //
+  // Badge-nya menyebut SEBAB, dan sebabnya dua macam. Rekaman yang dicoret karena
+  // jenisnya membawa `tag_label` sendiri; panggilan milik agent lain tidak pernah
+  // diklasifikasi sama sekali (ia dibuang SEBELUM langkah 2c, dan perannya di tiket
+  // ini memang tidak relevan — itu bukan pekerjaan agent yang dinilai), jadi badge-nya
+  // dirakit di sini dari nama agent yang terdeteksi.
+  const skipped = (Array.isArray(item.excluded_calls) ? item.excluded_calls : []).map((c) => {
+    const agent = Array.isArray(c.detected_agent) ? c.detected_agent.join(', ') : (c.detected_agent || '')
+    const badge = c.tag_label || tags[c.filename]?.tag_label
+      || (agent ? `Agent lain — ${agent}` : 'Tidak dinilai')
+    return {
+      file: c.filename || '—',
+      duration: c.duration || '—',
+      excluded: true,
+      badge,
+      reason: c.reason || tags[c.filename]?.reason
+        || (c.matched_agent ? `Nama terdeteksi cocok dengan NAME ONLINE ${c.matched_agent} di roster` : ''),
+      // Praktisnya selalu false — gerbang SLA hanya menghitung rekaman yang DINILAI,
+      // jadi berkas yang sudah dicoret tidak pernah ditandai. Dibaca tetap dari sumber
+      // yang sama supaya tidak ada dua definisi bila gerbangnya kelak berubah.
+      outOfSla: tags[c.filename]?.out_of_sla === true,
+    }
+  })
+  // Urut KRONOLOGIS atas seluruh PDF, bukan "yang dinilai dulu". Rekaman yang dicoret
+  // sering justru yang paling awal — pada tiket 180107uT48 dua panggilan agent lain
+  // terjadi 18 Juli sedangkan yang dinilai 22 Juli — sehingga memisahkannya membuat
+  // kolom ini terbaca mundur dan "Recording utama" tampak sebagai panggilan pertama
+  // tiket padahal bukan. Kuncinya timestamp pada nama berkas (`<tiket>_<YYYYMMDDHHMMSS>.pdf`),
+  // sumber urutan yang sama dengan yang dipakai worker (pdf_parser.sort_pdf_paths);
+  // berkas tanpa timestamp jatuh ke akhir dengan urutan aslinya tetap terjaga.
+  const stamp = (f) => (String(f).match(/_(\d{14})/) || [])[1] || '\uffff'
   return [...scored, ...skipped]
+    .map((row, i) => ({ row, i }))
+    .sort((a, b) => stamp(a.row.file).localeCompare(stamp(b.row.file)) || a.i - b.i)
+    .map(({ row }) => row)
 }
 
 // Angka nilai: buang desimal nol yang tidak berarti (149.0 -> "149") tapi
@@ -2652,4 +2739,33 @@ onBeforeUnmount(() => {
 .ai-status-note.note-fail { color: var(--red); font-weight: 700; }
 /* Masih mengikuti AI Status (belum disentuh human) — dibuat lebih redup. */
 .mstatus-inherited { opacity: 0.55; font-weight: 600; }
+
+/* --- Ditambahkan bersama port D6 (stages, document_mismatches, recording_types) --- */
+.doc-reason-bad .doc-reason-line {
+  color: var(--red); background: var(--red-bg); border-color: #fecaca;
+}
+.stage-progress {
+  margin-top: 10px; border-collapse: collapse; font-size: 12.5px; max-width: 480px;
+}
+.stage-progress td { padding: 4px 8px; }
+.stage-icon { width: 20px; text-align: center; }
+.stage-selesai .stage-icon { color: #16a34a; font-weight: 700; }
+.stage-selesai .stage-label, .stage-selesai .stage-state { color: var(--text); }
+.stage-berjalan .stage-label, .stage-berjalan .stage-state { color: var(--blue); font-weight: 600; }
+.stage-menunggu .stage-label, .stage-menunggu .stage-state { color: var(--text-muted); }
+.stage-spinner {
+  display: inline-block; width: 11px; height: 11px; border: 2px solid #dbeafe;
+  border-top-color: var(--blue); border-radius: 50%; animation: spin 0.7s linear infinite;
+}
+.stage-state { text-align: right; white-space: nowrap; }
+.cd-tag {
+  display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
+  background: #f1f3f5; color: var(--text-muted); font-size: 10px; white-space: nowrap;
+}
+.cd-sla {
+  display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
+  border: 1px solid #f59e0b; color: #b45309; background: transparent;
+  font-size: 10px; white-space: nowrap; cursor: help;
+}
+.cd-tag-drop { background: #fef2f2; color: #b91c1c; }
 </style>

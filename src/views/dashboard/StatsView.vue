@@ -35,9 +35,8 @@
 
             <div class="kpis kpis-5">
               <div class="kpi" style="--accent: var(--m-info)">
-                <div class="kpi-label">Total Submission</div>
+                <div class="kpi-label">Total Data Leads</div>
                 <div class="kpi-value mono">{{ fmt(myDonutSubmissions) }}</div>
-                <div class="kpi-sub">{{ fmt(myDonutDone) }} selesai · {{ fmt(myDonutInProgress) }} diproses</div>
               </div>
               <div class="kpi" style="--accent: var(--m-success)">
                 <div class="kpi-label">Total Qualified</div>
@@ -46,18 +45,13 @@
               </div>
               <div class="kpi" style="--accent: var(--m-danger)">
                 <div class="kpi-label">Total Not Qualified</div>
-                <div class="kpi-value mono">{{ fmt(myDonutReturn) }} <span class="kpi-pct">({{ myDonutReturnPct }}%)</span></div>
+                <div class="kpi-value mono">{{ fmt(myDonutReturn) }} <span class="kpi-pct" style="color: var(--m-danger)">({{ myDonutReturnPct }}%)</span></div>
                 <div class="kpi-sub">dari {{ fmt(myDonutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: #D97706">
                 <div class="kpi-label">Total Pending</div>
                 <div class="kpi-value mono">{{ fmt(myDonutPending) }} <span class="kpi-pct">({{ myDonutPendingPct }}%)</span></div>
                 <div class="kpi-sub">butuh dokumen (H+2)</div>
-              </div>
-              <div class="kpi" :style="{ '--accent': rateColor(myDonutReturnPct) }">
-                <div class="kpi-label">Not Qualified Rate</div>
-                <div class="kpi-value mono" :style="{ color: rateColor(myDonutReturnPct) }">{{ myDonutReturnPct }}%</div>
-                <div class="kpi-sub">{{ fmt(myDonutReturn) }} not qualified / {{ fmt(myDonutTotal) }} dinilai</div>
               </div>
             </div>
 
@@ -77,32 +71,8 @@
                         title="Periode berikutnya" aria-label="Periode berikutnya">›</button>
               </div>
             </div>
-            <div class="stack-row">
-              <div class="stack-wrap">
-                <Bar :data="scopedChartData" :options="stackedOptions" :plugins="[barPct]" />
-              </div>
-              <div class="legend">
-                <div class="legend-title">Persentase Hasil Penilaian AI</div>
-                <div class="legend-caption">Qualified vs Not Qualified vs Pending ({{ granularityLabel }}) · angka di atas batang = total dinilai</div>
-                <div class="legend-item legend-cols">
-                  <span class="legend-dot" style="background: transparent"></span>
-                  <span class="legend-label legend-cap">Status</span>
-                  <span class="legend-val legend-cap">Jumlah</span>
-                  <span class="legend-pct legend-cap">Persen</span>
-                </div>
-                <div class="legend-item" v-for="it in myDonutLegend" :key="it.label">
-                  <span class="legend-dot" :style="{ background: it.color }"></span>
-                  <span class="legend-label">{{ it.label }}</span>
-                  <span class="legend-val mono">{{ fmt(it.value) }}</span>
-                  <span class="legend-pct mono">{{ it.pct }}%</span>
-                </div>
-                <div class="legend-item legend-total">
-                  <span class="legend-dot" style="background: transparent"></span>
-                  <span class="legend-label">Total Dinilai</span>
-                  <span class="legend-val mono">{{ fmt(myDonutTotal) }}</span>
-                  <span class="legend-pct mono"></span>
-                </div>
-              </div>
+            <div class="stack-wrap">
+              <Bar :data="scopedChartData" :options="stackedOptions" :plugins="[barPct]" />
             </div>
           </div>
 
@@ -117,9 +87,9 @@
                   <tr>
                     <th class="sortable" @click="teamView.sortBy('name')">Sales Agent <span class="sort-ind">{{ teamView.indicator('name') }}</span></th>
                     <th class="sortable" @click="teamView.sortBy('nip_baru')">NIP <span class="sort-ind">{{ teamView.indicator('nip_baru') }}</span></th>
-                    <th class="num sortable" @click="teamView.sortBy('submissions')">Total Recording <span class="sort-ind">{{ teamView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="teamView.sortBy('submissions')">Data Leads <span class="sort-ind">{{ teamView.indicator('submissions') }}</span></th>
                     <th class="num sortable" @click="teamView.sortBy('total_risk')">Total Failure <span class="sort-ind">{{ teamView.indicator('total_risk') }}</span></th>
-                    <th class="rate-col sortable" @click="teamView.sortBy('error_rate')">Avg Failure Rate <span class="sort-ind">{{ teamView.indicator('error_rate') }}</span></th>
+                    <th class="rate-col sortable" @click="teamView.sortBy('error_rate')">Error Rate <span class="sort-ind">{{ teamView.indicator('error_rate') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -127,10 +97,7 @@
                   <tr v-else-if="!teamView.total"><td colspan="5" class="empty">
                     {{ agentEmptyText(teamView, teamAgents, 'Belum ada sales agent di tim Anda.') }}
                   </td></tr>
-                  <!-- Ambang mengikuti avgClass ("danger" = > 3x). Sebelumnya >= 10
-                       — sisa dari masa kolom ini berisi PERSEN; pada skala kelipatan
-                       angka itu tak pernah tercapai sehingga tintnya tidak pernah muncul. -->
-                  <tr v-for="a in teamView.rows" :key="a.agent_id" :class="{ risky: a.submissions && a.error_rate > 3 }">
+                  <tr v-for="a in teamView.rows" :key="a.agent_id" :class="{ risky: a.submissions && a.error_rate >= 10 }">
                     <td>
                       <span class="cell-agent">
                         <span class="avatar sm" :style="{ background: 'var(--m-gray-150)', color: 'var(--m-gray-700)' }">{{ initials(a.name) }}</span>
@@ -141,7 +108,7 @@
                     <td class="num mono">{{ fmt(a.submissions) }}</td>
                     <td class="num mono" :style="{ color: a.total_risk ? 'var(--m-danger)' : 'var(--m-gray-900)' }">{{ fmt(a.total_risk) }}</td>
                     <td class="rate-col">
-                      <span class="rate-badge mono" :class="avgClassOf(a.error_rate, a.submissions)">{{ avgText(a.error_rate, a.submissions) }}</span>
+                      <span class="rate-badge mono" :class="rateClassOf(a.error_rate, a.submissions)">{{ rateText(a.error_rate, a.submissions) }}</span>
                     </td>
                   </tr>
                 </tbody>
@@ -207,8 +174,8 @@
       <!-- Tabs -->
       <div class="toolbar">
         <div class="tab-group">
-          <button :class="['tab', { active: tab === 'overview' }]" @click="tab = 'overview'">Overview</button>
-          <button :class="['tab', { active: tab === 'hierarchy' }]" @click="openHierarchy">Hierarki Failure Rate</button>
+          <button :class="['tab', { active: tab === 'overview' }]" @click="tab = 'overview'">Data Leads</button>
+          <button :class="['tab', { active: tab === 'hierarchy' }]" @click="openHierarchy">Failure Rate</button>
           <button v-if="canSeeFailureReasons" :class="['tab', { active: tab === 'failure' }]" @click="openFailure">Failure Reason</button>
         </div>
         <span class="refresh-hint">Update otomatis saat ada data baru · auto-refresh 30 detik</span>
@@ -235,9 +202,9 @@
         </div>
 
         <template v-else-if="overview">
-          <!-- Satu panel: KPI cards (Total Submission/Qualified/Not Qualified/Pending/
-               Not Qualified Rate) + grafik AI Status. Filter tanggal di atas ikut meng-apply ke
-               KPI karena semuanya diturunkan dari time series yang sama (bukan snapshot). -->
+          <!-- Satu panel: KPI cards (Total Submission/Qualified/Not Qualified/Pending)
+               + grafik AI Status. Filter tanggal di atas ikut meng-apply ke KPI karena
+               semuanya diturunkan dari time series yang sama (bukan snapshot). -->
           <div class="panel">
             <div class="panel-title">AI Status — per waktu</div>
             <div class="chart-filter">
@@ -257,9 +224,8 @@
 
             <div class="kpis kpis-5">
               <div class="kpi" style="--accent: var(--m-info)">
-                <div class="kpi-label">Total Submission</div>
+                <div class="kpi-label">Total Data Leads</div>
                 <div class="kpi-value mono">{{ fmt(donutSubmissions) }}</div>
-                <div class="kpi-sub">{{ fmt(donutDone) }} selesai · {{ fmt(donutInProgress) }} diproses</div>
               </div>
               <div class="kpi" style="--accent: var(--m-success)">
                 <div class="kpi-label">Total Qualified</div>
@@ -268,18 +234,13 @@
               </div>
               <div class="kpi" style="--accent: var(--m-danger)">
                 <div class="kpi-label">Total Not Qualified</div>
-                <div class="kpi-value mono">{{ fmt(donutReturn) }} <span class="kpi-pct">({{ donutReturnPct }}%)</span></div>
+                <div class="kpi-value mono">{{ fmt(donutReturn) }} <span class="kpi-pct" style="color: var(--m-danger)">({{ donutReturnPct }}%)</span></div>
                 <div class="kpi-sub">dari {{ fmt(donutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: #D97706">
                 <div class="kpi-label">Total Pending</div>
                 <div class="kpi-value mono">{{ fmt(donutPending) }} <span class="kpi-pct">({{ donutPendingPct }}%)</span></div>
                 <div class="kpi-sub">butuh dokumen (H+2)</div>
-              </div>
-              <div class="kpi" :style="{ '--accent': rateColor(donutReturnPct) }">
-                <div class="kpi-label">Not Qualified Rate</div>
-                <div class="kpi-value mono" :style="{ color: rateColor(donutReturnPct) }">{{ donutReturnPct }}%</div>
-                <div class="kpi-sub">{{ fmt(donutReturn) }} not qualified / {{ fmt(donutTotal) }} dinilai</div>
               </div>
             </div>
 
@@ -302,32 +263,8 @@
                         title="Periode berikutnya" aria-label="Periode berikutnya">›</button>
               </div>
             </div>
-            <div class="stack-row">
-              <div class="stack-wrap">
-                <Bar :data="globalChartData" :options="stackedOptions" :plugins="[barPct]" />
-              </div>
-              <div class="legend">
-                <div class="legend-title">Persentase Hasil Penilaian AI</div>
-                <div class="legend-caption">Qualified vs Not Qualified vs Pending ({{ granularityLabel }}) · angka di atas batang = total dinilai</div>
-                <div class="legend-item legend-cols">
-                  <span class="legend-dot" style="background: transparent"></span>
-                  <span class="legend-label legend-cap">Status</span>
-                  <span class="legend-val legend-cap">Jumlah</span>
-                  <span class="legend-pct legend-cap">Persen</span>
-                </div>
-                <div class="legend-item" v-for="it in donutLegend" :key="it.label">
-                  <span class="legend-dot" :style="{ background: it.color }"></span>
-                  <span class="legend-label">{{ it.label }}</span>
-                  <span class="legend-val mono">{{ fmt(it.value) }}</span>
-                  <span class="legend-pct mono">{{ it.pct }}%</span>
-                </div>
-                <div class="legend-item legend-total">
-                  <span class="legend-dot" style="background: transparent"></span>
-                  <span class="legend-label">Total Dinilai</span>
-                  <span class="legend-val mono">{{ fmt(donutTotal) }}</span>
-                  <span class="legend-pct mono"></span>
-                </div>
-              </div>
+            <div class="stack-wrap">
+              <Bar :data="globalChartData" :options="stackedOptions" :plugins="[barPct]" />
             </div>
           </div>
 
@@ -355,7 +292,7 @@
                   <tr>
                     <th class="sortable" @click="campaignView.sortBy('month')">Bulan <span class="sort-ind">{{ campaignView.indicator('month') }}</span></th>
                     <th class="sortable" @click="campaignView.sortBy('campaign')">Campaign <span class="sort-ind">{{ campaignView.indicator('campaign') }}</span></th>
-                    <th class="num sortable" @click="campaignView.sortBy('submissions')">Submission <span class="sort-ind">{{ campaignView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="campaignView.sortBy('submissions')">Data Leads <span class="sort-ind">{{ campaignView.indicator('submissions') }}</span></th>
                     <th class="num sortable" @click="campaignView.sortBy('not_qualified')">Not Qualified <span class="sort-ind">{{ campaignView.indicator('not_qualified') }}</span></th>
                     <th class="num sortable" @click="campaignView.sortBy('high')">High <span class="sort-ind">{{ campaignView.indicator('high') }}</span></th>
                     <th class="num sortable" @click="campaignView.sortBy('medium')">Medium <span class="sort-ind">{{ campaignView.indicator('medium') }}</span></th>
@@ -395,7 +332,7 @@
               <b>System</b> = kode O ·
               <b>New</b> = kode N (Risk Base L/M yang disoftening untuk agent baru, hanya saat grace period)</template> ·
               <b>Total Risk</b> = High + Medium + Low ·
-              <b>Error Rate</b> = Total Risk ÷ <b>Submission</b> — berapa persen dari seluruh
+              <b>Error Rate</b> = Total Risk ÷ <b>Data Leads</b> — berapa persen dari seluruh
               tiket yang berujung risk base.
               Kolom risk base hanya menghitung tiket <b>Not Qualified</b>: tiket <b>Pending</b>
               (vonisnya belum final) dan tiket <b>Qualified</b> tidak menyumbang ke
@@ -414,10 +351,8 @@
             <div class="panel-title">Performa Sales</div>
             <div class="panel-hint">
               Memuat seluruh agent yang punya akun aktif — termasuk yang belum punya
-              submission. <b>Pending</b> = tiket yang masih menunggu dokumen (H+2).
-              Not Qualified Rate = <b>Not Qualified</b> ÷ Submissions — rumus yang sama
-              dengan KPI Not Qualified Rate di Overview; <b>—</b> berarti belum ada tiket
-              yang dinilai, bukan 0%.
+              submission. <b>Pending</b> = tiket yang masih menunggu dokumen (H+2);
+              <b>—</b> berarti belum ada tiket yang dinilai, bukan 0.
             </div>
             <TblToolbar :v="salesView" label="Performa Sales" :modes="AGENT_MODES"
                         :placeholder="salesSearchHint" />
@@ -429,10 +364,10 @@
                     <th v-if="showTeamLeaderCol" class="sortable" @click="salesView.sortBy('team_leader')">Team Leader <span class="sort-ind">{{ salesView.indicator('team_leader') }}</span></th>
                     <th v-if="showAreaManagerCol" class="sortable" @click="salesView.sortBy('area_manager')">Area Manager <span class="sort-ind">{{ salesView.indicator('area_manager') }}</span></th>
                     <th class="sortable" @click="salesView.sortBy('campaign')">Campaign <span class="sort-ind">{{ salesView.indicator('campaign') }}</span></th>
-                    <th class="num sortable" @click="salesView.sortBy('submissions')">Submissions <span class="sort-ind">{{ salesView.indicator('submissions') }}</span></th>
-                    <th class="num sortable" @click="salesView.sortBy('pending')">Pending <span class="sort-ind">{{ salesView.indicator('pending') }}</span></th>
+                    <th class="num sortable" @click="salesView.sortBy('submissions')">Data Leads <span class="sort-ind">{{ salesView.indicator('submissions') }}</span></th>
+                    <th class="num sortable" @click="salesView.sortBy('approve')">Qualified <span class="sort-ind">{{ salesView.indicator('approve') }}</span></th>
                     <th class="num sortable" @click="salesView.sortBy('errors')">Not Qualified <span class="sort-ind">{{ salesView.indicator('errors') }}</span></th>
-                    <th class="rate-col sortable" @click="salesView.sortBy('error_rate')">Not Qualified Rate <span class="sort-ind">{{ salesView.indicator('error_rate') }}</span></th>
+                    <th class="num sortable" @click="salesView.sortBy('pending')">Pending <span class="sort-ind">{{ salesView.indicator('pending') }}</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -440,7 +375,7 @@
                     {{ agentEmptyText(salesView, agents, 'Belum ada data.') }}
                   </td></tr>
                   <tr v-for="a in salesView.rows" :key="a.agent_id + a.name" :class="{ risky: a.submissions && a.error_rate >= 10 }">
-                    <td>
+                    <td style="background: var(--m-gray-100)">
                       <span class="cell-agent">
                         <span class="avatar sm" :style="{ background: 'var(--m-gray-150)', color: 'var(--m-gray-700)' }">{{ initials(a.name) }}</span>
                         {{ a.name }}
@@ -448,13 +383,11 @@
                     </td>
                     <td v-if="showTeamLeaderCol">{{ a.team_leader || '—' }}</td>
                     <td v-if="showAreaManagerCol">{{ a.area_manager || '—' }}</td>
-                    <td>{{ a.campaign }}</td>
-                    <td class="num mono">{{ fmt(a.submissions) }}</td>
-                    <td class="num mono" :style="{ color: a.pending ? '#D97706' : 'var(--m-gray-900)' }">{{ fmt(a.pending || 0) }}</td>
-                    <td class="num mono" :style="{ color: a.errors ? 'var(--m-danger)' : 'var(--m-gray-900)' }">{{ fmt(a.errors) }}</td>
-                    <td class="rate-col">
-                      <span class="rate-badge mono" :class="rateClassOf(a.error_rate, a.submissions)">{{ rateText(a.error_rate, a.submissions) }}</span>
-                    </td>
+                    <td style="background: var(--m-gray-100)">{{ a.campaign }}</td>
+                    <td class="num mono" style="background: var(--m-gray-100)">{{ fmt(a.submissions) }}</td>
+                    <td class="num mono" :style="a.approve ? { background: AI_COLORS.approve, color: AI_LABEL_COLORS.approve } : null">{{ fmt(a.approve || 0) }}</td>
+                    <td class="num mono" :style="a.errors ? { background: AI_COLORS.return, color: AI_LABEL_COLORS.return } : null">{{ fmt(a.errors) }}</td>
+                    <td class="num mono" :style="a.pending ? { background: AI_COLORS.pending, color: AI_LABEL_COLORS.pending } : null">{{ fmt(a.pending || 0) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -471,14 +404,23 @@
         </div>
         <template v-else-if="hierarchy">
           <div class="kpis">
+            <!-- Nama kolomnya diganti 4 September 2026 atas permintaan bisnis:
+                 "Submissions" (jumlah rekaman/PDF) -> "Total Recording", dan
+                 "Tiket" (jumlah ticket id) -> "Submission". Yang berubah HANYA label
+                 di tab ini; kunci payload-nya tetap ``submissions``/``ticket_count``
+                 supaya backend & tabel lain tidak ikut berpindah arti.
+                 "Total Recording" diganti lagi 14 September 2026 menjadi "Total Sales
+                 Call Activity"; label "All Telesales — " di depan kartu ini juga
+                 dibuang (permintaan bisnis yang sama). -->
             <div class="kpi" style="--accent: var(--m-info)">
-              <div class="kpi-label">All Telesales - Total Recording</div>
+              <div class="kpi-label">Total Sales Call Activity</div>
               <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.submissions) }}</div>
-              <div class="kpi-sub">rekaman dinilai · {{ fmt(hierarchy.all_telesales.ticket_count) }} submission</div>
+              <div class="kpi-sub">rekaman dinilai · {{ fmt(hierarchy.all_telesales.ticket_count) }} data leads</div>
             </div>
-            <!-- Bentuk kartunya SAMA dengan Total Recording (angka mentah, tanpa sub-line)
-                 supaya pembilang & penyebut Failure Rate terbaca berdampingan; hanya
-                 aksennya merah karena ini angka buruk, bukan angka volume.
+            <!-- Bentuk kartunya SAMA dengan Total Recording (angka mentah, tanpa
+                 sub-line) supaya pembilang & penyebut Avg Failure Rate terbaca
+                 berdampingan; hanya aksennya merah karena ini angka buruk, bukan
+                 angka volume.
 
                  Sampai 28 Agustus 2026 kartu ini digerbangi showRiskBase, dengan alasan
                  Total Failure ADALAH angka Risk Base sehingga sisi sales tidak boleh
@@ -488,13 +430,9 @@
                  ``_HIER_RISK_FIELDS`` di api/routers/stats.py. Yang tetap ditahan dari
                  sisi sales adalah pecahannya per severity (High/Medium/Low). -->
             <div class="kpi" style="--accent: var(--m-danger)">
-              <div class="kpi-label">All Telesales — Total Failure</div>
-              <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.total_risk) }}</div>
-            </div>
-            <div class="kpi" :style="{ '--accent': avgColor(hierarchy.all_telesales.error_rate) }">
-              <div class="kpi-label">ALL TELESALES - AVG FAILURE RATE</div>
-              <div class="kpi-value mono" :style="{ color: hierarchy.all_telesales.submissions ? avgColor(hierarchy.all_telesales.error_rate) : null }">{{ avgText(hierarchy.all_telesales.error_rate, hierarchy.all_telesales.submissions) }}</div>
-              <div class="kpi-sub">{{ fmt(hierarchy.all_telesales.total_risk) }} total failure / {{ fmt(hierarchy.all_telesales.submissions) }} total recording</div>
+              <div class="kpi-label">Total Failure</div>
+              <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.total_risk) }}/{{ fmt(hierarchy.all_telesales.submissions) }}</div>
+              <div class="kpi-sub">total failure / total sales call activity</div>
             </div>
           </div>
 
@@ -507,8 +445,8 @@
                      kolom angka punya lebar berbeda-beda dan angkanya tidak segaris. -->
                 <colgroup>
                   <col />
+                  <col style="width: 100px" />
                   <col style="width: 96px" />
-                  <col style="width: 72px" />
                   <template v-if="showRiskBase">
                     <col style="width: 88px" />
                     <col style="width: 78px" />
@@ -523,37 +461,37 @@
                     <col style="width: 82px" />
                   </template>
                   <col v-else style="width: 88px" />
-                  <col style="width: 104px" />
                 </colgroup>
                 <thead>
-                  <!-- Dua tingkat: kelima Risk Base dikelompokkan di bawah "Risk Base"
-                       supaya tidak terbaca sebagai kolom sejajar Total Recording/Approve.
-                       Untuk sisi sales (showRiskBase = false) seluruh blok itu hilang
-                       dan header cukup satu baris. -->
+                  <!-- Dua tingkat: High/Medium/Low dikelompokkan di bawah "Risk Level",
+                       System/New (bila ada) di bawah "Others" terpisah — supaya
+                       keduanya tidak terbaca sebagai bagian dari Risk Level. Untuk sisi
+                       sales (showRiskBase = false) seluruh blok itu hilang dan header
+                       cukup satu baris. -->
                   <tr>
                     <th :rowspan="showRiskBase ? 2 : 1">Nama</th>
-                    <!-- Total Recording = jumlah REKAMAN/transkrip (PDF) yang dinilai,
-                         panggilan milik agent lain sudah tidak ikut; angka ini sekaligus
-                         penyebut Avg Failure Rate. Submission = jumlah ticket id-nya;
-                         Qualified/Pending/Not Qualified adalah vonis per TIKET dan
-                         menjumlah ke kolom Submission, bukan ke Total Recording. -->
-                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah rekaman (PDF) yang dinilai">Total Recording</th>
-                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah ticket id">Submission</th>
+                    <!-- Total Sales Call Activity = jumlah REKAMAN (PDF) yang dinilai, panggilan
+                         milik agent lain sudah tidak ikut. Submission ("Data Leads" sejak
+                         14 September 2026, kunci payloadnya tetap ``ticket_count``) = jumlah
+                         ticket id-nya; Qualified/Pending/Not Qualified adalah vonis per TIKET
+                         dan menjumlah ke kolom itu, bukan ke Total Sales Call Activity. -->
+                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah rekaman (PDF) yang dinilai">Total Sales Call Activity</th>
+                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah ticket id">Data Leads</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Qualified</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Pending</th>
                     <!-- Sisi sales: kolom ini dulu berjudul "Errors" (28 Agustus 2026 diganti
                          "Total Failure" atas permintaan bisnis). Sisi QC tetap "Not Qualified"
                          karena di sana sudah ada kolom "Total Failure" tersendiri. -->
                     <th :rowspan="showRiskBase ? 2 : 1" class="num col-n">{{ showRiskBase ? 'Not Qualified' : 'Total Failure' }}</th>
-                    <th v-if="showRiskBase" :colspan="showRiskSystemNew ? 5 : 3" class="grp-head">Risk Base</th>
-                    <th v-if="showRiskBase" rowspan="2" class="num col-n">Total Failure</th>
-                    <th :rowspan="showRiskBase ? 2 : 1" class="num rate-col">Avg Failure Rate</th>
+                    <th v-if="showRiskBase" colspan="3" class="grp-head">Risk Level</th>
+                    <th v-if="showRiskBase && showRiskSystemNew" colspan="2" class="grp-head">Others</th>
+                    <th v-if="showRiskBase" rowspan="2" class="num col-n" title="Total Failure / Total Sales Call Activity, dalam persen">Total Failure</th>
                   </tr>
                   <tr v-if="showRiskBase">
                     <th class="num col-n grp-cell grp-first">High</th>
                     <th class="num col-n grp-cell">Medium</th>
-                    <th class="num col-n grp-cell" :class="{ 'grp-last': !showRiskSystemNew }">Low</th>
-                    <th v-if="showRiskSystemNew" class="num col-n grp-cell">System</th>
+                    <th class="num col-n grp-cell grp-last">Low</th>
+                    <th v-if="showRiskSystemNew" class="num col-n grp-cell grp-first">System</th>
                     <th v-if="showRiskSystemNew" class="num col-n grp-cell grp-last">New</th>
                   </tr>
                 </thead>
@@ -606,41 +544,12 @@
                 </tbody>
               </table>
             </div>
-            <div v-if="showRiskBase" class="note">
-              <b>Avg Failure Rate</b> = <b>Total Failure</b> ÷ <b>Total Recording</b>, ditulis sebagai
-              kelipatan (mis. 2.8x) dan bukan persen — lihat alinea berikutnya. <b>Total Recording</b> =
-              jumlah <b>rekaman (PDF)</b> yang dinilai; panggilan milik agent lain pada tiket dua-agent
-              tidak ikut dihitung. Kolom <b>Submission</b> di sebelahnya adalah jumlah ticket id;
-              <b>Qualified</b> + <b>Pending</b> + <b>Not Qualified</b> menjumlah ke sana, bukan ke
-              Total Recording.
-              Di tabel ini kolom Risk Base menghitung <b>PELANGGARAN</b>, bukan tiket:
-              satu tiket dengan empat pelanggaran High menyumbang 4 ke kolom High, bukan 1.
-              Karena itu <b>Total Failure</b> bisa lebih besar dari kolom <b>Not Qualified</b> —
-              itu memang tujuannya, supaya tiket yang melanggar banyak hal tidak terbaca
-              sama beratnya dengan tiket yang melanggar sekali.
-              Hanya tiket <b>Not Qualified</b> yang dihitung: tiket Qualified dan Pending tidak
-              menyumbang apa pun ke High/Medium/Low maupun Total Failure, walau tiket Qualified
-              bisa saja membawa error code.
-              <b>Total Failure</b> = High + Medium + Low saja<template v-if="showRiskSystemNew">; System dan New tidak ikut dijumlahkan</template>.
-              Baris Risk Base L pada item scorecard <i>tolerable</i> tidak ikut dihitung.
-              Angka di tabel ini memakai definisi sendiri — tidak sebanding begitu saja dengan
-              <b>Performa Campaign</b> (satu risk base tertinggi per tiket, penyebutnya
-              Not Qualified) atau KPI Overview.
-            </div>
-            <div v-else class="note">
-              <b>Avg Failure Rate</b> = <b>Total Failure</b> ÷ <b>Total Recording</b>, ditulis sebagai
-              kelipatan (mis. 2.8x). <b>Total Recording</b> = jumlah <b>rekaman (PDF)</b> yang dinilai,
-              bukan jumlah tiket — jumlah tiketnya ada di kolom <b>Submission</b> di sebelahnya.
-              Dihitung hanya dari
-              tiket Not Qualified, dan tiap pelanggaran dihitung sendiri-sendiri — bukan satu
-              per tiket. Klik baris AM atau TL untuk membuka level di bawahnya.
-            </div>
           </div>
 
           <!-- Daftar QC — hanya untuk pengelola divisi QC (TL QC / SPQ Head / Admin). -->
           <div v-if="canSeeQcTable" class="panel">
-            <div class="panel-title">Daftar QC</div>
-            <TblToolbar :v="qcView" label="Daftar QC" :modes="QC_MODES"
+            <div class="panel-title">Daftar Productivity QC</div>
+            <TblToolbar :v="qcView" label="Daftar Productivity QC" :modes="QC_MODES"
                         placeholder="Cari nama atau NIP QC…" />
             <div class="table-scroll">
               <table class="mtable tree">
@@ -669,11 +578,6 @@
               </table>
             </div>
             <Pager :v="qcView" label="QC" />
-            <div class="note">
-              <b>Assigned</b> = tiket yang ditugaskan ke QC tersebut · <b>Checked</b> = tiket yang sudah
-              ditandai dicek manual olehnya · <b>Checked Rate</b> = Checked ÷ Assigned. Tiket yang
-              dipindah ke QC lain tidak lagi dihitung untuk pemilik lama.
-            </div>
           </div>
         </template>
       </template>
@@ -701,12 +605,12 @@
             <!-- Total Submission memakai bentuk kartu yang SAMA dengan Not Qualified,
                  dibedakan hanya oleh warna: biru = angka volume, merah = angka buruk. -->
             <div class="kpi" style="--accent: var(--m-info)">
-              <div class="kpi-label">Total Submission</div>
+              <div class="kpi-label">Total Data Leads</div>
               <div class="kpi-value mono">{{ fmt(failureData.total_submissions || 0) }}</div>
-              <div class="kpi-sub">seluruh tiket yang dinilai</div>
+              <div class="kpi-sub">seluruh data leads yang dinilai</div>
             </div>
             <div class="kpi" style="--accent: var(--m-danger)">
-              <div class="kpi-label">Total Ticket Not Qualified</div>
+              <div class="kpi-label">Total Data Leads Not Qualified</div>
               <div class="kpi-value mono">{{ fmt(failureData.total_evaluated) }}</div>
               <div class="kpi-sub">basis persentase kegagalan kategori</div>
             </div>
@@ -722,11 +626,12 @@
                   <tr>
                     <th class="sortable" @click="failureView.sortBy('category')">Kategori <span class="sort-ind">{{ failureView.indicator('category') }}</span></th>
                     <th class="num sortable" @click="failureView.sortBy('fail_count')">Failure <span class="sort-ind">{{ failureView.indicator('fail_count') }}</span></th>
-                    <th>Alasan Teratas</th>
+                    <th>Failure Reason</th>
+                    <th class="reason-count-col">Total Failure per Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-if="!failureView.total"><td colspan="3" class="empty">
+                  <tr v-if="!failureView.total"><td colspan="4" class="empty">
                     {{ failureCategories.length ? 'Tidak ada yang cocok dengan pencarian.' : 'Belum ada kegagalan tercatat.' }}
                   </td></tr>
                   <tr v-for="c in failureView.rows" :key="c.category">
@@ -734,11 +639,13 @@
                     <td class="num mono">{{ fmt(c.fail_count) }}</td>
                     <td>
                       <ul class="reason-list">
-                        <li v-for="(rr, i) in c.top_reasons" :key="i">
-                          <span class="reason-req">{{ rr.requirement }}</span>
-                          <span class="reason-count">×{{ rr.count }}</span>
-                          <span v-if="rr.example" class="reason-example" :title="rr.example">— {{ rr.example }}</span>
-                        </li>
+                        <li v-for="(rr, i) in c.top_reasons" :key="i" class="reason-req">{{ rr.requirement }}</li>
+                        <li v-if="!c.top_reasons.length" class="reason-empty">—</li>
+                      </ul>
+                    </td>
+                    <td class="reason-count-col">
+                      <ul class="reason-list">
+                        <li v-for="(rr, i) in c.top_reasons" :key="i" class="reason-count mono">{{ rr.count }}</li>
                         <li v-if="!c.top_reasons.length" class="reason-empty">—</li>
                       </ul>
                     </td>
@@ -747,14 +654,6 @@
               </table>
             </div>
             <Pager :v="failureView" label="kategori" />
-            <div class="note">
-              Tab ini <b>hanya memuat tiket Not Qualified</b> — tiket Qualified dan Pending tidak
-              ikut, baik ke pembilang maupun penyebut. ·
-              <b>Failure</b> = jumlah tiket Not Qualified dengan ≥1 item scorecard <b>BELUM_SESUAI</b>
-              pada kategori itu · <b>Alasan Teratas</b> = requirement item yang paling sering gagal.
-              Tidak semua tiket Not Qualified punya kategori scorecard: ada yang gagal lewat
-              verifikasi data atau kekurangan dokumen, sehingga tidak menyumbang ke kategori mana pun.
-            </div>
           </div>
         </template>
         </template>
@@ -767,17 +666,17 @@
         <template v-else-if="failureHier">
           <div class="kpis">
             <div class="kpi" style="--accent: var(--m-info)">
-              <div class="kpi-label">Total Submission</div>
+              <div class="kpi-label">Total Data Leads</div>
               <div class="kpi-value mono">{{ fmt(failureHier.total_submissions || 0) }}</div>
-              <div class="kpi-sub">seluruh tiket yang dinilai</div>
+              <div class="kpi-sub">seluruh data leads yang dinilai</div>
             </div>
             <div class="kpi" style="--accent: var(--m-danger)">
-              <div class="kpi-label">Total Ticket Not Qualified</div>
+              <div class="kpi-label">Total Data Leads Not Qualified</div>
               <div class="kpi-value mono">{{ fmt(failureHier.all_telesales.evaluated) }}</div>
               <div class="kpi-sub">seluruh telesales</div>
             </div>
             <div class="kpi" style="--accent: var(--m-warning, #D97706)">
-              <div class="kpi-label">Kategori Terbesar — All Telesales</div>
+              <div class="kpi-label">Kategori Terbesar</div>
               <!-- TIGA teratas, bukan satu: peringkat 2-3 sering berselisih tipis
                    dari yang teratas, sehingga menampilkan pemenangnya saja membuat
                    satu kategori terlihat dominan padahal tidak. Fontnya sengaja
@@ -805,25 +704,29 @@
                    sebagai ``categories_order``), jadi tabel ini terbaca mengikuti
                    alur telepon dan otomatis menyesuaikan bila KB-nya berubah. -->
               <table class="mtable tree hier">
+                <!-- Kolom Nama HARUS punya width eksplisit: table-layout: fixed mematuhi
+                     colgroup persis (lihat catatan di CSS .mtable.tree.hier), jadi tanpa
+                     ini lebarnya jatuh ke sisa ruang setelah kolom kategori (banyak &
+                     dinamis, satu per conversation_phases) — begitu jumlahnya besar,
+                     sisanya bisa nol dan nama jadi ketimpa/terpotong oleh kolom sebelahnya. -->
                 <colgroup>
-                  <col />
-                  <col style="width: 118px" />
-                  <col v-for="c in failureColumns" :key="'fc'+c" style="width: 92px" />
+                  <col style="width: 220px" />
+                  <col style="width: 128px" />
+                  <col v-for="c in failureColumns" :key="'fc'+c" style="width: 140px" />
                 </colgroup>
                 <thead>
                   <tr>
                     <th>Nama</th>
-                    <th class="num col-n">Tiket Not Qualified</th>
-                    <!-- Nama fase disingkat supaya 10 kolom muat; nama penuhnya tetap
-                         tersedia lewat tooltip, karena singkatan saja bisa ambigu
-                         (Penj. MC vs Penj. MUS). -->
-                    <th v-for="c in failureColumns" :key="'fh'+c" class="num col-n" :title="c">{{ shortCat(c) }}</th>
+                    <th class="num col-n">Data Leads Not Qualified</th>
+                    <!-- Nama kategori TIDAK disingkat (permintaan 11 September 2026) — nama
+                         penuhnya sendiri yang jadi label kolom, bukan tooltip. -->
+                    <th v-for="c in failureColumns" :key="'fh'+c" class="num col-n">{{ c }}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="!failureHier.area_managers.length"><td :colspan="failureColCount" class="empty">Belum ada kegagalan tercatat.</td></tr>
                   <tr class="lvl-all">
-                    <td><span class="twist-pad"></span><span class="lvl-tag all">ALL</span> All Telesales</td>
+                    <td><span class="twist-pad"></span><span class="lvl-tag all">ALL</span></td>
                     <FailCells :n="failureHier.all_telesales" :cols="failureColumns" />
                   </tr>
                   <template v-for="am in failureHier.area_managers" :key="'fam'+am.name">
@@ -872,17 +775,6 @@
                   </template>
                 </tbody>
               </table>
-            </div>
-            <div class="note">
-              Klik baris AM atau TL untuk membuka level di bawahnya, lalu klik baris <b>TLO</b>
-              untuk melihat <b>ticket id</b>-nya satu per satu beserta fase mana yang gagal.
-              Seluruh angka di sini <b>hanya menghitung tiket Not Qualified</b>.
-              <b>Tiket Not Qualified</b> = tiket Not Qualified milik simpul itu ·
-              tiap <b>kolom kategori</b> = jumlah tiket yang punya ≥1 item BELUM_SESUAI pada kategori itu.
-              Satu tiket bisa gagal di beberapa kategori sekaligus, jadi menjumlahkan kolom kategori
-              TIDAK akan sama dengan Tiket Not Qualified.
-              Urutan kolom mengikuti <b>conversation_phases</b> pada KB campaign — arahkan kursor ke
-              judul kolom untuk melihat nama lengkapnya.
             </div>
           </div>
         </template>
@@ -1070,18 +962,17 @@ const showTeamLeaderCol = computed(() => auth.dataScope === 'sales_am')
 // sisi QC. Dinyatakan lewat capability supaya role sejenis ikut tercakup.
 const showAreaManagerCol = computed(
   () => auth.dataScope === 'all' && !auth.can(P.RESULTS_EVALUATION_DETAIL))
-// Nama + Campaign + Submissions + Pending + Not Qualified + Not Qualified Rate = 6 dasar.
+// Nama + Campaign + Submissions + Qualified + Not Qualified + Pending = 6 dasar.
 const salesColCount = computed(
   () => 6 + (showTeamLeaderCol.value ? 1 : 0) + (showAreaManagerCol.value ? 1 : 0))
 
-// Jumlah kolom tabel Hierarki Failure Rate, mengikuti kedua flag di atas:
-//   Nama + Total Recording + Failure Rate = 3 dasar
-//   + Qualified, Pending, Total Failure, High, Medium, Low  (showRiskBase)
-//   + System, New                                           (showRiskSystemNew)
+// Jumlah kolom tabel Failure Rate, mengikuti kedua flag di atas:
+//   Nama + Total Recording + Submission = 3 dasar
+//   + Qualified, Pending, Not Qualified, Total Failure, High, Medium, Low  (showRiskBase)
+//   + System, New                                                          (showRiskSystemNew)
 const hierColCount = computed(() => {
-  // +1 sejak kolom ticket id ditambahkan (31 Agustus 2026).
-  if (!showRiskBase.value) return 5 // Nama, Total Recording, Submission, Total Failure, Failure Rate
-  return showRiskSystemNew.value ? 13 : 11
+  if (!showRiskBase.value) return 4 // Nama, Total Recording, Submission, Total Failure
+  return showRiskSystemNew.value ? 12 : 10
 })
 
 // ---- Sales Agent (Team Leader) scoped view ----
@@ -1216,7 +1107,7 @@ const GRANULARITIES = [
   { key: 'semester', label: 'Semester' },
   { key: 'yearly', label: 'Tahunan' },
 ]
-const granularity = ref('monthly')   // default view: monthly (last 4 months)
+const granularity = ref('daily')     // default view: harian (permintaan 11 September 2026)
 const dateStart = ref('')            // '' = backend default window; else 'YYYY-MM-DD'
 const dateEnd = ref('')
 const periodOffset = ref(0)          // Prev/Next paging: 0 = latest window, <0 = older
@@ -1242,6 +1133,11 @@ const STATUS_COLORS = { done: '#1F8A4C', in_progress: '#C98A00', failed: '#C7383
 // tiap segmen; tanpa ini semua label tetap putih dan hilang di atas kuning terang.
 const AI_COLORS = { approve: '#5CE65C', return: '#9B1C1C', pending: '#FFD93D' }
 const AI_LABEL_COLORS = { approve: '#1E1F21', return: '#FFFFFF', pending: '#1E1F21' }
+// 14 September 2026: dipakai juga (bersama AI_LABEL_COLORS untuk teksnya) sebagai
+// background solid Qualified/Not Qualified/Pending di tabel Performa Sales & tabel
+// Hierarki Failure Rate (Area Manager → Team Leader → Agent) — permintaan bisnis
+// supaya warnanya SAMA PERSIS dengan bar chart AI Status di atas, bukan pastel.
+
 
 // Build a 100% stacked column: X = time buckets, Y = 0–100%, three stacked series
 // (Qualified green / Not Qualified red / Pending amber). Percentages are precomputed
@@ -1261,12 +1157,17 @@ function stackedData(series, prefix = '') {
     returnPct.push(t ? (r / t) * 100 : 0)
     pendingPct.push(t ? (p / t) * 100 : 0)
   }
+  // Chart.js menumpuk dataset PERTAMA di dasar batang (dekat sumbu-x) dan dataset
+  // TERAKHIR di puncak. Supaya batang terbaca top-to-bottom sebagai Qualified →
+  // Not Qualified → Pending (permintaan 11 September 2026), Pending harus jadi
+  // dataset pertama (dasar) dan Qualified dataset terakhir (puncak) — urutannya
+  // kebalikan dari urutan baca.
   return {
     labels,
     datasets: [
-      { label: 'Qualified', data: approvePct, backgroundColor: AI_COLORS.approve, _labelColor: AI_LABEL_COLORS.approve, stack: 'ai', _counts: approveCnt, maxBarThickness: 46 },
-      { label: 'Not Qualified', data: returnPct, backgroundColor: AI_COLORS.return, _labelColor: AI_LABEL_COLORS.return, stack: 'ai', _counts: returnCnt, maxBarThickness: 46 },
       { label: 'Pending', data: pendingPct, backgroundColor: AI_COLORS.pending, _labelColor: AI_LABEL_COLORS.pending, stack: 'ai', _counts: pendingCnt, maxBarThickness: 46 },
+      { label: 'Not Qualified', data: returnPct, backgroundColor: AI_COLORS.return, _labelColor: AI_LABEL_COLORS.return, stack: 'ai', _counts: returnCnt, maxBarThickness: 46 },
+      { label: 'Qualified', data: approvePct, backgroundColor: AI_COLORS.approve, _labelColor: AI_LABEL_COLORS.approve, stack: 'ai', _counts: approveCnt, maxBarThickness: 46 },
     ],
   }
 }
@@ -1338,7 +1239,7 @@ const barPct = {
   },
 }
 
-// Totals across all buckets in the current range — feeds the KPI cards + legend.
+// Totals across all buckets in the current range — feeds the KPI cards.
 function seriesTotals(series) {
   let a = 0, r = 0, p = 0, s = 0, dn = 0, ip = 0
   for (const b of series?.buckets || []) {
@@ -1347,16 +1248,6 @@ function seriesTotals(series) {
   }
   // total = Total Dinilai (Qualified + Not Qualified + Pending)
   return { approve: a, return: r, pending: p, total: a + r + p, submissions: s, done: dn, in_progress: ip }
-}
-function aiDonutLegend(b) {
-  const a = b?.approve || 0, r = b?.return || 0, p = b?.pending || 0
-  const total = (a + r + p) || 1
-  const pct = v => ((v / total) * 100).toFixed(1)
-  return [
-    { label: 'Qualified', value: a, color: AI_COLORS.approve, pct: pct(a) },
-    { label: 'Not Qualified', value: r, color: AI_COLORS.return, pct: pct(r) },
-    { label: 'Pending', value: p, color: AI_COLORS.pending, pct: pct(p) },
-  ]
 }
 
 // ---- formatting / color helpers ----
@@ -1370,15 +1261,9 @@ function initials(name) {
   return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?'
 }
 
-// Ambang warna error rate: 0–<3% hijau, 3–6% kuning, >6% merah.
-function rateColor(r) {
-  if (r > 6) return 'var(--m-danger)'
-  if (r >= 3) return 'var(--m-warning)'
-  return 'var(--m-success)'
-}
 // Belum ada submission bukan berarti "0% error". Membedakan keduanya penting:
 // 0% terbaca sebagai prestasi, padahal orangnya belum dinilai sama sekali.
-// Failure Rate = Total Failure / Total Recording. Pembilangnya menghitung SETIAP risk
+// Failure Rate = Total Failure / Submissions. Pembilangnya menghitung SETIAP risk
 // base milik tiket Not Qualified (``risk_base_tally``, bukan satu yang tertinggi),
 // sedangkan penyebutnya jumlah TRANSKRIP — jadi satu tiket bisa menyumbang lebih dari
 // satu dan rasionya sah melewati 100%. Contoh nyata: 160908U5GK menyumbang 11 risk
@@ -1389,6 +1274,10 @@ function rateColor(r) {
 // TAMPILANNYA: nilai aslinya tetap dipakai untuk warna badge, pengurutan baris, dan
 // penyorotan baris berisiko — membatasi angkanya sendiri akan membuat dua agent yang
 // jauh berbeda tampak setara di urutan.
+//
+// ``rateText`` melayani dua tabel yang rasionya tidak bisa lewat 100% (Performa
+// Sales & Daftar Sales Agent Tim Anda: Not Qualified ÷ Submission), jadi cabang
+// "100%+" praktis tidak pernah kena.
 function rateText(rate, submissions) {
   if (!submissions) return '—'
   return rate > 100 ? '100%+' : `${rate}%`
@@ -1401,37 +1290,6 @@ function rateClass(r) {
   if (r > 6) return 'danger'
   if (r >= 3) return 'warning'
   return 'success'
-}
-
-// ---- Avg Failure Rate (tab Hierarki) -------------------------------------
-// Hierarki memakai Total Failure / tiket Not Qualified dan menampilkannya sebagai
-// KELIPATAN ("4.5x"), bukan persen: satu tiket Not Qualified menyumbang semua risk
-// base-nya, jadi angkanya rutin melewati 100% dan salah terbaca sebagai persentase.
-// Sengaja terpisah dari rateText/rateClass, yang masih melayani Performa Sales &
-// Performa Campaign — keduanya persentase sungguhan (<= 100%) dan tidak berubah.
-function avgText(avg, submissions) {
-  // Penjaganya tetap submissions: 0 submission = belum dinilai ("—"), sedangkan
-  // sudah dinilai tapi tanpa tiket gagal adalah 0.0x dan itu prestasi nyata.
-  return submissions ? `${avg}x` : '—'
-}
-// Ambang dalam satuan KELIPATAN, bukan persen (ambang 3/6 milik rateClass adalah
-// persen). Diturunkan dari 3/5 ke 2/3 pada 2 September 2026 sore, mengikuti
-// penyebut Avg Failure Rate yang pindah dari tiket Not Qualified ke Total Recording:
-// penyebutnya jadi ~2x lebih besar, jadi seluruh skalanya ikut mengecil. Tanpa ini
-// angka produksi (2.7x-2.9x) jatuh di bawah ambang lama dan SELURUH pohon tampak
-// hijau — bukan karena kinerjanya membaik, melainkan karena skalanya berubah.
-function avgClass(a) {
-  if (a > 3) return 'danger'
-  if (a >= 2) return 'warning'
-  return 'success'
-}
-function avgColor(a) {
-  if (a > 3) return 'var(--m-danger)'
-  if (a >= 2) return 'var(--m-warning)'
-  return 'var(--m-success)'
-}
-function avgClassOf(avg, submissions) {
-  return submissions ? avgClass(avg) : 'muted'
 }
 
 function monthLabel(m) {
@@ -1447,7 +1305,7 @@ const scopedChartData = computed(() => stackedData(myScopedSeries.value))
 const granularityLabel = computed(() =>
   GRANULARITIES.find((g) => g.key === granularity.value)?.label || 'Bulanan')
 
-// Global (QC / SPQ Head / Area Manager / Telesales Head) KPI + legend totals —
+// Global (QC / SPQ Head / Area Manager / Telesales Head) KPI totals —
 // summed over the selected date range so the cards match the chart.
 const globalTotals = computed(() => seriesTotals(globalSeries.value))
 const donutTotal = computed(() => globalTotals.value.total)
@@ -1455,31 +1313,21 @@ const donutApprove = computed(() => globalTotals.value.approve)
 const donutReturn = computed(() => globalTotals.value.return)
 const donutPending = computed(() => globalTotals.value.pending)
 const donutSubmissions = computed(() => globalTotals.value.submissions)
-const donutDone = computed(() => globalTotals.value.done)
-const donutInProgress = computed(() => globalTotals.value.in_progress)
 // Persentase tiap bucket AI Status atas Total Dinilai (untuk KPI cards).
-// ``donutReturnPct`` dipakai dua kali: sebagai persentase di kartu "Total Not
-// Qualified" dan sebagai nilai kartu "Not Qualified Rate" — satu sumber angka
-// supaya keduanya tidak pernah berbeda (permintaan 28 Agustus 2026; kartu itu
-// dulu bernama "Error Rate" dengan pembilang Total Risk H+M+L).
 const donutApprovePct = computed(() => pctOf(donutApprove.value, donutTotal.value))
 const donutReturnPct = computed(() => pctOf(donutReturn.value, donutTotal.value))
 const donutPendingPct = computed(() => pctOf(donutPending.value, donutTotal.value))
-const donutLegend = computed(() => aiDonutLegend({ approve: donutApprove.value, return: donutReturn.value, pending: donutPending.value }))
 
-// ---- scoped (Sales Agent / Team Leader) KPI + legend totals ----
+// ---- scoped (Sales Agent / Team Leader) KPI totals ----
 const scopedTotals = computed(() => seriesTotals(myScopedSeries.value))
 const myDonutTotal = computed(() => scopedTotals.value.total)
 const myDonutApprove = computed(() => scopedTotals.value.approve)
 const myDonutReturn = computed(() => scopedTotals.value.return)
 const myDonutPending = computed(() => scopedTotals.value.pending)
 const myDonutSubmissions = computed(() => scopedTotals.value.submissions)
-const myDonutDone = computed(() => scopedTotals.value.done)
-const myDonutInProgress = computed(() => scopedTotals.value.in_progress)
 const myDonutApprovePct = computed(() => pctOf(myDonutApprove.value, myDonutTotal.value))
 const myDonutReturnPct = computed(() => pctOf(myDonutReturn.value, myDonutTotal.value))
 const myDonutPendingPct = computed(() => pctOf(myDonutPending.value, myDonutTotal.value))
-const myDonutLegend = computed(() => aiDonutLegend({ approve: myDonutApprove.value, return: myDonutReturn.value, pending: myDonutPending.value }))
 function fmtDate(v) {
   if (!v) return '—'
   const d = new Date(v)
@@ -1532,43 +1380,58 @@ const RiskCells = (p) => {
     { class: ['num', 'mono', 'col-n', ...extra, !v ? 'zero' : ''], style: v ? { color } : null },
     fmt(v),
   )
-  const rate = h('td', { class: 'rate-col' }, [
-    h('span', { class: ['rate-badge', 'mono', avgClassOf(n.error_rate, n.submissions)] },
-      avgText(n.error_rate, n.submissions)),
-  ])
-  // Sisi sales: cukup Total Recording / Total Failure / Failure Rate — lihat showRiskBase.
+  // Qualified/Pending/Not Qualified: background berwarna, font tetap hitam — gaya
+  // yang sama dengan tabel Performa Sales (permintaan 11 September 2026), berbeda
+  // dari kolom Risk Level/Others di sebelahnya yang tetap memakai warna teks.
+  const statusCell = (v, bg, color) => h(
+    'td',
+    { class: ['num', 'mono', 'col-n', !v ? 'zero' : ''], style: v ? { background: bg, color } : null },
+    fmt(v),
+  )
+  // Total Failure ditulis "total failure/total recording" (bukan lagi rasio
+  // Avg Failure Rate terpisah — dilepas 11 September 2026). Diganti lagi jadi
+  // persen SAJA (bukan pecahan) 14 September 2026 atas permintaan bisnis; nilai
+  // aslinya (``total_risk``/``submissions``) tetap dipakai untuk perhitungan,
+  // hanya tampilannya yang berubah. Bisa lewat 100% (lihat catatan di ``pctOf``
+  // dan ``rateText``), jadi dibatasi tampil "100%+" seperti kolom rate lain.
+  const totalFailureCell = () => {
+    const pct = pctOf(n.total_risk, n.submissions)
+    return h(
+      'td',
+      { class: ['num', 'mono', 'col-n', 'total-risk', !n.total_risk ? 'zero' : ''] },
+      n.submissions ? (pct > 100 ? '100%+' : `${pct}%`) : '—',
+    )
+  }
+  // Sisi sales: cukup Total Recording / Submission / Total Failure — lihat showRiskBase.
   //
   // Kolom tengah memakai ``total_risk``, BUKAN ``errors``. ``errors`` menghitung
-  // TIKET yang gagal, sedangkan Failure Rate di sebelahnya dihitung dari total risk
-  // base (``_rate_of`` di compliance/stats_aggregate.py) — memasang ``errors`` di
-  // bawah judul "Total Failure" membuat kolomnya menamai angka lain, dan
-  // Total Failure ÷ Total Recording ADALAH rasio yang tertera.
-  // Sisi sales kini menerima ``total_risk``; lihat ``_HIER_RISK_FIELDS``.
-  // Kolom "Submission" (``ticket_count``) berdiri tepat di sebelah Total Recording
+  // TIKET yang gagal, sedangkan Total Failure menghitung SETIAP pelanggaran —
+  // memasang ``errors`` di bawah judul "Total Failure" membuat kolomnya menamai
+  // angka lain. Sisi sales kini menerima ``total_risk``; lihat ``_HIER_RISK_FIELDS``.
+  // Kolom "Submission" (``ticket_count``) berdiri tepat di sebelah "Total Recording"
   // sejak 31 Agustus 2026: Total Recording menghitung REKAMAN, sedangkan
   // Qualified/Pending/Not Qualified tetap vonis PER TIKET. Tanpa kolom ini ketiganya
-  // tampak "tidak menjumlah" ke Total Recording dan tabelnya terbaca seperti salah hitung.
+  // tampak "tidak menjumlah" ke Total Recording dan tabelnya terbaca seperti salah
+  // hitung. (Kedua label diganti 4 September 2026; kunci payload-nya tidak ikut.)
   if (!showRiskBase.value) {
-    return [cell(n.submissions, null), cell(n.ticket_count, null),
-            cell(n.total_risk, 'var(--m-danger)'), rate]
+    return [cell(n.submissions, null), cell(n.ticket_count, null), totalFailureCell()]
   }
   return [
     cell(n.submissions, null),
     cell(n.ticket_count, null),
-    cell(n.approve, 'var(--m-success)'),
-    cell(n.pending, '#D97706'),
+    statusCell(n.approve, AI_COLORS.approve, AI_LABEL_COLORS.approve),
+    statusCell(n.pending, AI_COLORS.pending, AI_LABEL_COLORS.pending),
     // Not Qualified = populasi yang menyumbang Total Failure. Ditampilkan supaya
     // pembacanya bisa melihat sendiri bahwa Total Failure <= Not Qualified.
-    cell(n.errors, 'var(--m-danger)'),
+    statusCell(n.errors, AI_COLORS.return, AI_LABEL_COLORS.return),
     cell(n.risk_high, 'var(--m-danger)', ['grp-cell', 'grp-first']),
     cell(n.risk_medium, 'var(--m-warning)', ['grp-cell']),
-    cell(n.risk_low, 'var(--m-info)', showRiskSystemNew.value ? ['grp-cell'] : ['grp-cell', 'grp-last']),
+    cell(n.risk_low, 'var(--m-info)', ['grp-cell', 'grp-last']),
     ...(showRiskSystemNew.value ? [
-      cell(n.risk_system, null, ['grp-cell']),
+      cell(n.risk_system, null, ['grp-cell', 'grp-first']),
       cell(n.risk_new, null, ['grp-cell', 'grp-last']),
     ] : []),
-    h('td', { class: ['num', 'mono', 'col-n', 'total-risk', !n.total_risk ? 'zero' : ''] }, fmt(n.total_risk)),
-    rate,
+    totalFailureCell(),
   ]
 }
 
@@ -1634,7 +1497,7 @@ function topCategoriesOf(node) {
 // Penyebutnya saja: jumlah failure tiap kategori sudah tertulis di barisnya sendiri.
 function topCategorySubOf(node) {
   return (node?.categories || []).length
-    ? `failure dari ${fmt(node?.evaluated || 0)} tiket Not Qualified`
+    ? `failure dari ${fmt(node?.evaluated || 0)} data leads Not Qualified`
     : 'belum ada kegagalan'
 }
 
@@ -1645,20 +1508,6 @@ const failureCategories = computed(() => failureData.value?.categories || [])
 // ``conversation_phases`` KB, jadi layar tidak perlu tahu nama fase apa pun.
 const failureColumns = computed(() => failureHier.value?.categories_order || [])
 const failureColCount = computed(() => 2 + failureColumns.value.length)
-// Nama fase penuh terlalu panjang untuk 10 kolom bersebelahan ("Final Konfirmasi
-// Mega Ultima Shield"). Disingkat menurut pola yang berulang di KB; nama penuhnya
-// tetap ada di atribut title kolomnya.
-const CAT_SHORTEN = [
-  [/Mega Ultima Shield/g, 'MUS'],
-  [/Mega Cashline/g, 'CLEN'],
-  [/Penjelasan/g, 'Penj.'],
-  [/Final Konfirmasi/g, 'Final'],
-  [/Legal Statement/g, 'Legal'],
-  [/Verifikasi/g, 'Verif.'],
-]
-function shortCat(c) {
-  return CAT_SHORTEN.reduce((acc, [re, to]) => acc.replace(re, to), String(c || '')).trim()
-}
 // Item scorecard yang gagal untuk SATU tiket, ditulis di sebelah ticket id. Sengaja
 // ITEM (SC_CL_26), bukan nama fase: fase-nya sudah tampil sebagai kolom di baris yang
 // sama, jadi menyebutnya lagi tidak menambah apa pun — sedangkan item_code menunjuk
@@ -1988,13 +1837,18 @@ onUnmounted(() => clearInterval(timer))
 }
 .kpi-top3 .count { flex: none; font-weight: 800; color: var(--m-danger); }
 .kpi-top3 .none { color: var(--m-fg-2); font-weight: 700; }
-/* Failure Reason: daftar alasan teratas per kategori */
+/* Failure Reason: daftar alasan teratas per kategori — kolom Failure Reason dan
+   Total Failure per Reason dirender sebagai dua <ul> sejajar (satu <li> per baris)
+   supaya tetap sebaris satu sama lain di dua kolom berbeda. */
 .reason-list { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
 .reason-list li { font-size: 12.5px; line-height: 1.35; }
 .reason-req { font-weight: 700; color: var(--m-gray-900); }
-.reason-count { font-weight: 700; color: var(--m-danger); margin-left: 4px; }
-.reason-example { color: var(--m-fg-2); margin-left: 4px; }
+.reason-count { font-weight: 700; color: var(--m-danger); }
 .reason-empty { color: var(--m-gray-900); }
+/* Total Failure per Reason (dulu "Frekuensi ×N"): angkanya saja tanpa "×",
+   dan diratakan TENGAH (bukan kanan seperti kolom .num lain). */
+.reason-count-col { text-align: center; }
+.reason-count-col .reason-list { align-items: center; }
 
 /* Failure Reason: sub-tab Agregat / Hierarki Based. Sengaja lebih kecil dari .tab
    di atasnya supaya jelas ini tingkat kedua, bukan tab sejajar Overview. */
@@ -2120,13 +1974,24 @@ onUnmounted(() => clearInterval(timer))
 
 /* Tables */
 .table-scroll { overflow-x: auto; }
-.mtable { width: 100%; border-collapse: collapse; }
+/* Border tebal + bingkai luar (permintaan 11 September 2026 — tabel ditunjukkan ke
+   stakeholder eksternal, garis grid yang tegas membuatnya lebih mudah dibaca baris/
+   kolom per baris/kolom daripada garis tipis).
+   Dipakai ``:deep()`` untuk td/tr — tabel tree (Failure Rate, Failure Reason Hierarki
+   Based) merender body-nya lewat RiskCells/FailCells (render function), dan elemen
+   dari functional component TIDAK menerima atribut scope `data-v-*` milik induknya
+   (lihat catatan di dekat showRiskSystemNew) — tanpa :deep() border ini tidak sampai
+   ke sana dan tabelnya terlihat "belum full border". th aman tanpa :deep() karena
+   header selalu ditulis di template, bukan lewat render function. */
+.mtable { width: 100%; border-collapse: collapse; border: 2px solid var(--m-border-2); }
 .mtable th {
   text-align: left; padding: 10px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .04em; color: var(--m-fg-2); border-bottom: 2px solid var(--m-gray-150); background: var(--m-gray-50); white-space: nowrap;
+  letter-spacing: .04em; color: var(--m-fg-2); border-bottom: 2px solid var(--m-border-2); background: var(--m-gray-50); white-space: nowrap;
 }
-.mtable td { padding: 10px 12px; font-size: 13px; color: var(--m-gray-900); border-bottom: 1px solid var(--m-gray-150); vertical-align: middle; }
-.mtable tr:last-child td { border-bottom: none; }
+.mtable :deep(td) { padding: 10px 12px; font-size: 13px; color: var(--m-gray-900); border-bottom: 2px solid var(--m-border-2); vertical-align: middle; }
+.mtable :deep(tr:last-child td) { border-bottom: none; }
+.mtable th, .mtable :deep(td) { border-right: 2px solid var(--m-border-2); }
+.mtable th:last-child, .mtable :deep(td:last-child) { border-right: none; }
 .mtable .num { text-align: right; white-space: nowrap; }
 .mtable tr.risky td { background: #FDF7F7; }
 .cell-agent { display: inline-flex; align-items: center; font-weight: 600; }
@@ -2174,7 +2039,7 @@ onUnmounted(() => clearInterval(timer))
    ditentukan panjang teks header. Ini yang membuat digit antar kolom & antar
    level (AM / TL / TLO) benar-benar segaris. min-width menjaga tabel tetap
    terbaca; .table-scroll menyediakan geser horizontal di layar sempit. */
-.mtable.tree.hier { table-layout: fixed; min-width: 1020px; }
+.mtable.tree.hier { table-layout: fixed; min-width: 1048px; }
 
 /* PENTING — kenapa semua aturan di bawah memakai :deep().
    Sel angka di BODY tabel ini dirender oleh RiskCells lewat render function
@@ -2214,14 +2079,17 @@ onUnmounted(() => clearInterval(timer))
 .mtable.tree :deep(.rate-badge.muted) { background: var(--m-gray-150); color: var(--m-fg-3); }
 
 /* Grup Risk Base: latar tipis + garis batas supaya High/Medium/Low/System/New
-   terbaca sebagai satu kesatuan, bukan kolom sejajar Submissions/Approve. */
+   terbaca sebagai satu kesatuan, bukan kolom sejajar Submissions/Approve. Border-nya
+   ikut ketebalan grid utama (2px var(--m-border-2), permintaan 11 September 2026) —
+   garis horizontal di bawah "Risk Level"/"Others" dan garis vertikal antar grup
+   (Low↔System, New↔Total Failure) sebelumnya masih 1px tipis. */
 .mtable.tree .grp-head {
   text-align: center; background: var(--m-gray-100);
-  border-bottom: 1px solid var(--m-gray-150); font-size: 10px;
+  border-bottom: 2px solid var(--m-border-2); font-size: 10px;
 }
 .mtable.tree :deep(.grp-cell) { background: rgba(0, 0, 0, .012); }
-.mtable.tree :deep(.grp-first) { border-left: 1px solid var(--m-gray-150); }
-.mtable.tree :deep(.grp-last) { border-right: 1px solid var(--m-gray-150); }
+.mtable.tree :deep(.grp-first) { border-left: 2px solid var(--m-border-2); }
+.mtable.tree :deep(.grp-last) { border-right: 2px solid var(--m-border-2); }
 .mtable.tree tr.lvl-am :deep(.grp-cell) { background: rgba(0, 0, 0, .03); }
 
 /* Nol = tidak ada temuan; redam agar mata tertuju ke angka yang berarti. */

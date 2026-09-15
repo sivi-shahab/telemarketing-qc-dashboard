@@ -163,30 +163,34 @@ test('joinLocalResults: ticket tanpa assignment tetap null', () => {
 })
 
 // --- describeSplit ---------------------------------------------------------
-// Kalimat konfirmasi tombol "Assign Otomatis". Angkanya harus sama dengan yang
-// dihitung server (api/routers/qc_assignment.py :: split_evenly) — kalau kedua
-// sisi berbeda, orang menyetujui pembagian yang bukan yang terjadi.
+// Kalimat konfirmasi tombol "Assign Otomatis".
+//
+// Server TIDAK lagi membagi rata per batch: sejak aturan 4 September 2026
+// (api/routers/qc_assignment.py :: split_by_load) jatah dihitung dari beban yang SUDAH
+// dipegang tiap QC. Beban itu hanya diketahui server, jadi kalimat ini TIDAK boleh
+// menyebut angka per QC — menyebutnya berarti orang menyetujui pembagian yang bukan
+// yang akan terjadi.
 
-test('describeSplit: habis dibagi', () => {
-  assert.equal(describeSplit(60, 12), '60 ticket dibagi ke 12 QC — 5 ticket per QC.')
+test('describeSplit: menyebut jumlah ticket dan jumlah QC', () => {
+  const s = describeSplit(134, 12)
+  assert.match(s, /134 ticket/)
+  assert.match(s, /12 QC/)
 })
 
-test('describeSplit: sisa disebar satu-satu ke QC pertama', () => {
-  assert.equal(
-    describeSplit(134, 12),
-    '134 ticket dibagi ke 12 QC — 11 ticket per QC, 2 QC pertama dapat 12.',
-  )
+test('describeSplit: menyebut aturannya, bukan hasil per QC', () => {
+  const s = describeSplit(134, 12)
+  assert.match(s, /beban/i, 'harus menyebut bahwa jatahnya menghitung beban')
+  assert.match(s, /ditentukan server/i)
 })
 
-test('describeSplit: sisa satu ticket disebut tunggal', () => {
-  assert.equal(
-    describeSplit(281, 10),
-    '281 ticket dibagi ke 10 QC — 28 ticket per QC, 1 QC pertama dapat 29.',
-  )
-})
-
-test('describeSplit: tiket lebih sedikit daripada QC dibagi satu-satu', () => {
-  assert.equal(describeSplit(3, 12), '3 ticket dibagi ke 3 QC pertama — 1 ticket per QC.')
+test('describeSplit: TIDAK menjanjikan jumlah per QC', () => {
+  // Rumus lama: "11 ticket per QC, 2 QC pertama dapat 12". Kalimat seperti itu tidak
+  // boleh muncul lagi — server tidak membagi begitu.
+  for (const [n, k] of [[60, 12], [134, 12], [281, 10], [3, 12]]) {
+    const s = describeSplit(n, k)
+    assert.doesNotMatch(s, /ticket per QC/, `masih menjanjikan jumlah per QC: ${s}`)
+    assert.doesNotMatch(s, /QC pertama dapat/, `masih menjanjikan sisa ke QC pertama: ${s}`)
+  }
 })
 
 test('describeSplit: tanpa QC aktif', () => {
@@ -195,4 +199,30 @@ test('describeSplit: tanpa QC aktif', () => {
 
 test('describeSplit: tanpa ticket', () => {
   assert.equal(describeSplit(0, 12), 'Tidak ada ticket yang belum di-assign.')
+})
+
+
+// --- joinLocalResults: tiga tahap -------------------------------------------
+
+test('joinLocalResults membawa Checked At dan Approved At sebagai DUA field berbeda', () => {
+  const groups = [{ id: 'A1', tickets: [], contexts: [] }]
+  const [row] = joinLocalResults(groups, [{
+    id: 'A1',
+    qc_checked_at: '2026-09-10T08:00:00', qc_checked_by: 'qc01',
+    manual_approved_at: '2026-09-11T09:00:00', manual_approved_by: 'tl01',
+  }], [])
+  assert.equal(row.qc_checked_at, '2026-09-10T08:00:00')
+  assert.equal(row.qc_checked_by, 'qc01')
+  assert.equal(row.manual_approved_at, '2026-09-11T09:00:00')
+  assert.equal(row.manual_approved_by, 'tl01')
+})
+
+test('joinLocalResults: sudah dicek tetapi belum disetujui', () => {
+  const groups = [{ id: 'A1', tickets: [], contexts: [] }]
+  const [row] = joinLocalResults(groups, [{
+    id: 'A1', qc_checked_at: '2026-09-10T08:00:00', qc_checked_by: 'qc01',
+  }], [])
+  assert.equal(row.qc_checked_at, '2026-09-10T08:00:00')
+  assert.equal(row.manual_approved_at, null, 'kolom Approved At harus kosong, bukan meminjam Checked At')
+  assert.equal(row.manual_approved_by, null)
 })

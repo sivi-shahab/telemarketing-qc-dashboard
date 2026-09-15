@@ -45,16 +45,13 @@
             <p class="field-hint">
               Pilih PENDING bila belum bisa diputuskan (mis. menunggu dokumen).
             </p>
-            <!-- Penetapan pertama yang sama dengan AI Status tidak mengubah apa pun,
-                 jadi backend memfinalkannya tanpa hierarki. Katakan itu sebelum QC
-                 menekan Submit, bukan sesudahnya. -->
-            <p v-if="confirmsAiStatus" class="field-hint hint-ok">
-              Sama dengan AI Status ({{ aiStatusLabel(aiStatus) }}) — berlaku langsung,
-              tanpa approval Team Leader QC / SPQ Head.
-            </p>
-            <p v-else-if="willNeedApproval" class="field-hint">
-              Berbeda dari AI Status ({{ aiStatusLabel(aiStatus) }}) — usulan ini
-              ditinjau Team Leader QC (bisa diteruskan ke SPQ Head).
+            <!-- Sejak 3 September 2026 TIDAK ADA lagi jalur pintas: setiap vonis QC
+                 ditinjau hierarki, termasuk yang nilainya sama dengan AI Status.
+                 Katakan itu sebelum QC menekan Submit, bukan sesudahnya. -->
+            <p v-if="willNeedApproval" class="field-hint">
+              Usulan ini ditinjau Team Leader QC (bisa diteruskan ke SPQ Head) dan
+              baru berlaku setelah disetujui<template v-if="aiStatus"> — termasuk
+              bila nilainya sama dengan AI Status ({{ aiStatusLabel(aiStatus) }})</template>.
             </p>
           </div>
 
@@ -98,11 +95,10 @@ const props = defineProps({
   resultId: { type: String, required: true },
   displayId: { type: String, default: null },
   existing: { type: Object, default: null },
-  // AI Status tiket ini + apakah vonis human-nya sudah pernah ditetapkan. Dipakai
-  // HANYA untuk keterangan di bawah dropdown; yang memutuskan perlu-tidaknya
-  // approval tetap backend (_confirms_ai_status di api/routers/qc_status.py).
+  // AI Status tiket ini. Dipakai HANYA untuk keterangan di bawah dropdown; yang
+  // memutuskan perlu-tidaknya approval tetap backend (_direct_origin di
+  // api/routers/qc_status.py).
   aiStatus: { type: String, default: null },
-  byHuman: { type: Boolean, default: false },
 })
 const emit = defineEmits(['close', 'submitted'])
 
@@ -120,9 +116,10 @@ const submitting = ref(false)
 
 // Hanya berlaku untuk pengusul (QC) pada penetapan PERTAMA: sesudah ada vonis human,
 // setiap perubahan tetap lewat alur banding.
-const firstVerdict = computed(() => !isDirectSetter.value && !props.byHuman && !!props.aiStatus)
-const confirmsAiStatus = computed(() => firstVerdict.value && statusVal.value === props.aiStatus)
-const willNeedApproval = computed(() => !isDirectSetter.value && !!statusVal.value && !confirmsAiStatus.value)
+// Setiap vonis QC butuh approval hierarki (3 September 2026). Jalur pintas
+// "sama dengan AI Status -> final seketika" sudah dicabut di backend
+// (api/routers/qc_status.py), jadi tidak ada lagi kondisi yang membedakan.
+const willNeedApproval = computed(() => !isDirectSetter.value && !!statusVal.value)
 
 const canSubmit = computed(
   () => !!statusVal.value && reasonVal.value.trim().length > 0 && !submitting.value

@@ -22,9 +22,9 @@
           <button
             class="btn-auto"
             :disabled="loading || autoBusy || !unassigned.length || !qcUsers.length"
-            :title="describeSplit(unassigned.length, qcUsers.length)"
+            :title="describeSplit(autoCount, autoQcCount)"
             @click="autoAssign"
-          >{{ autoBusy ? 'Membagi…' : `⚡ Assign Otomatis (${unassigned.length})` }}</button>
+          >{{ autoBusy ? 'Membagi…' : `⚡ Assign Otomatis (${autoCount})` }}</button>
           <button class="btn-refresh" :disabled="loading" @click="loadAll">↻ Muat ulang</button>
         </div>
 
@@ -40,13 +40,14 @@
                 <th>Status</th>
                 <th>QC ditugaskan</th>
                 <th>Assign Date</th>
+                <th>Checked At</th>
                 <th>Approved At</th>
                 <th class="col-action">Assign ke</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-if="loading"><td colspan="7" class="empty">Memuat…</td></tr>
-              <tr v-else-if="!filtered.length"><td colspan="7" class="empty">Tidak ada ticket yang cocok.</td></tr>
+              <tr v-if="loading"><td colspan="8" class="empty">Memuat…</td></tr>
+              <tr v-else-if="!filtered.length"><td colspan="8" class="empty">Tidak ada ticket yang cocok.</td></tr>
               <tr v-for="t in filtered" :key="t.id">
                 <td class="mono">{{ t.id || '—' }}</td>
                 <td>{{ t.contexts.join(', ') || '—' }}</td>
@@ -56,12 +57,24 @@
                   <span v-else class="muted">— belum —</span>
                 </td>
                 <td class="cell-date">{{ t.assigned_at ? formatDate(t.assigned_at) : '—' }}</td>
-                <!-- Approved At = kapan QC yang bersangkutan menandai ticket ini
-                     sudah dicek manual (bukan approval AI Status). -->
+                <!-- Tiga tahap sebuah tiket, terpisah supaya alurnya transparan
+                     (3 September 2026):
+                       Assign Date = kapan Team Leader QC menugaskannya,
+                       Checked At  = kapan QC men-SUBMIT Manual Status-nya,
+                       Approved At = kapan vonis itu DISETUJUI atasan.
+                     Sebelumnya kolom bernama "Approved At" diisi qc_checked_at — dua
+                     peristiwa berbeda ditampilkan sebagai satu. -->
                 <td class="cell-date">
                   <template v-if="t.qc_checked_at">
                     <span class="approved-at">{{ formatDate(t.qc_checked_at) }}</span>
                     <span v-if="t.qc_checked_by" class="approved-by">{{ t.qc_checked_by }}</span>
+                  </template>
+                  <span v-else class="muted">— belum —</span>
+                </td>
+                <td class="cell-date">
+                  <template v-if="t.manual_approved_at">
+                    <span class="approved-at">{{ formatDate(t.manual_approved_at) }}</span>
+                    <span v-if="t.manual_approved_by" class="approved-by">{{ t.manual_approved_by }}</span>
                   </template>
                   <span v-else class="muted">— belum —</span>
                 </td>
@@ -122,9 +135,30 @@ function qcLabel(username) {
   return q?.name || username
 }
 
-// Yang belum punya QC — dihitung dari SELURUH ticket yang dimuat, bukan dari
-// `filtered`, karena tombol Assign Otomatis membagi semuanya.
+// Yang belum punya QC DI ANTARA baris yang termuat. Dipakai untuk mengirim daftar
+// ticket_ids ke server — bukan untuk angka di tombol, lihat scopeUnassigned.
 const unassigned = computed(() => tickets.value.filter((t) => !t.assigned_qc))
+
+// Angka SEBENARNYA antrean dalam cakupan login ini, dari GET /qc_assignment/unassigned.
+// Tabel ini hanya memuat ticket H-1 yang lolos filter, sedangkan Auto Assign membagi
+// SELURUH antrean dalam cakupan — memakai panjang baris di layar akan menjanjikan
+// jumlah yang salah. null = belum/ gagal dimuat, dan tombolnya lalu jatuh kembali ke
+// hitungan baris yang termuat.
+const scopeUnassigned = ref(null)
+const scopeQcCount = ref(null)
+const autoCount = computed(() => scopeUnassigned.value ?? unassigned.value.length)
+const autoQcCount = computed(() => scopeQcCount.value ?? qcUsers.value.length)
+
+async function loadUnassignedSummary() {
+  try {
+    const res = await apiClient.get('/qc_assignment/unassigned')
+    scopeUnassigned.value = Number(res.data?.unassigned ?? 0)
+    scopeQcCount.value = Number(res.data?.qc_count ?? 0)
+  } catch {
+    scopeUnassigned.value = null
+    scopeQcCount.value = null
+  }
+}
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
@@ -172,6 +206,9 @@ async function fetchLocalResults() {
 }
 
 async function loadAll() {
+  // Sengaja tidak di-await: angka antrean tidak boleh menunda tabelnya, dan
+  // kegagalannya sudah ditangani sendiri (jatuh ke hitungan baris yang termuat).
+  loadUnassignedSummary()
   if (inFlight) inFlight.abort()
   const ctrl = new AbortController()
   inFlight = ctrl
@@ -248,7 +285,7 @@ async function assign(t) {
 async function autoAssign() {
   const pending = unassigned.value
   if (!pending.length || !qcUsers.value.length) return
-  if (!window.confirm(`${describeSplit(pending.length, qcUsers.value.length)}\n\nLanjutkan?`)) return
+  if (!window.confirm(`${describeSplit(pending.length, autoQcCount.value)}\n\nLanjutkan?`)) return
 
   autoBusy.value = true
   errorMsg.value = ''
@@ -278,6 +315,9 @@ async function autoAssign() {
     errorMsg.value = e.response?.data?.detail || 'Gagal membagi ticket otomatis.'
   } finally {
     autoBusy.value = false
+    // Antreannya baru saja menyusut — angka di tombol harus ikut, tanpa memuat
+    // ulang seluruh tabel.
+    loadUnassignedSummary()
   }
 }
 
