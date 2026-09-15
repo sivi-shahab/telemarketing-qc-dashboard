@@ -395,3 +395,58 @@ di dist/assets/AssignTicketView-*.js
   qc_assignment/unassigned, manual_approved_at, "Checked At", "ditentukan server" -> ada
   "ticket per QC"  -> TIDAK ADA di bundle mana pun
 ```
+
+## 14. D6 — tiga field baru di `ResultsView.vue`
+
+Berkas terbesar dan paling dua-arah (513 baris hanya di monolit lawan 889 hanya di sini).
+Sesuai §6.3, **hanya tiga hal yang disentuh** — bukan menyelaraskan seluruh berkas.
+
+| # | Fitur | Bentuknya di layar |
+|---|---|---|
+| 1 | `document_mismatches` | Baris merah di kolom Document: "Dokumen KTP tidak cocok dengan data bank (nik)". Berkas seperti ini **tidak menutup** kewajibannya, jadi permintaan dokumennya tetap berdiri di atas — sebabnya ditulis supaya tidak terbaca sebagai kesalahan sistem |
+| 2 | `stages` | Tabel progres pipeline saat tiket pending/processing: ✓ Selesai / ⟳ Sedang berjalan / — Menunggu per tahap. Ikut polling yang sudah ada, tanpa mekanisme baru |
+| 3 | `recording_types` | Badge jenis rekaman pada tiap baris daftar durasi panggilan |
+
+### `callDurations` diganti versi monolit — dan itu memperbaiki satu hal lagi
+
+Fungsi ini diambil utuh karena dekorasi tag tidak bisa dipisahkan darinya. Dua akibat
+sampingan yang memang diinginkan:
+
+* **Setiap baris kini punya badge.** Sebelumnya baris "agent lain" tidak punya badge sama
+  sekali sementara baris lain punya — satu kolom dengan dua bentuk baris, dan pembacanya
+  harus menebak apakah badge yang hilang itu berarti sesuatu.
+* **Urutannya kronologis atas SELURUH PDF**, bukan "yang dinilai dulu". Rekaman yang
+  dicoret sering justru yang paling awal, sehingga memisahkannya membuat kolom ini terbaca
+  mundur dan "Recording utama" tampak sebagai panggilan pertama tiket padahal bukan.
+  Kuncinya timestamp pada nama berkas — sumber urutan yang sama dengan
+  `pdf_parser.sort_pdf_paths` di worker.
+
+Ditambah sumbu kedua yang sengaja dipisah dari badge: **⧗ di luar SLA 7 hari**. Rekaman
+di luar jendela itu TETAP dinilai — ia hanya membuat tiketnya jatuh ke penilaian penuh
+alih-alih partial — jadi ia tidak boleh tampil sebagai berkas yang dicoret.
+
+### Fondasi yang tidak tersentuh
+
+Diperiksa sesudah port: Delete All (11 kemunculan), reprocess (69), `/list_results` (7)
+semuanya masih di tempatnya.
+
+### Verifikasi
+
+```
+npm test    : 24 pass, 0 fail
+vite build  : ✓ built in 3.44s
+
+dist/assets/ResultsView-*.js
+  stage-progress, "Sedang berjalan", document_mismatches,
+  "tidak cocok dengan data bank", recording_types, cd-tag-drop,
+  "di luar SLA 7 hari"                                  -> semuanya ada
+
+dist/assets/ResultsView-*.css
+  stage-selesai / stage-berjalan / stage-menunggu / stage-spinner -> ada
+  doc-reason-bad, cd-sla                                          -> ada
+```
+
+Kelas `stage-*` sengaja dicek di CSS, bukan di JS: ia dirakit dinamis
+(`:class="'stage-' + st.state"`), jadi namanya tidak pernah muncul utuh di bundle JS.
+Kalau CSS-nya tertinggal, tabelnya tetap tampil tetapi tanpa warna dan ikon status —
+gagal yang tidak menimbulkan error apa pun.
