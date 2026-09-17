@@ -46,23 +46,37 @@
         </thead>
         <tbody>
           <tr v-if="items.length === 0"><td colspan="9" class="empty">Tidak ada data.</td></tr>
-          <tr
-            v-for="row in items" :key="row.result_id" class="data-row" tabindex="0" role="link"
-            @click="open(row)" @keydown.enter.prevent="open(row)"
-          >
-            <td class="cell-strong mono">{{ row.ticket_id || '—' }}</td>
-            <td class="cell-date">{{ formatDateTime(row.uploaded_at) }}</td>
-            <td>{{ row.agent_name || '—' }}</td>
-            <td>{{ row.consumer_full_name || '—' }}</td>
-            <td class="num mono">
-              <template v-if="row.score != null">{{ row.score }} / {{ row.maximum_score }}</template>
-              <template v-else>—</template>
-            </td>
-            <td><span class="pill" :class="`tone-${verdictTone(row.ai_status)}`">{{ verdictLabel(row.ai_status) }}</span></td>
-            <td><span class="pill" :class="`tone-${verdictTone(row.critical_status)}`">{{ verdictLabel(row.critical_status) }}</span></td>
-            <td class="num">{{ row.error_code_count }}</td>
-            <td>{{ STATUS_LABEL[row.status] || row.status }}</td>
-          </tr>
+          <template v-for="row in items" :key="row.result_id">
+            <tr
+              class="data-row" :class="{ expanded: expandedResultId === row.result_id }"
+              tabindex="0" role="button" :aria-expanded="expandedResultId === row.result_id"
+              @click="toggleRow(row)" @keydown.enter.prevent="toggleRow(row)" @keydown.space.prevent="toggleRow(row)"
+            >
+              <td class="cell-strong mono">
+                <span class="expand-icon">{{ expandedResultId === row.result_id ? '▼' : '▶' }}</span>
+                {{ row.ticket_id || '—' }}
+              </td>
+              <td class="cell-date">{{ formatDateTime(row.uploaded_at) }}</td>
+              <td>{{ row.agent_name || '—' }}</td>
+              <td>{{ row.consumer_full_name || '—' }}</td>
+              <td class="num mono">
+                <template v-if="row.score != null">{{ row.score }} / {{ row.maximum_score }}</template>
+                <template v-else>—</template>
+              </td>
+              <td><span class="pill" :class="`tone-${verdictTone(row.ai_status)}`">{{ verdictLabel(row.ai_status) }}</span></td>
+              <td><span class="pill" :class="`tone-${verdictTone(row.critical_status)}`">{{ verdictLabel(row.critical_status) }}</span></td>
+              <td class="num">{{ row.error_code_count }}</td>
+              <td>{{ STATUS_LABEL[row.status] || row.status }}</td>
+            </tr>
+            <tr v-if="expandedResultId === row.result_id" class="expand-row">
+              <td colspan="9">
+                <div class="expand-content">
+                  <RouterLink :to="`/dashboard/collection/${row.result_id}`" class="full-page-link">Buka halaman penuh ↗</RouterLink>
+                  <CollectionResultPanel :result-id="row.result_id" layout="inline" />
+                </div>
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
       <TablePager :v="pager" label="tiket" />
@@ -72,16 +86,15 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import TablePager from '../../components/TablePager.vue'
+import CollectionResultPanel from '../../components/collection/CollectionResultPanel.vue'
 import apiClient from '../../api/client.js'
 import { formatDateTime, verdictTone, verdictLabel } from '../../utils/collectionReport.js'
 
 const STATUS_LABEL = { done: 'Selesai', processing: 'Diproses', pending: 'Menunggu', failed: 'Gagal' }
 const LIMIT = 20
 
-const router = useRouter()
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -92,6 +105,11 @@ const dateStart = ref('')
 const dateEnd = ref('')
 const aiStatus = ref('')
 const status = ref('')
+// Hanya satu tiket boleh terbuka sekaligus (mirip pola ResultsView.vue
+// expandedGroupId) — v-if pada baris expand memastikan CollectionResultPanel
+// tiket lama benar-benar di-unmount (poll/abort berhenti) begitu tiket lain
+// dibuka atau baris ditutup.
+const expandedResultId = ref(null)
 
 // Bentuk objek `v` untuk TablePager (lihat src/components/TablePager.vue):
 // { total, from, to, page, pageCount, go() } — bukan event `@page` seperti dugaan
@@ -127,6 +145,11 @@ let inFlight = null // AbortController
 
 async function reload(p = page.value) {
   page.value = p
+  // Filter/halaman berganti → daftar akan dimuat ulang, jadi baris yang
+  // sedang terbuka (kalau ada) ditutup dulu supaya CollectionResultPanel-nya
+  // di-unmount (poll/abort berhenti) alih-alih menampilkan hasil tiket yang
+  // mungkin sudah tidak ada di halaman/filter baru.
+  expandedResultId.value = null
   if (inFlight) inFlight.abort()
   const ctrl = new AbortController()
   inFlight = ctrl
@@ -162,7 +185,9 @@ async function reload(p = page.value) {
 let timer
 function debounced() { clearTimeout(timer); timer = setTimeout(() => reload(1), 350) }
 function reset() { ticketId.value = dateStart.value = dateEnd.value = aiStatus.value = status.value = ''; reload(1) }
-function open(row) { router.push(`/dashboard/collection/${row.result_id}`) }
+function toggleRow(row) {
+  expandedResultId.value = expandedResultId.value === row.result_id ? null : row.result_id
+}
 
 onMounted(() => reload(1))
 onUnmounted(() => {
@@ -193,6 +218,12 @@ onUnmounted(() => {
 .data-row td { padding: 10px 8px; border-bottom: 1px solid #f1f5f9; font-size: 12px; vertical-align: top; word-break: break-word; }
 .data-row:hover td { background: #f8fafc; }
 .data-row:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.data-row.expanded td { background: var(--blue-bg); }
+.expand-icon { margin-right: 4px; color: var(--text-muted); font-size: 10px; }
+.expand-row td { padding: 0; background: #fafbfc; }
+.expand-content { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.full-page-link { display: inline-block; margin-bottom: 12px; font-size: 12px; font-weight: 600; color: var(--blue); text-decoration: none; }
+.full-page-link:hover { text-decoration: underline; }
 .cell-strong { font-weight: 700; word-break: break-all; }
 .cell-date { color: var(--text-muted); }
 .num { text-align: left; }
