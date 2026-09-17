@@ -41,11 +41,6 @@
         <div class="sub-k">Konteks Diskusi Agunan &amp; Maksimal Skor</div>
         <div class="kv"><span>Status Pembahasan Agunan</span><b>{{ verdictLabel(report.agunan_discussion_status) }}</b></div>
         <div class="kv"><span>Skor Maksimal Evaluasi</span><b>{{ report.maximum_score }} poin</b></div>
-        <p class="col-muted">
-          {{ report.agunan_discussion_status === 'NOT_INITIATED'
-            ? 'Kategori "Prosedur Penarikan Agunan" (16 poin) dieksklusi dari perhitungan karena topik agunan tidak dibahas.'
-            : 'Kategori "Prosedur Penarikan Agunan" (16 poin) diikutsertakan secara penuh.' }}
-        </p>
       </div>
     </div>
   </div>
