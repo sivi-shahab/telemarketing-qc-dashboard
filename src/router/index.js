@@ -13,6 +13,15 @@ const routes = [
     component: () => import('../views/dashboard/ResultsView.vue'),
   },
   {
+    // Collection Results: hasil audit berbobot POJK 22 campaign penagihan (17 September 2026).
+    path: '/dashboard/collection',
+    component: () => import('../views/dashboard/CollectionView.vue'),
+  },
+  {
+    path: '/dashboard/collection/:resultId',
+    component: () => import('../views/dashboard/CollectionDetailView.vue'),
+  },
+  {
     // Manual Check: ResultsView difilter ke tiket banding yang menunggu review tier pemanggil.
     path: '/dashboard/banding-review',
     component: () => import('../views/dashboard/ResultsView.vue'),

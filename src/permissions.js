@@ -28,6 +28,7 @@ export const P = {
   MENU_MANAGE_USER: 'menu.manage_user',
   MENU_MANAGE_ROLE: 'menu.manage_role',
   MENU_ROLE_HIERARCHY: 'menu.role_hierarchy',
+  MENU_COLLECTION_RESULTS: 'menu.collection_results',
 
   // Fitur di halaman Results
   RESULTS_EVALUATION_DETAIL: 'results.evaluation_detail',
@@ -71,6 +72,7 @@ export const P = {
 export const ROUTE_PERMISSIONS = {
   '/dashboard/stats': P.MENU_STATS,
   '/dashboard/results': P.MENU_RESULTS,
+  '/dashboard/collection': P.MENU_COLLECTION_RESULTS,
   '/dashboard/banding-review': P.MENU_MANUAL_CHECK,
   '/dashboard/pending-check': P.MENU_PENDING_CHECK,
   '/dashboard/campaigns': P.MENU_CAMPAIGNS,

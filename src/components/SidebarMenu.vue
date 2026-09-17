@@ -37,6 +37,9 @@
         <RouterLink v-if="can(P.MENU_RESULTS)" to="/dashboard/results" class="menu-item" active-class="active" :title="collapsed ? 'Results' : ''">
           <span class="icon">RS</span> <span class="label">Results</span>
         </RouterLink>
+        <RouterLink v-if="can(P.MENU_COLLECTION_RESULTS)" to="/dashboard/collection" class="menu-item" active-class="active" :title="collapsed ? 'Collection Results' : ''">
+          <span class="icon">CR</span> <span class="label">Collection Results</span>
+        </RouterLink>
         <RouterLink v-if="can(P.MENU_TRANSCRIPTS)" to="/dashboard/transcripts" class="menu-item" active-class="active" :title="collapsed ? 'Transkrip' : ''">
           <span class="icon">TR</span> <span class="label">Transkrip</span>
         </RouterLink>
