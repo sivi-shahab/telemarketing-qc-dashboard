@@ -16,6 +16,9 @@ export const useAuthStore = defineStore('auth', () => {
   // (menu Manage Role) langsung berfungsi tanpa mengubah kode frontend.
   const permissions = computed(() => user.value?.permissions || [])
   const campaigns = computed(() => user.value?.campaigns || [])
+  // Jenis statistik yang boleh dilihat login ini: subset dari ["cashline", "collection"];
+  // server yang memutuskan (api/rbac.py stats_views) — di sini hanya diteruskan.
+  const statsViews = computed(() => user.value?.stats_views || [])
   // Cakupan tiket: all | qc_assigned | qc_support_own | sales_am | sales_tl | sales_agent
   const dataScope = computed(() => user.value?.data_scope || 'all')
 
@@ -90,7 +93,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    accessToken, refreshToken, user, isLoggedIn, permissions, campaigns, dataScope,
+    accessToken, refreshToken, user, isLoggedIn, permissions, campaigns, statsViews, dataScope,
     can, canAny, reloadMe, login, logout, refreshAccessToken,
   }
 })

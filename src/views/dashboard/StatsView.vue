@@ -2,6 +2,21 @@
   <SidebarLayout title="Statistics">
     <div class="mega-scope stats-page">
 
+      <!-- Toggle Cashline | Collection — hanya tampil bila login berhak lihat
+           keduanya (server yang memutuskan hak akses lewat stats_views). -->
+      <div v-if="statsViews.length > 1" class="toolbar">
+        <div class="tab-group" role="tablist" aria-label="Jenis statistik">
+          <button type="button" role="tab" class="tab" :class="{ active: mode === 'cashline' }"
+                  :aria-selected="mode === 'cashline'" @click="setMode('cashline')">Cashline</button>
+          <button type="button" role="tab" class="tab" :class="{ active: mode === 'collection' }"
+                  :aria-selected="mode === 'collection'" @click="setMode('collection')">Collection</button>
+        </div>
+      </div>
+      <CollectionStatsPanel v-if="mode === 'collection'" />
+      <div v-else-if="!mode" class="empty-state">Tidak ada statistik yang dapat ditampilkan untuk akun ini.</div>
+
+      <template v-if="mode === 'cashline'">
+
       <!-- ============ SCOPED view: Sales Agent (TL) & QC (agent) ============ -->
       <template v-if="isScopedRole">
         <div class="toolbar">
@@ -784,6 +799,9 @@
       </template>
       <!-- end QC/SPQ view -->
 
+      </template>
+      <!-- end mode === 'cashline' -->
+
     </div>
   </SidebarLayout>
 </template>
@@ -801,12 +819,30 @@ import { useAuthStore } from '../../stores/auth.js'
 import { P } from '../../permissions.js'
 import { aiStatusLabel } from '../../utils/aiStatus.js'
 import { campaignsInScope } from '../../utils/campaignScope.js'
+import { resolveStatsView, STATS_VIEW_KEY } from '../../utils/statsView.js'
+import CollectionStatsPanel from '../../components/collection/CollectionStatsPanel.vue'
 import '../../assets/mega.css'
 
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
 const dataStore = useDataStore()
 const auth = useAuthStore()
+
+// Mode menu Stats (Cashline | Collection), diresolusi dari stats_views server +
+// pilihan tersimpan di localStorage. Cashline hanya memuat data & jalan
+// auto-refresh saat mode === 'cashline' — lihat startCashline/stopCashline di
+// bawah — supaya login Collection-only tidak memicu request Cashline (yang akan
+// ditolak 403).
+const statsViews = computed(() => auth.statsViews)
+function readStoredView() {
+  try { return localStorage.getItem(STATS_VIEW_KEY) } catch { return null }
+}
+const mode = ref(resolveStatsView(statsViews.value, readStoredView()))
+function setMode(v) {
+  if (!statsViews.value.includes(v) || v === mode.value) return
+  mode.value = v
+  try { localStorage.setItem(STATS_VIEW_KEY, v) } catch { /* abaikan */ }
+}
 // Posisi di hierarki sales = data_scope, bukan nama role. Role turunan per campaign
 // (mis. tl_ntb dengan cakupan sales_tl) otomatis mendapat panel & judul yang sama.
 const isSalesAgent = computed(() => auth.dataScope === 'sales_agent')
@@ -1755,7 +1791,11 @@ async function loadTickets() {
   }
 }
 
-onMounted(async () => {
+// Pemuatan & timer 30 detik Cashline dikeluarkan dari onMounted ke dua fungsi ini
+// supaya bisa dinyalakan/dimatikan lagi saat toggle Cashline/Collection berpindah
+// (lihat watch(mode, …) di bawah) — login Collection-only tidak pernah memicu
+// request Cashline sama sekali.
+async function startCashline() {
   if (isScopedRole.value) {
     // Team Leader sees a team-agent roster (from loadMine); Sales Agent sees a ticket list.
     const tasks = [loadMine(), loadMyTimeseries()]
@@ -1766,8 +1806,14 @@ onMounted(async () => {
     await Promise.all([loadOverview(), loadCampaigns(), loadCampaignMonthly(), loadTimeseries()])
     timer = setInterval(() => { loadOverview(); loadTimeseries() }, 30000)
   }
-})
-onUnmounted(() => clearInterval(timer))
+}
+function stopCashline() {
+  clearInterval(timer)
+  timer = null
+}
+watch(mode, (m) => { stopCashline(); if (m === 'cashline') startCashline() }, { immediate: false })
+onMounted(() => { if (mode.value === 'cashline') startCashline() })
+onUnmounted(stopCashline)
 </script>
 
 <style scoped>
@@ -1784,6 +1830,12 @@ onUnmounted(() => clearInterval(timer))
 .tab.active { background: #fff; color: var(--m-gray-900); box-shadow: var(--m-shadow-sm); }
 .refresh-hint { font-size: 12px; color: var(--m-fg-3); }
 .sa-title { font-size: 16px; font-weight: 700; color: var(--m-gray-900); }
+
+/* Login tanpa stats_views sama sekali (stats_views = []) */
+.empty-state {
+  padding: 40px 20px; text-align: center; color: var(--m-fg-2); font-size: 14px;
+  background: var(--m-bg-surface); border: 1px solid var(--m-border-1); border-radius: var(--m-r-md);
+}
 
 /* Sales-agent enlarged pie */
 .sa-donut-row { gap: 44px; padding: 8px 0; }
