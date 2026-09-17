@@ -1809,25 +1809,38 @@ async function loadTickets() {
 // supaya bisa dinyalakan/dimatikan lagi saat toggle Cashline/Collection berpindah
 // (lihat watch(mode, …) di bawah) — login Collection-only tidak pernah memicu
 // request Cashline sama sekali.
+//
+// Penghitung generasi: stopCashline bisa terjadi SELAMA startCashline menunggu
+// Promise.all (toggle mode / halaman ditutup). Tanpa pemeriksaan ini interval
+// dipasang sesudah stop dan polling berjalan selamanya (handle-nya tertimpa).
+let cashlineGen = 0
+let unmounted = false
 async function startCashline() {
+  clearInterval(timer)
+  timer = null
+  const g = ++cashlineGen
+  const stale = () => g !== cashlineGen || unmounted || mode.value !== 'cashline'
   if (isScopedRole.value) {
     // Team Leader sees a team-agent roster (from loadMine); Sales Agent sees a ticket list.
     const tasks = [loadMine(), loadMyTimeseries()]
     if (isSalesAgent.value) tasks.push(loadTickets())
     await Promise.all(tasks)
+    if (stale()) return
     timer = setInterval(() => { loadMine(); loadMyTimeseries(); if (isSalesAgent.value) loadTickets() }, 30000)
   } else {
     await Promise.all([loadOverview(), loadCampaigns(), loadCampaignMonthly(), loadTimeseries()])
+    if (stale()) return
     timer = setInterval(() => { loadOverview(); loadTimeseries() }, 30000)
   }
 }
 function stopCashline() {
+  cashlineGen++
   clearInterval(timer)
   timer = null
 }
-watch(mode, (m) => { stopCashline(); if (m === 'cashline') startCashline() }, { immediate: false })
+watch(mode, (m) => { stopCashline(); if (m === 'cashline' && !unmounted) startCashline() }, { immediate: false })
 onMounted(() => { if (mode.value === 'cashline') startCashline() })
-onUnmounted(stopCashline)
+onUnmounted(() => { unmounted = true; stopCashline() })
 </script>
 
 <style scoped>
