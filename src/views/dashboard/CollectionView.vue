@@ -2,8 +2,8 @@
   <SidebarLayout title="Collection Results">
     <div class="filter-bar">
       <input v-model="ticketId" type="text" class="text-input" placeholder="Cari Tiket ID…" @input="debounced" />
-      <input v-model="dateStart" type="date" class="text-input date-input" title="Dari tanggal upload" @change="reload(1)" />
-      <input v-model="dateEnd" type="date" class="text-input date-input" title="Sampai tanggal upload" @change="reload(1)" />
+      <input v-model="dateStart" type="date" class="text-input date-input" title="Dari tanggal transkrip" @change="reload(1)" />
+      <input v-model="dateEnd" type="date" class="text-input date-input" title="Sampai tanggal transkrip" @change="reload(1)" />
       <select v-model="aiStatus" class="text-input select-input" @change="reload(1)">
         <option value="">Semua Hasil</option>
         <option value="PASS">Pass</option>

@@ -138,6 +138,7 @@ function requiredPermission(path) {
 const LANDING_ORDER = [
   '/dashboard/stats',
   '/dashboard/results',
+  '/dashboard/collection',
   '/dashboard/transcripts',
   '/upload/result',
 ]

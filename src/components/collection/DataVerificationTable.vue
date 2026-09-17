@@ -20,7 +20,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows" :key="r.field">
+          <tr v-for="(r, i) in rows" :key="`${r.field}-${i}`">
             <td class="col-mono">{{ r.field }}</td>
             <td>{{ r.reference_value ?? '—' }}</td>
             <td>{{ r.extracted_value ?? '—' }}</td>

@@ -8,7 +8,7 @@
     </div>
     <p v-if="!cats.length" class="col-muted">Model tidak mengembalikan ringkasan kategori.</p>
     <div v-else class="cat-grid">
-      <article v-for="c in cats" :key="c.category" class="cat" :class="`edge-${verdictTone(c.category_result)}`">
+      <article v-for="(c, i) in cats" :key="`${c.category}-${i}`" class="cat" :class="`edge-${verdictTone(c.category_result)}`">
         <header>
           <h3>{{ c.category }}</h3>
           <span class="col-pill" :class="`tone-${verdictTone(c.category_result)}`">{{ verdictLabel(c.category_result) }}</span>

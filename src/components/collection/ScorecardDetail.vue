@@ -15,7 +15,7 @@
         <h3>{{ g.category }}</h3>
         <span class="col-mono col-muted">{{ g.earned }} / {{ g.weight }}</span>
       </header>
-      <details v-for="it in g.items" :key="it.item_code" class="ind" :open="it.status === 'BELUM_SESUAI'">
+      <details v-for="(it, i) in g.items" :key="`${it.item_code}-${i}`" class="ind" :open="it.status === 'BELUM_SESUAI'">
         <summary>
           <span class="col-mono code">{{ it.item_code }}</span>
           <span class="req">{{ it.requirement || '—' }}</span>

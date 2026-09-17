@@ -13,7 +13,7 @@
       status PASS/FAIL per indikator tidak dapat ditampilkan.
     </p>
     <ul v-else class="crit-list">
-      <li v-for="it in check.checked_items" :key="it.item_code">
+      <li v-for="(it, i) in check.checked_items" :key="`${it.item_code}-${i}`">
         <span class="col-mono code">{{ it.item_code }}</span>
         <span class="req">{{ it.requirement || '—' }}</span>
         <span class="col-pill" :class="`tone-${verdictTone(it.status)}`">{{ verdictLabel(it.status) }}</span>
