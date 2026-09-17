@@ -116,8 +116,22 @@ const avgPercent = computed(() => {
   return Math.round(scored.reduce((s, r) => s + r.score / r.maximum_score, 0) / scored.length * 1000) / 10
 })
 
+// Guard anti race-condition: hanya respons dari request TERAKHIR yang dipakai.
+// Pola sama persis dengan TranscriptsView.vue (fetchTickets): AbortController
+// membatalkan request sebelumnya, requestId memastikan respons/error yang
+// telat dari request lama tidak pernah menimpa state dengan data basi yang
+// filter-nya sudah tidak cocok (mis. dua filter diganti cepat, atau pager
+// diklik dobel).
+let requestId = 0
+let inFlight = null // AbortController
+
 async function reload(p = page.value) {
   page.value = p
+  if (inFlight) inFlight.abort()
+  const ctrl = new AbortController()
+  inFlight = ctrl
+  const myId = ++requestId
+
   loading.value = true
   error.value = ''
   try {
@@ -128,13 +142,20 @@ async function reload(p = page.value) {
         status: status.value || undefined,
         date_start: dateStart.value || undefined, date_end: dateEnd.value || undefined,
       },
+      signal: ctrl.signal,
     })
+    if (myId !== requestId) return // sudah ada request yang lebih baru
     items.value = data.items
     total.value = data.total
   } catch (e) {
+    if (e.name === 'AbortError' || e.name === 'CanceledError') return
+    if (myId !== requestId) return
     error.value = e?.response?.data?.detail || 'Gagal memuat hasil Collection.'
   } finally {
-    loading.value = false
+    if (myId === requestId) {
+      loading.value = false
+      inFlight = null
+    }
   }
 }
 
@@ -144,7 +165,10 @@ function reset() { ticketId.value = dateStart.value = dateEnd.value = aiStatus.v
 function open(row) { router.push(`/dashboard/collection/${row.result_id}`) }
 
 onMounted(() => reload(1))
-onUnmounted(() => clearTimeout(timer))
+onUnmounted(() => {
+  clearTimeout(timer)
+  if (inFlight) inFlight.abort()
+})
 </script>
 
 <style scoped>
