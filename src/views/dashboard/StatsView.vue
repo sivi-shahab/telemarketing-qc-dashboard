@@ -843,6 +843,20 @@ function setMode(v) {
   mode.value = v
   try { localStorage.setItem(STATS_VIEW_KEY, v) } catch { /* abaikan */ }
 }
+// stats_views bisa datang BELAKANGAN dari `mode` di atas: App.vue memanggil
+// auth.reloadMe() tanpa await di onMounted, dan localStorage.user dari sesi
+// lama bisa belum punya field ini sama sekali. Tanpa watcher ini, deep-link
+// atau refresh langsung ke halaman Stats akan membekukan `mode` di hasil
+// resolusi pertama (sering `null` -> empty state) walau login sebenarnya
+// berhak — tidak ada cara pulih karena toggle-nya sendiri baru muncul saat
+// `statsViews.length > 1`. Watcher ini meresolusi ulang tiap kali daftarnya
+// berubah; watch(mode, …) di bawah yang menyalakan/mematikan Cashline lalu
+// bereaksi terhadap transisi itu — termasuk transisi null -> 'cashline' yang
+// terjadi tepat satu kali setelah stats_views akhirnya tiba.
+watch(statsViews, (views) => {
+  const next = resolveStatsView(views, mode.value ?? readStoredView())
+  if (next !== mode.value) mode.value = next
+})
 // Posisi di hierarki sales = data_scope, bukan nama role. Role turunan per campaign
 // (mis. tl_ntb dengan cakupan sales_tl) otomatis mendapat panel & judul yang sama.
 const isSalesAgent = computed(() => auth.dataScope === 'sales_agent')
