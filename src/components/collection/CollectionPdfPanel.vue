@@ -74,6 +74,17 @@ const { renderAll } = createPdfPageRenderer()
 let pdfDoc = null
 let resizeObserver = null
 let lastWidth = 0
+// Token generasi untuk load(): dinaikkan di awal SETIAP panggilan load(), dan
+// juga saat komponen dilepas. select() (tab lain) dan watcher props.files bisa
+// memanggil load() lagi sebelum panggilan sebelumnya selesai (mis. user
+// mengeklik tab B sebelum PDF tab A termuat) — tanpa token ini, kelanjutan A
+// yang baru selesai belakangan akan menimpa pdfDoc/downloadUrl/numPages milik
+// B yang sudah tampil (dan blob URL serta dokumen pdf.js milik B bocor, tidak
+// pernah di-revoke/destroy). Tiap upaya load() menyimpan token miliknya
+// sendiri (`myLoad`) dan mengecek `myLoad !== loadToken` sesudah setiap
+// `await`; kalau sudah usang, ia membuang hasil kerjanya SENDIRI (revoke blob
+// URL, destroy dokumen pdf.js miliknya) tanpa menyentuh state komponen.
+let loadToken = 0
 
 // Lihat PdfViewer.vue: <a target=_blank> tak bisa membawa header Authorization.
 const nativeUrl = computed(() => {
@@ -92,23 +103,54 @@ function cleanupDoc() {
   page.value = 1
 }
 
+// Membuang hasil kerja SATU upaya load() yang sudah usang — bukan yang
+// tersimpan di state komponen (itu tugas cleanupDoc), melainkan blob URL/
+// dokumen pdf.js yang baru saja dibuat upaya itu sendiri sebelum ia sadar
+// dirinya sudah dikalahkan upaya lain. revokeObjectURL pada URL kosong dan
+// destroy() pada dokumen null keduanya aman (no-op).
+function discardStale(url, doc) {
+  if (url) URL.revokeObjectURL(url)
+  try { doc?.destroy?.() } catch { /* ignore */ }
+}
+
 async function load() {
   if (!active.value) return
+  const myLoad = ++loadToken
   cleanupDoc()
   loading.value = true
   error.value = ''
+  let url = ''
+  let doc = null
+  let committed = false
   try {
     const res = await apiClient.get(`/transcript_pdf/${encodeURIComponent(props.resultId)}`, {
       params: { filename: active.value }, responseType: 'arraybuffer', headers: { Accept: 'application/pdf' },
     })
+    // Upaya ini sudah dikalahkan (tab/berkas lain dipilih, atau komponen
+    // dilepas) sementara fetch berjalan — tidak ada yang perlu dibuang karena
+    // belum ada blob URL/dokumen yang dibuat, cukup keluar tanpa menyentuh
+    // state.
+    if (myLoad !== loadToken) return
     const bytes = new Uint8Array(res.data)
-    downloadUrl.value = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
-    pdfDoc = await pdfjsLib.getDocument({ data: bytes }).promise
+    url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+    doc = await pdfjsLib.getDocument({ data: bytes }).promise
+    if (myLoad !== loadToken) { discardStale(url, doc); return }
+    downloadUrl.value = url
+    pdfDoc = doc
+    committed = true
     numPages.value = pdfDoc.numPages
     loading.value = false
     await nextTick()
+    // Sudah dikalahkan sesudah commit (mis. tab lain diklik tepat sebelum
+    // render): pdfDoc/downloadUrl komponen kini milik upaya berikutnya (atau
+    // sudah dibersihkan onBeforeUnmount), jangan render ke atasnya.
+    if (myLoad !== loadToken) return
     await render()
   } catch (e) {
+    // Blob URL/dokumen milik upaya ini sendiri, belum sempat dicatat ke
+    // state — bersihkan supaya tidak bocor, apa pun sebab galatnya.
+    if (!committed) discardStale(url, doc)
+    if (myLoad !== loadToken) return
     let detail = ''
     try { detail = JSON.parse(new TextDecoder().decode(e?.response?.data))?.detail || '' } catch { /* bukan JSON */ }
     error.value = detail || (e?.response?.status ? `Gagal memuat PDF (HTTP ${e.response.status}).` : 'Gagal memuat PDF.')
@@ -188,6 +230,11 @@ onMounted(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', onFullscreenChange)
   resizeObserver?.disconnect()
+  // Invalidasi token generasi: load() yang masih di tengah fetch/parse saat
+  // komponen dilepas akan mendapati `myLoad !== loadToken` begitu ia lanjut
+  // berjalan (microtask sesudah unmount), lalu membuang hasilnya sendiri
+  // (discardStale) tanpa menyentuh state komponen yang sudah tidak ada.
+  loadToken++
   cleanupDoc()
 })
 </script>
