@@ -5,9 +5,9 @@
     <div class="toolbar">
       <div class="date-range">
         <label class="dr-label">Dari</label>
-        <input type="date" v-model="dateStart" class="date-input" @change="reload" />
+        <input type="date" v-model="dateStart" :max="dateEnd || undefined" class="date-input" @change="reload" />
         <label class="dr-label">Sampai</label>
-        <input type="date" v-model="dateEnd" class="date-input" @change="reload" />
+        <input type="date" v-model="dateEnd" :min="dateStart || undefined" class="date-input" @change="reload" />
         <button class="clear-btn" @click="resetFilter">Reset</button>
       </div>
       <span class="refresh-hint">Update otomatis saat ada data baru · auto-refresh 30 detik</span>
@@ -247,12 +247,17 @@ import { Bar } from 'vue-chartjs'
 // diulang di sini (lihat interfaces di task-6-brief.md).
 import apiClient from '../../api/client.js'
 import { commitmentBadge, verdictLabel } from '../../utils/collectionReport.js'
-import { fmtInt, fmtPct, dailyChartData } from '../../utils/collectionStats.js'
+import {
+  fmtInt, fmtPct, dailyChartData, defaultDateRange, orderedDateRange, statsErrorMessage, shouldPollTick,
+} from '../../utils/collectionStats.js'
 
 const COMMITMENT_KEYS = ['COMMITTED_TO_PAY', 'PARTIAL_COMMITMENT', 'DISPUTE', 'REFUSED', 'NOT_STATED']
 
-const dateStart = ref('')
-const dateEnd = ref('')
+// Bawaan 30 hari terakhir (WIB) — rentang tanpa batas membuat setiap polling
+// membaca seluruh tiket Collection.
+const initialRange = defaultDateRange()
+const dateStart = ref(initialRange.start)
+const dateEnd = ref(initialRange.end)
 const data = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -279,6 +284,12 @@ async function reload() {
   inFlight = ctrl
   const myId = ++requestId
 
+  // :max/:min pada input sudah mencegah rentang terbalik di UI; ketikan manual
+  // tetap ditukar di sini supaya request tidak pernah memakai awal > akhir.
+  const range = orderedDateRange(dateStart.value, dateEnd.value)
+  dateStart.value = range.start
+  dateEnd.value = range.end
+
   loading.value = true
   error.value = ''
   try {
@@ -294,7 +305,7 @@ async function reload() {
   } catch (e) {
     if (e.name === 'AbortError' || e.name === 'CanceledError') return
     if (myId !== requestId) return
-    error.value = e?.response?.data?.detail || 'Gagal memuat statistik Collection.'
+    error.value = statsErrorMessage(e)
   } finally {
     if (myId === requestId) {
       loading.value = false
@@ -304,15 +315,24 @@ async function reload() {
 }
 
 function resetFilter() {
-  dateStart.value = ''
-  dateEnd.value = ''
+  const range = defaultDateRange()
+  dateStart.value = range.start
+  dateEnd.value = range.end
+  reload()
+}
+
+// Auto-refresh: tick dilewati (bukan membatalkan request) bila tab tersembunyi
+// atau request sebelumnya belum selesai. Perubahan filter tetap membatalkan
+// request lama lewat reload().
+function pollTick() {
+  if (!shouldPollTick({ visibilityState: document.visibilityState, inFlight: inFlight !== null })) return
   reload()
 }
 
 let timer
 onMounted(() => {
   reload()
-  timer = setInterval(reload, 30000)
+  timer = setInterval(pollTick, 30000)
 })
 onUnmounted(() => {
   clearInterval(timer)

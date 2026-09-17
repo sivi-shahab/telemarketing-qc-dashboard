@@ -42,3 +42,49 @@ export function dailyChartData(daily) {
     ],
   }
 }
+
+// Rentang bawaan filter tanggal panel: 30 hari terakhir (hari ini ikut dihitung).
+// Tanpa batas, GET /stats/collection membaca SELURUH tiket Collection tiap 30 detik.
+export const DEFAULT_RANGE_DAYS = 30
+
+// Tanggal kalender WIB (Asia/Jakarta) sebagai 'YYYY-MM-DD' — filter API memakai WIB.
+function wibDateParts(now) {
+  const s = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now)
+  const [y, m, d] = s.split('-').map(Number)
+  return { y, m, d }
+}
+
+function isoDate(ms) {
+  return new Date(ms).toISOString().slice(0, 10)
+}
+
+// { start, end } = (hari ini WIB − 29 hari) .. hari ini WIB.
+export function defaultDateRange(now = new Date()) {
+  const { y, m, d } = wibDateParts(now)
+  return {
+    start: isoDate(Date.UTC(y, m - 1, d - (DEFAULT_RANGE_DAYS - 1))),
+    end: isoDate(Date.UTC(y, m - 1, d)),
+  }
+}
+
+// Tanggal awal setelah tanggal akhir ditukar supaya request tidak pernah memakai
+// rentang terbalik (yang pasti kosong). String 'YYYY-MM-DD' aman dibandingkan leksikal.
+export function orderedDateRange(start, end) {
+  if (start && end && start > end) return { start: end, end: start }
+  return { start, end }
+}
+
+// Pesan error panel: `detail` API hanya bila berupa string (422 FastAPI berbentuk
+// array objek — tidak layak ditampilkan mentah); selain itu pesan umum.
+export function statsErrorMessage(e) {
+  const detail = e?.response?.data?.detail
+  return typeof detail === 'string' && detail.trim() ? detail : 'Gagal memuat statistik Collection.'
+}
+
+// Tick auto-refresh 30 detik dilewati bila tab tidak terlihat atau request
+// sebelumnya belum selesai (tidak membatalkan request yang sedang berjalan).
+export function shouldPollTick({ visibilityState, inFlight }) {
+  return visibilityState === 'visible' && !inFlight
+}
