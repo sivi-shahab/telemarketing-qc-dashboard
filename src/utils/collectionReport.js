@@ -14,13 +14,29 @@ const LABELS = {
   INITIATED: 'Dibahas', NOT_INITIATED: 'Tidak Dibahas',
 }
 
+// Label & warna mengikuti getCommitmentBadge() di WeightedAuditView.tsx.
 const COMMITMENT = {
-  COMMITTED_TO_PAY: { label: 'Berkomitmen Membayar', tone: 'success' },
-  PARTIAL_COMMITMENT: { label: 'Komitmen Sebagian', tone: 'warning' },
-  DISPUTE: { label: 'Sengketa', tone: 'warning' },
-  REFUSED: { label: 'Menolak', tone: 'danger' },
-  NOT_STATED: { label: 'Tidak Disebutkan', tone: 'muted' },
+  COMMITTED_TO_PAY: { label: 'Committed to Pay (Setuju Bayar)', tone: 'success' },
+  PARTIAL_COMMITMENT: { label: 'Partial Commitment (Komitmen Parsial)', tone: 'info' },
+  DISPUTE: { label: 'Sengketa / Dispute Tagihan', tone: 'warning' },
+  REFUSED: { label: 'Menolak Membayar (Refused)', tone: 'danger' },
+  NOT_STATED: { label: 'Tidak Ada Pernyataan Komitmen', tone: 'muted' },
 }
+
+// Urutan 9 kategori POJK 22 untuk tab filter scorecard (sama dengan
+// `categories` di WeightedAuditView.tsx). Kategori lain yang muncul di data
+// ditambahkan di belakang supaya tidak pernah tersembunyi dari filter.
+export const SCORECARD_CATEGORIES = [
+  'Pembukaan & Identifikasi Petugas',
+  'Verifikasi Nasabah & Kerahasiaan Data',
+  'Penyampaian Informasi Tunggakan',
+  'Etika & Cara Penagihan',
+  'Waktu & Tempat Penagihan',
+  'Hak Konsumen & Layanan Pengaduan',
+  'Penawaran Solusi Penyelesaian',
+  'Prosedur Penarikan Agunan',
+  'Penutup & Dokumentasi Panggilan',
+]
 
 export function verdictTone(value) {
   if (SUCCESS.has(value)) return 'success'
@@ -43,17 +59,28 @@ export function scorePercent(report) {
   return Math.round(((Number(report?.ai_score_phase_2) || 0) / max) * 1000) / 10
 }
 
-export function groupScorecard(items) {
-  const groups = new Map()
+export function scorecardCategories(items) {
+  const extra = []
   for (const it of items || []) {
-    const key = it.category || '-'
-    if (!groups.has(key)) groups.set(key, { category: key, items: [], weight: 0, earned: 0 })
-    const g = groups.get(key)
-    g.items.push(it)
-    g.weight += Number(it.weight) || 0
-    g.earned += Number(it.item_score) || 0
+    const c = it.category
+    if (c && !SCORECARD_CATEGORIES.includes(c) && !extra.includes(c)) extra.push(c)
   }
-  return [...groups.values()]
+  return [...SCORECARD_CATEGORIES, ...extra]
+}
+
+// Filter kategori ('' = semua) + pencarian bebas atas kode, requirement, alasan.
+export function filterScorecard(items, category, query) {
+  const q = (query || '').trim().toLowerCase()
+  return (items || []).filter(it => {
+    if (category && it.category !== category) return false
+    if (!q) return true
+    return [it.item_code, it.requirement, it.reason].some(v => String(v || '').toLowerCase().includes(q))
+  })
+}
+
+// 'outstanding_amount' → 'outstanding amount' (kapitalisasi lewat CSS).
+export function humanizeField(field) {
+  return String(field || '').replace(/_/g, ' ')
 }
 
 export function formatEvidence(evidence) {
