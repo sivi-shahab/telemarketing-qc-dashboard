@@ -408,6 +408,7 @@ onUnmounted(() => {
 .rate-badge.danger { background: var(--m-danger-soft); color: var(--m-danger); }
 .rate-badge.warning { background: var(--m-warning-soft); color: var(--m-warning); }
 .rate-badge.success { background: var(--m-success-soft); color: var(--m-success); }
+.rate-badge.info { background: var(--m-info-soft); color: var(--m-info); }
 .rate-badge.muted { background: var(--m-gray-150); color: var(--m-fg-3); }
 
 .commitment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
