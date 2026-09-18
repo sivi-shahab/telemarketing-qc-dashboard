@@ -260,10 +260,11 @@
                   {{ it.status || '—' }}
                 </span>
               </td>
-              <!-- Alasan gagal: dihitung backend agar seragam di semua tampilan, dan
+              <!-- Alasan dihitung backend agar seragam di semua tampilan. FAIL
                    membedakan "agent tidak bertanya" dari "agent bertanya tapi data
-                   mismatch dengan Ascend". -->
-              <td class="muted reason">{{ it.status === 'PASS' ? '—' : cccReason(it) }}</td>
+                   mismatch dengan Ascend"; PASS memakai alasan item scorecard
+                   ber-item_code sama (sejak 18 September 2026). -->
+              <td class="muted reason">{{ it.status === 'PASS' ? (it.reason || '—') : cccReason(it) }}</td>
             </tr>
           </tbody>
         </table>
