@@ -820,6 +820,8 @@ import { P } from '../../permissions.js'
 import { aiStatusLabel } from '../../utils/aiStatus.js'
 import { campaignsInScope } from '../../utils/campaignScope.js'
 import { resolveStatsView, STATS_VIEW_KEY } from '../../utils/statsView.js'
+import { AI_COLORS, AI_LABEL_COLORS, stackedOptions, barPct } from '../../utils/aiStatusChart.js'
+import { useTableView } from '../../composables/useTableView.js'
 import CollectionStatsPanel from '../../components/collection/CollectionStatsPanel.vue'
 import '../../assets/mega.css'
 
@@ -905,103 +907,6 @@ const showRiskSystemNew = computed(() => auth.can(P.STATS_RISK_SYSTEM_NEW))
 // induknya (hanya elemen akarnya yang menerima), sehingga kotak cari, dropdown, tombol
 // Reset, dan tombol halaman kehilangan seluruh style-nya dan jatuh ke tampilan bawaan
 // browser. Sebagai komponen berkas sendiri, style-nya ikut pindah dan pasti kena.
-
-// --- Kendali tabel bersama: cari / saring / urutkan / halaman -------------
-// Dipakai SEMUA tabel datar di halaman ini — Performa Sales, Daftar QC, Performa
-// Campaign, Failure Reason, dan kedua tabel pada tampilan scoped (Daftar Sales
-// Agent Tim Anda & Daftar Ticket ID Anda). Ditulis sekali sebagai factory supaya
-// perilakunya tidak menyimpang antar tabel — mis. lupa mereset halaman ke 1
-// setelah mencari, yang membuat tabel tampak kosong padahal datanya ada.
-//
-// ``extra`` menyambungkan kontrol yang HIDUP DI LUAR factory (mis. dropdown bulan
-// pada Performa Campaign) ke tombol Reset. Tanpa itu Reset akan mengaku
-// "mengembalikan semuanya" padahal menyisakan satu filter yang masih aktif.
-function useTableView(source, { fields, sortKey, sortDir = 'desc', perPage = 10, filterFn, extra }) {
-  const search = ref('')
-  const mode = ref('')            // filter tambahan; '' = semua
-  const key = ref(sortKey)
-  const dir = ref(sortDir)
-  const page = ref(1)
-  // Nilai awal disimpan supaya Reset benar-benar mengembalikan SEMUANYA — termasuk
-  // urutan kolom, yang gampang terlupa kalau reset hanya mengosongkan kotak cari.
-  const initial = { key: sortKey, dir: sortDir }
-
-  const filtered = computed(() => {
-    let list = source.value || []
-    if (filterFn && mode.value) list = list.filter((r) => filterFn(r, mode.value))
-    const q = search.value.trim().toLowerCase()
-    if (q) {
-      // ``fields`` boleh berupa fungsi supaya kolom yang dicari mengikuti kolom yang
-      // benar-benar TAMPIL. Mencari nama Team Leader padahal kolomnya disembunyikan
-      // hanya menghasilkan baris yang tak jelas kenapa cocok.
-      const fs = typeof fields === 'function' ? fields() : fields
-      // Tiap entri boleh berupa nama kolom ATAU fungsi (r) => teks — dipakai saat yang
-      // dicari adalah teks yang TAMPIL, bukan nilai mentahnya (mis. AI Status tampil
-      // "Qualified" padahal datanya "PASS", dan bulan tampil "Agustus 2026" dari "2026-08").
-      list = list.filter((r) => fs.some((f) => String(
-        (typeof f === 'function' ? f(r) : r[f]) ?? '').toLowerCase().includes(q)))
-    }
-    const sign = dir.value === 'asc' ? 1 : -1
-    return [...list].sort((a, b) => {
-      const va = a[key.value]
-      const vb = b[key.value]
-      if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * sign
-      return String(va ?? '').localeCompare(String(vb ?? ''), 'id') * sign
-    })
-  })
-
-  const total = computed(() => filtered.value.length)
-  const pageCount = computed(() => Math.max(1, Math.ceil(total.value / perPage)))
-  const rows = computed(() => {
-    const p = Math.min(page.value, pageCount.value)
-    return filtered.value.slice((p - 1) * perPage, p * perPage)
-  })
-  const from = computed(() => (total.value ? (Math.min(page.value, pageCount.value) - 1) * perPage + 1 : 0))
-  const to = computed(() => Math.min(from.value + perPage - 1, total.value))
-
-  function sortBy(k) {
-    if (key.value === k) dir.value = dir.value === 'asc' ? 'desc' : 'asc'
-    else {
-      key.value = k
-      dir.value = 'desc'
-    }
-    page.value = 1
-  }
-  function indicator(k) {
-    if (key.value !== k) return '⇅'
-    return dir.value === 'asc' ? '▲' : '▼'
-  }
-  function go(p) {
-    page.value = Math.min(Math.max(1, p), pageCount.value)
-  }
-
-  // Tombol Reset SELALU tampil (dinonaktifkan saat bersih). Versi sebelumnya
-  // menyembunyikannya sampai ada filter aktif — hasilnya tidak pernah ditemukan orang,
-  // karena fitur yang hanya muncul setelah dipakai tidak bisa ditemukan sebelum dipakai.
-  const isDirty = computed(
-    () => !!search.value || !!mode.value || key.value !== initial.key || dir.value !== initial.dir
-      || (extra ? extra.isDirty() : false))
-  function reset() {
-    search.value = ''
-    mode.value = ''
-    key.value = initial.key
-    dir.value = initial.dir
-    page.value = 1
-    extra?.reset()
-  }
-
-  // Mencari/menyaring selalu kembali ke halaman 1; kalau datanya menyusut sampai
-  // halaman aktif tidak ada lagi, mundur ke halaman terakhir yang masih ada.
-  watch([search, mode, source], () => { page.value = 1 })
-  watch(pageCount, (n) => { if (page.value > n) page.value = n })
-
-  // reactive(): ref di dalamnya ikut ter-unwrap, sehingga template cukup menulis
-  // ``salesView.search`` (termasuk untuk v-model) tanpa ``.value`` di mana-mana.
-  return reactive({
-    search, mode, page, pageCount, rows, total, from, to,
-    sortBy, indicator, go, isDirty, reset,
-  })
-}
 
 // Performa Sales: atasan perlu tahu agent ini di bawah siapa. Area Manager
 // melihat kolom Team Leader (satu tingkat di bawahnya); Telesales Head melihat
@@ -1171,24 +1076,6 @@ const loadingHierarchy = ref(false)
 let timer = null
 
 const STATUS_COLORS = { done: '#1F8A4C', in_progress: '#C98A00', failed: '#C73838' }
-// AI status bar chart: PASS = Qualified (hijau), FAIL = Not Qualified (merah),
-// PENDING = butuh dokumen dalam tenggat H+2 (kuning).
-//
-// 28 Agustus 2026 — permintaan bisnis KHUSUS bar chart (tidak menyentuh KPI card,
-// badge, atau tabel yang tetap memakai --m-success/--m-danger/#D97706):
-//   hijau  -> hijau stabilo, tulisan hitam   (dulu #1F8A4C)
-//   merah  -> digelapkan,    tulisan putih   (dulu #C73838)
-//   kuning -> diterangkan,   tulisan hitam   (dulu #D97706)
-// ``AI_LABEL_COLORS`` dipakai plugin ``barPct`` untuk mewarnai persentase di dalam
-// tiap segmen; tanpa ini semua label tetap putih dan hilang di atas kuning terang.
-const AI_COLORS = { approve: '#5CE65C', return: '#9B1C1C', pending: '#FFD93D' }
-const AI_LABEL_COLORS = { approve: '#1E1F21', return: '#FFFFFF', pending: '#1E1F21' }
-// 14 September 2026: dipakai juga (bersama AI_LABEL_COLORS untuk teksnya) sebagai
-// background solid Qualified/Not Qualified/Pending di tabel Performa Sales & tabel
-// Hierarki Failure Rate (Area Manager → Team Leader → Agent) — permintaan bisnis
-// supaya warnanya SAMA PERSIS dengan bar chart AI Status di atas, bukan pastel.
-
-
 // Build a 100% stacked column: X = time buckets, Y = 0–100%, three stacked series
 // (Qualified green / Not Qualified red / Pending amber). Percentages are precomputed
 // per bucket over the total dinilai (a+r+p); raw counts ride along on ``_counts``.
@@ -1221,74 +1108,6 @@ function stackedData(series, prefix = '') {
     ],
   }
 }
-const stackedOptions = {
-  responsive: true, maintainAspectRatio: false,
-  layout: { padding: { top: 24 } }, // ruang di atas batang untuk label total submisi
-  scales: {
-    x: { stacked: true, grid: { display: false }, ticks: { autoSkip: true, maxRotation: 0 } },
-    y: { stacked: true, min: 0, max: 100, ticks: { stepSize: 25, callback: (v) => v + '%' }, grid: { color: 'rgba(0,0,0,.06)' } },
-  },
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      callbacks: {
-        label: (ctx) => {
-          const cnt = ctx.dataset._counts?.[ctx.dataIndex] ?? 0
-          return ` ${ctx.dataset.label}: ${cnt.toLocaleString('id-ID')} (${(ctx.raw ?? 0).toFixed(1)}%)`
-        },
-      },
-    },
-  },
-}
-// Inline plugin: write each segment's percentage (white, bold) centred in its
-// stacked bar. Skips segments too short/narrow to fit the label so dense views
-// (e.g. 30 daily columns) or tiny slices don't turn into clutter.
-const barPct = {
-  id: 'barPct',
-  afterDatasetsDraw(chart) {
-    const { ctx } = chart
-    ctx.save()
-    ctx.font = '700 12px "Plus Jakarta Sans", Inter, system-ui, -apple-system, sans-serif'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    // 1) percentage centred inside each segment, dalam warna milik dataset itu
-    //    (``_labelColor``): hitam di atas hijau stabilo & kuning terang, putih di
-    //    atas merah gelap. Bayangannya ikut warna label supaya kontrasnya menambah,
-    //    bukan mengaburkan — label hitam dulu memakai bayangan hitam dan jadi tebal
-    //    berlumur di atas kuning.
-    chart.data.datasets.forEach((ds, di) => {
-      const meta = chart.getDatasetMeta(di)
-      if (meta.hidden) return
-      const labelColor = ds._labelColor || '#fff'
-      ctx.fillStyle = labelColor
-      ctx.shadowColor = labelColor === '#FFFFFF' ? 'rgba(0,0,0,.35)' : 'rgba(255,255,255,.55)'
-      ctx.shadowBlur = 3
-      meta.data.forEach((bar, i) => {
-        const v = Number(ds.data[i]) || 0
-        if (!v) return
-        const height = Math.abs(bar.base - bar.y)
-        if (height < 14 || bar.width < 18) return // too small to label legibly
-        ctx.fillText(`${Math.round(v)}%`, bar.x, (bar.y + bar.base) / 2)
-      })
-    })
-    // 2) total dinilai (qualified + not qualified + pending) above each column
-    const meta0 = chart.getDatasetMeta(0)
-    const cA = chart.data.datasets[0]?._counts || []
-    const cR = chart.data.datasets[1]?._counts || []
-    const cP = chart.data.datasets[2]?._counts || []
-    const yTop = chart.chartArea.top - 9
-    ctx.shadowBlur = 0
-    ctx.fillStyle = '#1E1F21' // ikut aturan "semua tulisan hitam" (dulu #334155)
-    ctx.font = '800 12px "Plus Jakarta Sans", Inter, system-ui, -apple-system, sans-serif'
-    meta0.data.forEach((bar, i) => {
-      const total = (Number(cA[i]) || 0) + (Number(cR[i]) || 0) + (Number(cP[i]) || 0)
-      if (!total || bar.width < 14) return
-      ctx.fillText(total.toLocaleString('id-ID'), bar.x, yTop)
-    })
-    ctx.restore()
-  },
-}
-
 // Totals across all buckets in the current range — feeds the KPI cards.
 function seriesTotals(series) {
   let a = 0, r = 0, p = 0, s = 0, dn = 0, ip = 0
