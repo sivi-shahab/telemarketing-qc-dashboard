@@ -11,7 +11,7 @@
 //   - Tidak diberikan sama sekali (pemakai lama: PdfViewer.vue,
 //     TranscriptDetailView.vue) → perilaku persis seperti sebelumnya. Lebar
 //     halaman mengikuti `width: 100%` dari CSS pemakainya sendiri.
-//   - Diberikan sebagai objek `{ zoom, fitWidth }` (CollectionPdfPanel.vue)
+//   - Diberikan sebagai objek `{ zoom, fitWidth }` (dulu CollectionPdfPanel.vue, kini tanpa pemakai)
 //     → lebar dasar dikalikan `zoom` (default 1), dan lebar `.pdf-page`
 //     ditulis eksplisit lewat inline style (piksel), BUKAN diserahkan ke CSS
 //     `width: 100%`. Ini dites dengan `options !== undefined`, bukan dengan
@@ -45,7 +45,7 @@ function boxWidth(el) {
 // diposisikan dari skala, bukan dari CSS — jadi meleset dari glifnya.
 //
 // PERINGATAN untuk wadah `width: max-content` (seperti `.cpdf-pages` di
-// CollectionPdfPanel.vue): `clientWidth`-nya BUKAN lebar tampilan yang stabil,
+// CollectionPdfPanel.vue lama): `clientWidth`-nya BUKAN lebar tampilan yang stabil,
 // melainkan lebar konten TERLEBAR yang sedang ada di dalamnya saat ini — yaitu
 // halaman dari render SEBELUMNYA (karena `container.innerHTML` baru dikosongkan
 // beberapa baris di bawah `renderAll`, sesudah lebar ini diukur). Memanggil

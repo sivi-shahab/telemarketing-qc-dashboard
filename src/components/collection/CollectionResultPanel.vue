@@ -1,12 +1,12 @@
 <template>
   <div class="crp">
-    <div v-if="loading" class="col-card">Memuat…</div>
+    <div v-if="loading" class="state-box">Memuat…</div>
     <div v-else-if="error" class="error-box">{{ error }}</div>
 
     <template v-else-if="data">
       <div v-if="data.status === 'failed'" class="error-box">Pemrosesan gagal: {{ data.error }}</div>
 
-      <div v-else-if="data.status !== 'done'" class="col-card">
+      <div v-else-if="data.status !== 'done'" class="state-box">
         <h2 class="stage-title">Tiket sedang diproses</h2>
         <ol class="stages">
           <li v-for="s in data.stages" :key="s.key" :class="s.state">{{ s.label }}</li>
@@ -15,22 +15,40 @@
 
       <div v-else-if="!data.report" class="error-box">Hasil tiket ini bukan laporan berbobot Collection (mungkin diproses sebelum fitur ini aktif). Reprocess tiket untuk menilainya ulang.</div>
 
-      <div v-else class="crp-grid" :class="layout">
-        <div class="report-col">
-          <CollectionReportHeader :report="data.report" :campaign="data.campaign" />
-          <CriticalCheckCard :report="data.report" />
-          <DataVerificationTable :report="data.report" />
-          <CategorySummaryGrid :report="data.report" />
-          <ErrorCodeList :report="data.report" />
-          <ScorecardDetail :report="data.report" />
-        </div>
-        <aside v-if="layout !== 'report'" class="pdf-col">
-          <CollectionPdfPanel :result-id="data.result_id" :files="data.source_files" />
-        </aside>
-      </div>
+      <!-- Urutan & gaya mengikuti hasil Cashline (EvaluationView.vue): ringkasan
+           skor, Executive Summary berisi tabel, Hasil Scorecard, lalu Transkrip
+           PDF di paling bawah (bukan panel di samping). -->
+      <div v-else class="col-report">
+        <CollectionReportHeader :report="data.report" :campaign="data.campaign" />
 
-      <div v-if="data.report && layout === 'report'" class="pdf-below">
-        <CollectionPdfPanel :result-id="data.result_id" :files="data.source_files" />
+        <div class="block exec-summary">
+          <div class="block-title">Executive Summary</div>
+          <p class="summary">{{ data.report.ai_summary || 'Model tidak mengembalikan ringkasan.' }}</p>
+          <CriticalCheckCard :report="data.report" />
+          <CommitmentStatus :report="data.report" />
+          <CategorySummaryGrid :report="data.report" />
+          <DataVerificationTable :report="data.report" />
+          <ErrorCodeList :report="data.report" />
+        </div>
+
+        <ScorecardDetail :report="data.report" />
+
+        <div v-if="data.source_files?.length" class="block">
+          <div class="block-title">File Sumber ({{ data.source_files.length }})</div>
+          <div class="chips">
+            <span v-for="f in data.source_files" :key="f" class="chip chip-blue">{{ f }}</span>
+          </div>
+        </div>
+
+        <div v-if="data.result_id && data.source_files?.length" class="block">
+          <div class="block-title">Transkrip PDF ({{ data.source_files.length }} file)</div>
+          <PdfViewer
+            v-for="fn in sortedFiles"
+            :key="fn"
+            :result-id="data.result_id"
+            :filename="fn"
+          />
+        </div>
       </div>
     </template>
   </div>
@@ -42,32 +60,30 @@
 // row di CollectionView.vue (daftar). Semua logika fetch/poll/abort tinggal
 // di SATU tempat ini supaya tidak ada duplikasi (lihat catatan desain di
 // spec 2026-09-17-collection-weighted-results).
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import apiClient from '../../api/client.js'
+import PdfViewer from '../PdfViewer.vue'
 import CollectionReportHeader from './CollectionReportHeader.vue'
 import CriticalCheckCard from './CriticalCheckCard.vue'
+import CommitmentStatus from './CommitmentStatus.vue'
 import DataVerificationTable from './DataVerificationTable.vue'
 import CategorySummaryGrid from './CategorySummaryGrid.vue'
 import ErrorCodeList from './ErrorCodeList.vue'
 import ScorecardDetail from './ScorecardDetail.vue'
-import CollectionPdfPanel from './CollectionPdfPanel.vue'
 import './collection.css'
 
 const props = defineProps({
   resultId: { type: String, required: true },
-  // 'split'  : laporan + panel PDF sticky berdampingan (dipakai CollectionDetailView)
-  // 'report' : laporan saja, panel PDF penuh di bawah (dipakai CollectionDetailView)
-  // 'inline' : laporan + panel PDF berdampingan TANPA sticky, tinggi dibatasi
-  //            (dipakai expand row CollectionView.vue — lihat .crp-grid.inline)
-  layout: { type: String, default: 'split' },
 })
 
-// emit 'loaded' tiap kali respons baru diterima, supaya parent (mis. toggle
-// layout di CollectionDetailView) bisa tahu status/isi laporan tanpa perlu
-// menduplikasi fetch-nya sendiri.
+// emit 'loaded' tiap kali respons baru diterima, supaya parent bisa tahu
+// status/isi laporan tanpa perlu menduplikasi fetch-nya sendiri.
 const emit = defineEmits(['loaded'])
 
 const data = ref(null)
+// Urut nama berkas seperti sortedFiles() di EvaluationView (Cashline) — stempel
+// YYYYMMDDHHMMSS di nama membuat urutan leksikal = urutan waktu.
+const sortedFiles = computed(() => [...(data.value?.source_files || [])].sort((a, b) => a.localeCompare(b)))
 const loading = ref(true)
 const error = ref('')
 let pollTimer = null
@@ -133,22 +149,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.state-box { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
 .stage-title { margin: 0 0 10px; font-size: 15px; }
 .stages { margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
 .stages .selesai { color: var(--green); } .stages .berjalan { color: var(--mega-orange); font-weight: 700; } .stages .menunggu { color: var(--gray); }
 .error-box { background: var(--red-bg); border: 1px solid #f0bcbc; color: #7f1d1d; border-radius: 10px; padding: 12px 14px; font-size: 13px; }
-.report-col > * + * { margin-top: 16px; }
-
-.crp-grid.split, .crp-grid.inline { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(360px, 1fr); gap: 16px; align-items: start; }
-.crp-grid.report { display: block; }
-.crp-grid.split .pdf-col { position: sticky; top: 16px; height: calc(100vh - 110px); }
-/* 'inline' (expand row) tidak pernah sticky — barisnya ada di tengah tabel,
-   bukan halaman penuh — jadi tingginya dibatasi 80vh sejak awal. */
-.crp-grid.inline .pdf-col { position: static; height: 80vh; }
-.pdf-below { margin-top: 16px; }
-
-@media (max-width: 1100px) {
-  .crp-grid.split, .crp-grid.inline { grid-template-columns: 1fr; }
-  .crp-grid.split .pdf-col, .crp-grid.inline .pdf-col { position: static; height: 80vh; }
-}
 </style>

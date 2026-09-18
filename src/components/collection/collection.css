@@ -1,22 +1,65 @@
-/* Gaya seksi laporan Collection — terjemahan kelas Tailwind WeightedAuditView.tsx
-   ke token warna mega.css. Di-import oleh CollectionDetailView.vue.
-   Token warna dipakai (bukan hex) bila ada padanannya di :root App.vue — termasuk
-   --text-muted, yang sejak 28 Agustus 2026 = hitam (#1E1F21), bukan abu-abu,
-   sehingga label/caption di sini pun mengikuti keputusan bisnis itu. */
-.col-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 1px 2px rgba(30,31,33,.06); padding: 20px 22px; }
-.col-card + .col-card { margin-top: 16px; }
-.col-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid #EEEFF1; }
-.col-card-head h2 { margin: 0; font-size: 16px; font-weight: 700; color: var(--text); }
-.col-card-head p { margin: 2px 0 0; font-size: 12px; color: var(--text-muted); }
-.col-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; border: 1px solid transparent; white-space: nowrap; }
-.col-pill.tone-success { color: var(--green); background: var(--green-bg); border-color: #b7dfc6; }
-.col-pill.tone-danger  { color: var(--red); background: var(--red-bg); border-color: #f0bcbc; }
-.col-pill.tone-warning { color: var(--yellow); background: var(--yellow-bg); border-color: #f0dca0; }
-.col-pill.tone-muted   { color: var(--mega-gray-600); background: #EEEFF1; border-color: var(--border); }
-.col-quote { background: #FAFBFC; border: 1px solid var(--border); border-left: 3px solid var(--mega-orange); border-radius: 8px; padding: 8px 10px; font-size: 12px; font-style: italic; font-family: var(--font-mono); color: var(--text); margin-top: 6px; }
-.col-muted { color: var(--text-muted); font-size: 12px; }
-.col-table-wrap { overflow-x: auto; }
-.col-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.col-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--mega-gray-600); background: #F4F5F6; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-.col-table td { padding: 10px; border-bottom: 1px solid #EEEFF1; vertical-align: top; }
-.col-mono { font-family: var(--font-mono); }
+/* Gaya laporan Collection — disamakan dengan tampilan hasil Cashline
+   (EvaluationView.vue): blok bertajuk polos, Executive Summary dalam kotak abu-abu
+   berisi tabel, lalu Hasil Scorecard dan Transkrip PDF di paling bawah.
+   Semua aturan di-namespace di bawah .col-report karena berkas ini tidak scoped —
+   tanpa itu kelas generik seperti .tbl/.badge akan bocor ke halaman lain.
+   --text-muted sejak 28 Agustus 2026 = hitam (#1E1F21), bukan abu-abu. */
+.col-report { display: flex; flex-direction: column; gap: 20px; }
+
+.col-report .block { display: flex; flex-direction: column; gap: 10px; }
+.col-report .block-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.col-report .block-title { font-size: 14px; font-weight: 700; color: var(--text); }
+
+.col-report .exec-summary {
+  background: #f8fafc; border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; gap: 16px;
+}
+.col-report .exec-sub { display: flex; flex-direction: column; gap: 8px; }
+.col-report .exec-sub-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.col-report .exec-sub-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.col-report .exec-sub-note { font-size: 12px; color: var(--text-muted); }
+.col-report .exec-summary .tbl { background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+
+.col-report .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.col-report .meta-item { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+.col-report .meta-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.col-report .meta-value { font-size: 15px; font-weight: 700; color: var(--text); margin-top: 2px; word-break: break-word; }
+
+.col-report .tbl-scroll { overflow-x: auto; }
+.col-report .tbl { width: 100%; border-collapse: collapse; }
+.col-report .tbl th {
+  background: #f8fafc; padding: 9px 12px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);
+  border-bottom: 1px solid var(--border); text-align: left;
+}
+.col-report .tbl td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+.col-report .tbl .num { text-align: right; white-space: nowrap; }
+.col-report .strong { font-weight: 700; }
+.col-report .muted { color: var(--text-muted); }
+.col-report .mono { font-family: var(--font-mono); }
+.col-report .reason { font-weight: 600; color: var(--text); }
+.col-report .reason-cell { min-width: 260px; max-width: 460px; font-size: 12px; white-space: normal; line-height: 1.45; }
+.col-report .cat-sub { font-size: 11px; color: var(--text-muted); font-weight: 500; margin-top: 2px; }
+.col-report .empty-inline { font-size: 13px; color: var(--text-muted); }
+
+.col-report .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.col-report .badge.tone-success { background: var(--green-bg); color: #16a34a; }
+.col-report .badge.tone-danger { background: var(--red-bg); color: var(--red); }
+.col-report .badge.tone-warning { background: #fef3c7; color: #b45309; }
+.col-report .badge.tone-info { background: var(--blue-bg); color: var(--blue); }
+.col-report .badge.tone-muted { background: #f1f5f9; color: var(--text-muted); }
+
+.col-report .summary {
+  font-size: 13px; line-height: 1.6; color: var(--text); background: #fff;
+  border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin: 0;
+}
+
+/* Bukti verbatim — pola sama dengan komponen Evidence di EvaluationView. */
+.col-report .ev { display: flex; flex-direction: column; gap: 3px; max-width: 320px; }
+.col-report .ev-ts { font-size: 11px; color: var(--blue); font-family: monospace; font-weight: 600; }
+.col-report .ev-quote { font-size: 12px; color: var(--text); font-style: italic; font-weight: 600; white-space: pre-wrap; }
+.col-report .ev-empty { color: var(--text-muted); }
+
+.col-report .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.col-report .chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.col-report .chip-blue { background: var(--blue-bg); color: var(--blue); }
