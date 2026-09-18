@@ -50,7 +50,7 @@
               <tr v-else-if="!filtered.length"><td colspan="8" class="empty">Tidak ada ticket yang cocok.</td></tr>
               <tr v-for="t in filtered" :key="t.id">
                 <td class="mono">{{ t.id || '—' }}</td>
-                <td>{{ t.contexts.join(', ') || '—' }}</td>
+                <td>{{ t.campaigns.join(', ') || '—' }}</td>
                 <td><span class="pill">{{ t.status }}</span></td>
                 <td>
                   <span v-if="t.assigned_qc" class="badge badge-yellow">{{ qcLabel(t.assigned_qc) }}</span>

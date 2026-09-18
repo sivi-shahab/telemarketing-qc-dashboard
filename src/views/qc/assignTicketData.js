@@ -13,11 +13,11 @@ export function groupTickets(items) {
     if (key == null) continue
     let g = map.get(key)
     if (!g) {
-      g = { id: key, contexts: [], tickets: [], latest: it.created_time ?? null }
+      g = { id: key, campaigns: [], tickets: [], latest: it.created_time ?? null }
       map.set(key, g)
     }
     g.tickets.push(it)
-    if (it.context && !g.contexts.includes(it.context)) g.contexts.push(it.context)
+    if (it.campaign && !g.campaigns.includes(it.campaign)) g.campaigns.push(it.campaign)
     const ts = it.created_time ?? null
     if (ts && (!g.latest || ts > g.latest)) g.latest = ts
   }
