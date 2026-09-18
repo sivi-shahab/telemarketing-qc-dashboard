@@ -72,7 +72,7 @@
               <td colspan="9">
                 <div class="expand-content">
                   <RouterLink :to="`/dashboard/collection/${row.result_id}`" class="full-page-link">Buka halaman penuh ↗</RouterLink>
-                  <CollectionResultPanel :result-id="row.result_id" layout="inline" />
+                  <CollectionResultPanel :result-id="row.result_id" />
                 </div>
               </td>
             </tr>
