@@ -2055,7 +2055,10 @@ function clearFilters() {
   filterQcSupport.value = ''
   filterDateStart.value = ''
   filterDateEnd.value = ''
-  applyFilter()
+  // Reset = kembali ke keadaan saat menu dibuka, BUKAN "tanpa tanggal". Kalau
+  // tanggalnya dikosongkan begitu saja, satu klik Reset mengembalikan tarikan
+  // seluruh riwayat yang justru dihindari di onMounted.
+  applyDefaultDate().finally(applyFilter)
 }
 
 function collapseAll() {
@@ -2340,7 +2343,37 @@ function onQcRequestChanged() {
   fetchItems({ silent: true })
 }
 
-onMounted(() => {
+// Menu Results dibuka dengan filter tanggal SUDAH terisi tanggal data terakhir.
+// Tanpa itu, sekali buka berarti menarik seluruh riwayat ter-scope halaman demi
+// halaman (GROUPING_MODE 'client', sampai MAX_FETCH_PAGES x FETCH_LIMIT baris) dan
+// mengulanginya tiap POLL_INTERVAL_MS selama ada tiket yang masih diproses.
+//
+// Manual Check & Pending Check sengaja DIKECUALIKAN: keduanya antrean kerja yang
+// menumpuk lintas hari, jadi mempersempitnya ke satu tanggal akan menyembunyikan
+// backlog — persis hal yang dicari orang saat membuka menu itu.
+//
+// Gagal atau belum ada data sama sekali -> tanggal dibiarkan kosong dan halaman
+// berperilaku seperti sebelumnya. Lebih baik sesekali berat daripada tabel kosong
+// yang tidak bisa dijelaskan penggunanya.
+const usesDefaultDate = !isBandingReview && !isPendingCheck
+
+async function applyDefaultDate() {
+  if (!usesDefaultDate) return
+  if (filterDateStart.value || filterDateEnd.value) return
+  try {
+    const res = await apiClient.get('/list_results/latest_date')
+    const d = res.data?.date
+    if (d) {
+      filterDateStart.value = d
+      filterDateEnd.value = d
+    }
+  } catch {
+    // biarkan kosong — fetchItems di bawah tetap jalan
+  }
+}
+
+onMounted(async () => {
+  await applyDefaultDate()
   fetchItems()
   fetchCampaigns()
   loadHierarchyOptions()

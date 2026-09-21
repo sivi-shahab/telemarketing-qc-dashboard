@@ -102,7 +102,7 @@
 import { ref, computed, onMounted } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
-import { groupTickets, joinLocalResults, describeSplit } from './assignTicketData.js'
+import { groupTickets, joinLocalResults, describeSplit, chunkTicketIds } from './assignTicketData.js'
 
 // Baris tiket diambil lewat App B (`GET /tickets_daily`), bukan menembak App C
 // langsung dari browser: permintaan langsung tidak melewati App B sehingga
@@ -114,6 +114,9 @@ import { groupTickets, joinLocalResults, describeSplit } from './assignTicketDat
 // Paginasi /list_results (App B) — masih dilakukan di sini, lihat fetchLocalResults.
 const FETCH_LIMIT = 100
 const MAX_FETCH_PAGES = 100
+// Banyaknya ticket id per permintaan. Bukan batas server, melainkan batas panjang
+// query string yang masuk akal — daftar dipotong, bukan dipendekkan.
+const TICKET_IDS_PER_REQUEST = 200
 
 const tickets = ref([])
 const qcUsers = ref([])
@@ -190,17 +193,38 @@ async function fetchTicketsDaily(signal) {
   return res.data.items || []
 }
 
-// Data assignment lokal. Dipaginasi penuh: satu hari saja sudah >100 ticket,
-// jadi sekali tembak limit=100 akan memotong data secara diam-diam.
-async function fetchLocalResults() {
+// Data lokal untuk ticket yang TAMPIL saja (`ticket_ids`), dipotong supaya query
+// string tidak tak terbatas. Tiap potongan tetap dipaginasi: satu ticket bisa
+// punya beberapa result (upload ulang), jadi jumlah barisnya tidak sama dengan
+// jumlah ticket yang diminta.
+//
+// Sebelum ini halaman menarik /list_results halaman demi halaman TANPA satu pun
+// filter — sampai 10.000 baris — lalu membuang hampir semuanya, padahal tabelnya
+// cuma menampilkan tiket satu hari.
+async function fetchLocalResults(ticketIds) {
   const collected = []
-  let p = 1
-  while (p <= MAX_FETCH_PAGES) {
-    const res = await apiClient.get('/list_results', { params: { page: p, limit: FETCH_LIMIT } })
-    const items = res.data.items || []
-    collected.push(...items)
-    if (collected.length >= (res.data.total || 0) || items.length === 0) break
-    p += 1
+  for (const chunk of chunkTicketIds(ticketIds, TICKET_IDS_PER_REQUEST)) {
+    const ids = chunk.join(',')
+    let p = 1
+    while (p <= MAX_FETCH_PAGES) {
+      const res = await apiClient.get('/list_results', {
+        params: { page: p, limit: FETCH_LIMIT, ticket_ids: ids },
+      })
+      const items = res.data.items || []
+      collected.push(...items)
+      if (collected.length >= (res.data.total || 0) || items.length === 0) break
+      p += 1
+    }
+  }
+  return collected
+}
+
+// Assignment untuk ticket yang tampil saja — dulu seluruh riwayat assignment.
+async function fetchAssignments(ticketIds) {
+  const collected = []
+  for (const chunk of chunkTicketIds(ticketIds, TICKET_IDS_PER_REQUEST)) {
+    const res = await apiClient.get('/qc_assignments', { params: { ticket_ids: chunk.join(',') } })
+    collected.push(...(res.data || []))
   }
   return collected
 }
@@ -221,11 +245,16 @@ async function loadAll() {
       fetchTicketsDaily(ctrl.signal),
       apiClient.get('/qc_assignment/qc_users'),
     ])
+    // Pengayaan diminta untuk ticket yang akan DITAMPILKAN saja — id-nya baru
+    // diketahui setelah tickets-daily selesai, jadi dua permintaan di bawah tidak
+    // bisa ikut Promise.all di atas.
+    const groups = groupTickets(daily)
+    const ticketIds = groups.map((g) => g.id)
     // Kegagalan /list_results TIDAK membatalkan tabel: assign hanya butuh ticket
     // id, jadi baris tetap tampil dengan kolom QC kosong.
     let local = []
     try {
-      local = await fetchLocalResults()
+      local = await fetchLocalResults(ticketIds)
     } catch {
       local = []
     }
@@ -234,13 +263,12 @@ async function loadAll() {
     // ticket yang belum diproses tidak akan pernah ikut terbawa di sana.
     let assignments = []
     try {
-      const res = await apiClient.get('/qc_assignments')
-      assignments = res.data || []
+      assignments = await fetchAssignments(ticketIds)
     } catch {
       assignments = []
     }
     if (myId !== requestId) return
-    tickets.value = joinLocalResults(groupTickets(daily), local, assignments)
+    tickets.value = joinLocalResults(groups, local, assignments)
     qcUsers.value = users.data || []
   } catch (e) {
     if (e.name === 'AbortError' || e.name === 'CanceledError') return
