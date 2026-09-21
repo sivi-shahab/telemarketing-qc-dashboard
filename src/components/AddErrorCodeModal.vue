@@ -107,8 +107,8 @@
               <textarea id="add-ev" v-model="evidenceVal" class="textarea-input" rows="3" placeholder="Evidence pendukung (teks saja)…"></textarea>
             </div>
             <div class="field">
-              <label class="field-label" for="add-ticket">Ticket ID <span class="req">*</span></label>
-              <input id="add-ticket" v-model="ticketVal" class="select-input" type="text" placeholder="Ticket ID…" />
+              <label class="field-label" for="add-ticket">Data Leads <span class="req">*</span></label>
+              <input id="add-ticket" v-model="ticketVal" class="select-input" type="text" placeholder="Data Leads…" />
             </div>
           </div>
 
@@ -130,6 +130,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import apiClient from '../api/client.js'
+import { useDataStore } from '../stores/data.js'
 
 const props = defineProps({
   resultId: { type: String, required: true },
@@ -209,12 +210,16 @@ watch(source, () => {
 watch(errorCode, () => { riskBaseVal.value = '' })
 
 // Master Error Code catalog for the dropdown, grouped by Error Type.
+// Di-cache lewat dataStore (17 September 2026, improvement.md item 5.1) — katalog
+// ini di-fetch ulang tiap modal ini dibuka; tiga modal error-code lain memakai
+// katalog yang sama, jadi sekarang berbagi satu cache 5 menit.
+const dataStore = useDataStore()
 const errorReasonGroups = ref([])
 async function loadErrorReasons() {
   try {
-    const res = await apiClient.get('/error_reasons')
+    const list = await dataStore.fetchErrorReasons()
     const byType = {}
-    for (const r of res.data || []) (byType[r.error_type] ||= []).push(r)
+    for (const r of list || []) (byType[r.error_type] ||= []).push(r)
     errorReasonGroups.value = Object.entries(byType).map(([type, items]) => ({ type, items }))
   } catch {
     errorReasonGroups.value = []

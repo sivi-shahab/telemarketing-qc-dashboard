@@ -203,7 +203,7 @@
             <th>Details Error</th>
             <th>Reason</th>
             <th>Evidence</th>
-            <th>Ticket ID</th>
+            <th>Data Leads</th>
           </tr>
         </thead>
         <tbody>
@@ -488,7 +488,7 @@
               <th>Details Error</th>
               <th>Reason</th>
               <th>Evidence</th>
-              <th>Ticket ID</th>
+              <th>Data Leads</th>
               <th v-if="showHistoryCol">Riwayat</th>
               <th v-if="showManualCheckCol">Manual Check</th>
               <th v-if="showDirectEditCol">Manual Check</th>
@@ -717,7 +717,7 @@
               <th class="num skor-col">Skor</th>
               <th>Evidence</th>
               <th class="reason-col">Reason</th>
-              <th>Ticket ID</th>
+              <th>Data Leads</th>
             </tr>
           </thead>
           <tbody>
@@ -1602,10 +1602,19 @@ function cardHolderThresholds(field) {
   if (ADDRESS_FIELDS.includes(field)) {
     return ['Nilai pendek termuat utuh di nilai panjang → MATCH (100%)', ...GENERIC_THRESHOLD]
   }
+  if (field === 'no_telpon_terdaftar' || field === 'no_telpon_kantor') {
+    return ['Digit sama persis (sesudah nol depan dibuang) → MATCH', 'Beda 1 digit pun → MISMATCH, berapa pun similarity-nya']
+  }
+  if (field === 'alamat_email_terdaftar') {
+    return ['Ambang 80% dihitung TERPISAH per local-part dan domain, bukan atas alamat utuh', '≥ 80% pada KEDUA bagian → MATCH', '< 80% pada salah satu bagian → MISMATCH']
+  }
   return [...GENERIC_THRESHOLD]
 }
 
 function cashlineThresholds(field) {
+  if (field === 'nomor_rekening') {
+    return ['Digit sama persis (sesudah nol depan dibuang) → MATCH', 'Beda 1 digit pun → MISMATCH, berapa pun similarity-nya']
+  }
   if (field === 'nama_pemilik_rekening') {
     return ['≥ 90% → MATCH', '< 90% → MISMATCH, perlu cover buku tabungan']
   }

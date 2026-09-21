@@ -56,17 +56,14 @@
               <div class="kpi" style="--accent: var(--m-success)">
                 <div class="kpi-label">Total Qualified</div>
                 <div class="kpi-value mono">{{ fmt(myDonutApprove) }} <span class="kpi-pct">({{ myDonutApprovePct }}%)</span></div>
-                <div class="kpi-sub">dari {{ fmt(myDonutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: var(--m-danger)">
                 <div class="kpi-label">Total Not Qualified</div>
                 <div class="kpi-value mono">{{ fmt(myDonutReturn) }} <span class="kpi-pct" style="color: var(--m-danger)">({{ myDonutReturnPct }}%)</span></div>
-                <div class="kpi-sub">dari {{ fmt(myDonutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: #D97706">
                 <div class="kpi-label">Total Pending</div>
                 <div class="kpi-value mono">{{ fmt(myDonutPending) }} <span class="kpi-pct">({{ myDonutPendingPct }}%)</span></div>
-                <div class="kpi-sub">butuh dokumen (H+2)</div>
               </div>
             </div>
 
@@ -134,13 +131,13 @@
 
           <div v-else class="panel">
             <div class="panel-title">{{ scopeListTitle }}</div>
-            <TblToolbar :v="myTicketsView" label="Daftar Ticket ID Anda" :modes="TICKET_MODES"
-                        placeholder="Cari Ticket ID, campaign, atau AI Status…" />
+            <TblToolbar :v="myTicketsView" label="Daftar Data Leads Anda" :modes="TICKET_MODES"
+                        placeholder="Cari Data Leads, campaign, atau AI Status…" />
             <div class="table-scroll">
               <table class="mtable">
                 <thead>
                   <tr>
-                    <th class="sortable" @click="myTicketsView.sortBy('id')">Ticket ID <span class="sort-ind">{{ myTicketsView.indicator('id') }}</span></th>
+                    <th class="sortable" @click="myTicketsView.sortBy('id')">Data Leads <span class="sort-ind">{{ myTicketsView.indicator('id') }}</span></th>
                     <th class="sortable" @click="myTicketsView.sortBy('campaign')">Campaign <span class="sort-ind">{{ myTicketsView.indicator('campaign') }}</span></th>
                     <th class="num sortable" @click="myTicketsView.sortBy('num_calls')">Calls <span class="sort-ind">{{ myTicketsView.indicator('num_calls') }}</span></th>
                     <!-- Kolom "Status" (status pemrosesan: pending/processing/done/failed)
@@ -245,17 +242,14 @@
               <div class="kpi" style="--accent: var(--m-success)">
                 <div class="kpi-label">Total Qualified</div>
                 <div class="kpi-value mono">{{ fmt(donutApprove) }} <span class="kpi-pct">({{ donutApprovePct }}%)</span></div>
-                <div class="kpi-sub">dari {{ fmt(donutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: var(--m-danger)">
                 <div class="kpi-label">Total Not Qualified</div>
                 <div class="kpi-value mono">{{ fmt(donutReturn) }} <span class="kpi-pct" style="color: var(--m-danger)">({{ donutReturnPct }}%)</span></div>
-                <div class="kpi-sub">dari {{ fmt(donutTotal) }} dinilai</div>
               </div>
               <div class="kpi" style="--accent: #D97706">
                 <div class="kpi-label">Total Pending</div>
                 <div class="kpi-value mono">{{ fmt(donutPending) }} <span class="kpi-pct">({{ donutPendingPct }}%)</span></div>
-                <div class="kpi-sub">butuh dokumen (H+2)</div>
               </div>
             </div>
 
@@ -364,11 +358,6 @@
           <!-- Sales performance table -->
           <div class="panel">
             <div class="panel-title">Performa Sales</div>
-            <div class="panel-hint">
-              Memuat seluruh agent yang punya akun aktif — termasuk yang belum punya
-              submission. <b>Pending</b> = tiket yang masih menunggu dokumen (H+2);
-              <b>—</b> berarti belum ada tiket yang dinilai, bukan 0.
-            </div>
             <TblToolbar :v="salesView" label="Performa Sales" :modes="AGENT_MODES"
                         :placeholder="salesSearchHint" />
             <div class="table-scroll">
@@ -430,7 +419,6 @@
             <div class="kpi" style="--accent: var(--m-info)">
               <div class="kpi-label">Total Sales Call Activity</div>
               <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.submissions) }}</div>
-              <div class="kpi-sub">rekaman dinilai · {{ fmt(hierarchy.all_telesales.ticket_count) }} data leads</div>
             </div>
             <!-- Bentuk kartunya SAMA dengan Total Recording (angka mentah, tanpa
                  sub-line) supaya pembilang & penyebut Avg Failure Rate terbaca
@@ -445,9 +433,8 @@
                  ``_HIER_RISK_FIELDS`` di api/routers/stats.py. Yang tetap ditahan dari
                  sisi sales adalah pecahannya per severity (High/Medium/Low). -->
             <div class="kpi" style="--accent: var(--m-danger)">
-              <div class="kpi-label">Total Failure</div>
-              <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.total_risk) }}/{{ fmt(hierarchy.all_telesales.submissions) }}</div>
-              <div class="kpi-sub">total failure / total sales call activity</div>
+              <div class="kpi-label">Total Failure (Risk Level)</div>
+              <div class="kpi-value mono">{{ fmt(hierarchy.all_telesales.total_risk) }}/{{ fmt(hierarchy.all_telesales.submissions) }} <span class="kpi-pct" style="color: var(--m-danger)">({{ pctOf(hierarchy.all_telesales.total_risk, hierarchy.all_telesales.submissions) > 100 ? '100%+' : pctOf(hierarchy.all_telesales.total_risk, hierarchy.all_telesales.submissions) + '%' }})</span></div>
             </div>
           </div>
 
@@ -491,7 +478,7 @@
                          ticket id-nya; Qualified/Pending/Not Qualified adalah vonis per TIKET
                          dan menjumlah ke kolom itu, bukan ke Total Sales Call Activity. -->
                     <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah rekaman (PDF) yang dinilai">Total Sales Call Activity</th>
-                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah ticket id">Data Leads</th>
+                    <th :rowspan="showRiskBase ? 2 : 1" class="num col-n" title="Jumlah data leads">Data Leads</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Qualified</th>
                     <th v-if="showRiskBase" rowspan="2" class="num col-n">Pending</th>
                     <!-- Sisi sales: kolom ini dulu berjudul "Errors" (28 Agustus 2026 diganti
@@ -622,12 +609,10 @@
             <div class="kpi" style="--accent: var(--m-info)">
               <div class="kpi-label">Total Data Leads</div>
               <div class="kpi-value mono">{{ fmt(failureData.total_submissions || 0) }}</div>
-              <div class="kpi-sub">seluruh data leads yang dinilai</div>
             </div>
             <div class="kpi" style="--accent: var(--m-danger)">
               <div class="kpi-label">Total Data Leads Not Qualified</div>
               <div class="kpi-value mono">{{ fmt(failureData.total_evaluated) }}</div>
-              <div class="kpi-sub">basis persentase kegagalan kategori</div>
             </div>
           </div>
 
@@ -640,7 +625,7 @@
                 <thead>
                   <tr>
                     <th class="sortable" @click="failureView.sortBy('category')">Kategori <span class="sort-ind">{{ failureView.indicator('category') }}</span></th>
-                    <th class="num sortable" @click="failureView.sortBy('fail_count')">Failure <span class="sort-ind">{{ failureView.indicator('fail_count') }}</span></th>
+                    <th class="num sortable" style="text-align: center" @click="failureView.sortBy('fail_count')">Failure <span class="sort-ind">{{ failureView.indicator('fail_count') }}</span></th>
                     <th>Failure Reason</th>
                     <th class="reason-count-col">Total Failure per Reason</th>
                   </tr>
@@ -651,7 +636,7 @@
                   </td></tr>
                   <tr v-for="c in failureView.rows" :key="c.category">
                     <td class="campaign-name">{{ c.category }}</td>
-                    <td class="num mono">{{ fmt(c.fail_count) }}</td>
+                    <td class="num mono" style="text-align: center">{{ fmt(c.fail_count) }}</td>
                     <td>
                       <ul class="reason-list">
                         <li v-for="(rr, i) in c.top_reasons" :key="i" class="reason-req">{{ rr.requirement }}</li>
@@ -683,12 +668,10 @@
             <div class="kpi" style="--accent: var(--m-info)">
               <div class="kpi-label">Total Data Leads</div>
               <div class="kpi-value mono">{{ fmt(failureHier.total_submissions || 0) }}</div>
-              <div class="kpi-sub">seluruh data leads yang dinilai</div>
             </div>
             <div class="kpi" style="--accent: var(--m-danger)">
               <div class="kpi-label">Total Data Leads Not Qualified</div>
               <div class="kpi-value mono">{{ fmt(failureHier.all_telesales.evaluated) }}</div>
-              <div class="kpi-sub">seluruh telesales</div>
             </div>
             <div class="kpi" style="--accent: var(--m-warning, #D97706)">
               <div class="kpi-label">Kategori Terbesar</div>
@@ -706,7 +689,6 @@
                 </li>
                 <li v-if="!topCategoriesOf(failureHier.all_telesales).length" class="none">—</li>
               </ol>
-              <div class="kpi-sub">{{ topCategorySubOf(failureHier.all_telesales) }}</div>
             </div>
           </div>
 
@@ -725,7 +707,7 @@
                      dinamis, satu per conversation_phases) — begitu jumlahnya besar,
                      sisanya bisa nol dan nama jadi ketimpa/terpotong oleh kolom sebelahnya. -->
                 <colgroup>
-                  <col style="width: 220px" />
+                  <col style="width: 300px" />
                   <col style="width: 128px" />
                   <col v-for="c in failureColumns" :key="'fc'+c" style="width: 140px" />
                 </colgroup>
@@ -778,7 +760,6 @@
                               <tr v-for="tk in ag.tickets" :key="'ftk'+ag.agent_id+tk.ticket_id" class="lvl-tk">
                                 <td class="pad-3">
                                   <span class="lvl-tag tkt">ID</span> <span class="mono">{{ tk.ticket_id }}</span>
-                                  <span class="tk-fails">{{ failedPhasesOf(tk) }}</span>
                                 </td>
                                 <FailCells :n="tk" :cols="failureColumns" />
                               </tr>
@@ -872,7 +853,7 @@ const scopeTitle = computed(() => (isTeamLeader.value ? 'Statistik Tim Anda' : '
 const scopeHint = computed(() => (isTeamLeader.value
   ? 'Hanya tiket agent di bawah Anda · auto-refresh 30 detik'
   : 'Hanya tiket Anda · auto-refresh 30 detik'))
-const scopeListTitle = computed(() => (isTeamLeader.value ? 'Daftar Ticket ID Tim Anda' : 'Daftar Ticket ID Anda'))
+const scopeListTitle = computed(() => (isTeamLeader.value ? 'Daftar Data Leads Tim Anda' : 'Daftar Data Leads Anda'))
 const scopeEmpty = computed(() => (isTeamLeader.value ? 'Belum ada tiket untuk tim Anda.' : 'Belum ada tiket untuk Anda.'))
 
 // Kolom Qualified, Pending, Risk Base (High/Medium/Low/System/New) dan Total Failure
@@ -1363,12 +1344,6 @@ function openFailureMode(mode) {
 function topCategoriesOf(node) {
   return (node?.categories || []).slice(0, 3)
 }
-// Penyebutnya saja: jumlah failure tiap kategori sudah tertulis di barisnya sendiri.
-function topCategorySubOf(node) {
-  return (node?.categories || []).length
-    ? `failure dari ${fmt(node?.evaluated || 0)} data leads Not Qualified`
-    : 'belum ada kegagalan'
-}
 
 // Failure Reason: dicari lewat nama kategori DAN teks requirement-nya, karena yang
 // diingat orang biasanya bunyi alasannya ("provisi", "bunga"), bukan nama kategorinya.
@@ -1377,14 +1352,6 @@ const failureCategories = computed(() => failureData.value?.categories || [])
 // ``conversation_phases`` KB, jadi layar tidak perlu tahu nama fase apa pun.
 const failureColumns = computed(() => failureHier.value?.categories_order || [])
 const failureColCount = computed(() => 2 + failureColumns.value.length)
-// Item scorecard yang gagal untuk SATU tiket, ditulis di sebelah ticket id. Sengaja
-// ITEM (SC_CL_26), bukan nama fase: fase-nya sudah tampil sebagai kolom di baris yang
-// sama, jadi menyebutnya lagi tidak menambah apa pun — sedangkan item_code menunjuk
-// tepat ke baris scorecard yang harus dibuka di menu Results.
-function failedPhasesOf(tk) {
-  const codes = tk?.item_codes || []
-  return codes.length ? `— ${codes.join(', ')}` : '— tidak ada item scorecard yang gagal'
-}
 const failureView = useTableView(failureCategories, {
   fields: ['category', (r) => (r.top_reasons || []).map((x) => x.requirement).join(' ')],
   sortKey: 'fail_count',
@@ -1632,8 +1599,24 @@ async function loadTickets() {
 // Penghitung generasi: stopCashline bisa terjadi SELAMA startCashline menunggu
 // Promise.all (toggle mode / halaman ditutup). Tanpa pemeriksaan ini interval
 // dipasang sesudah stop dan polling berjalan selamanya (handle-nya tertimpa).
+//
+// Polling hemat (port monolit 17 September 2026, improvement.md item 2.3): timer
+// 30 detik juga dihentikan saat tab di background/minimized, dan disegarkan sekali
+// begitu tab aktif lagi — sebelumnya terus menembak backend tanpa ada yang melihat.
 let cashlineGen = 0
 let unmounted = false
+function refreshCashline() {
+  if (isScopedRole.value) {
+    loadMine(); loadMyTimeseries()
+    if (isSalesAgent.value) loadTickets()
+  } else {
+    loadOverview(); loadTimeseries()
+  }
+}
+function startCashlinePolling() {
+  if (timer || document.hidden) return
+  timer = setInterval(refreshCashline, 30000)
+}
 async function startCashline() {
   clearInterval(timer)
   timer = null
@@ -1644,22 +1627,37 @@ async function startCashline() {
     const tasks = [loadMine(), loadMyTimeseries()]
     if (isSalesAgent.value) tasks.push(loadTickets())
     await Promise.all(tasks)
-    if (stale()) return
-    timer = setInterval(() => { loadMine(); loadMyTimeseries(); if (isSalesAgent.value) loadTickets() }, 30000)
   } else {
     await Promise.all([loadOverview(), loadCampaigns(), loadCampaignMonthly(), loadTimeseries()])
-    if (stale()) return
-    timer = setInterval(() => { loadOverview(); loadTimeseries() }, 30000)
   }
+  if (stale()) return
+  startCashlinePolling()
 }
 function stopCashline() {
   cashlineGen++
   clearInterval(timer)
   timer = null
 }
+function handleVisibilityChange() {
+  if (unmounted || mode.value !== 'cashline') return
+  if (document.hidden) {
+    clearInterval(timer)
+    timer = null
+  } else {
+    refreshCashline()
+    startCashlinePolling()
+  }
+}
 watch(mode, (m) => { stopCashline(); if (m === 'cashline' && !unmounted) startCashline() }, { immediate: false })
-onMounted(() => { if (mode.value === 'cashline') startCashline() })
-onUnmounted(() => { unmounted = true; stopCashline() })
+onMounted(() => {
+  if (mode.value === 'cashline') startCashline()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+onUnmounted(() => {
+  unmounted = true
+  stopCashline()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 </script>
 
 <style scoped>
@@ -1709,7 +1707,6 @@ onUnmounted(() => { unmounted = true; stopCashline() })
 .kpi-label { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--m-gray-700); }
 .kpi-value { font-size: 32px; font-weight: 800; color: var(--m-gray-900); margin-top: 6px; }
 .kpi-pct { font-size: 15px; font-weight: 700; color: var(--m-fg-2); }
-.kpi-sub { font-size: 12.5px; font-weight: 600; color: var(--m-fg-2); margin-top: 4px; }
 /* KPI "Kategori Terbesar": tiga baris menggantikan satu angka besar.
    Tingginya dipatok agar SAMA dengan kartu ber-.kpi-value sebarisnya — kartu KPI
    diregangkan grid mengikuti isi tertinggi, jadi kartu ini harus muat di ruang
@@ -1765,9 +1762,6 @@ onUnmounted(() => { unmounted = true; stopCashline() })
    bisa dibuka, jadi ditegaskan lewat garis bawah tebal alih-alih panah. */
 .mtable.tree tr.lvl-all td { background: var(--m-gray-100); font-weight: 800; border-bottom: 2px solid var(--m-border-2, var(--m-gray-300)); }
 .lvl-tag.all { background: var(--m-gray-700); color: #fff; }
-/* Ringkasan fase gagal di sebelah ticket id: sengaja lebih redup dari id-nya supaya
-   tetap terbaca sebagai keterangan, bukan bagian dari nama. */
-.tk-fails { margin-left: 8px; font-size: 11.5px; font-weight: 600; color: var(--m-fg-3); }
 
 
 /* Panels */

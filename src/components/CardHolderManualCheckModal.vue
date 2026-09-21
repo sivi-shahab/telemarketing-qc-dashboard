@@ -37,7 +37,7 @@
               <div class="detail-row"><span class="dk">Match</span><span class="dv">{{ row.match || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Reason</span><span class="dv">{{ row.reason || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Evidence</span><span class="dv">{{ row.evidence || '—' }}</span></div>
-              <div class="detail-row"><span class="dk">Ticket ID</span><span class="dv">{{ row.ticket_id || '—' }}</span></div>
+              <div class="detail-row"><span class="dk">Data Leads</span><span class="dv">{{ row.ticket_id || '—' }}</span></div>
             </div>
           </div>
 
@@ -115,13 +115,13 @@
               ></textarea>
             </div>
             <div class="field">
-              <label class="field-label" for="ch-ticket">Ticket ID <span class="req">*</span></label>
+              <label class="field-label" for="ch-ticket">Data Leads <span class="req">*</span></label>
               <input
                 id="ch-ticket"
                 v-model="ticketVal"
                 class="select-input"
                 type="text"
-                placeholder="Ticket ID…"
+                placeholder="Data Leads…"
               />
             </div>
           </div>
@@ -144,6 +144,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import apiClient from '../api/client.js'
+import { useDataStore } from '../stores/data.js'
 
 const props = defineProps({
   resultId: { type: String, required: true },
@@ -176,12 +177,15 @@ const appealKind = ref('remove')
 // New Error Code proposed by QC (required only when appealKind === 'change').
 const newErrorCodeVal = ref('')
 // Master Error Code catalog for the dropdown, grouped by Error Type.
+// Di-cache lewat dataStore (17 September 2026, improvement.md item 5.1) — lihat
+// catatan yang sama di AddErrorCodeModal.vue.
+const dataStore = useDataStore()
 const errorReasonGroups = ref([])
 async function loadErrorReasons() {
   try {
-    const res = await apiClient.get('/error_reasons')
+    const list = await dataStore.fetchErrorReasons()
     const byType = {}
-    for (const r of res.data || []) (byType[r.error_type] ||= []).push(r)
+    for (const r of list || []) (byType[r.error_type] ||= []).push(r)
     errorReasonGroups.value = Object.entries(byType).map(([type, items]) => ({ type, items }))
   } catch {
     errorReasonGroups.value = []

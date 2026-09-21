@@ -5,7 +5,7 @@
       <table class="bw-table">
         <thead>
           <tr>
-            <th class="col-ticket">Ticket ID</th>
+            <th class="col-ticket">Data Leads</th>
             <th class="col-evidence">Evidence</th>
             <th class="col-reason">Reason</th>
           </tr>

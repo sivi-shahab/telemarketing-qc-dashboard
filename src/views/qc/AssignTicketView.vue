@@ -4,12 +4,12 @@
       <div class="card">
         <h2 class="card-title">Assign Ticket ke QC</h2>
         <p class="card-subtitle">
-          Bagikan Ticket ID ke QC. Satu ticket hanya untuk satu QC — QC hanya bisa
+          Bagikan Data Leads ke QC. Satu ticket hanya untuk satu QC — QC hanya bisa
           melihat &amp; mengajukan banding untuk ticket yang di-assign kepadanya.
         </p>
 
         <div class="toolbar">
-          <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Ticket ID…" />
+          <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Data Leads…" />
           <input v-model="loadDate" class="text-input filter" type="date" title="Kosongkan = data kemarin (H-1)" @change="loadAll" />
           <select v-model="assigneeFilter" class="text-input filter">
             <option value="">Semua</option>
@@ -35,7 +35,7 @@
           <table class="assign-table">
             <thead>
               <tr>
-                <th>Ticket ID</th>
+                <th>Data Leads</th>
                 <th>Campaign</th>
                 <th>Status</th>
                 <th>QC ditugaskan</th>

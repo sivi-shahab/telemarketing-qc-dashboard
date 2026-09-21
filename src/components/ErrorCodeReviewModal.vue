@@ -36,7 +36,7 @@
                 <div class="detail-row"><span class="dk">Match</span><span class="dv">{{ row.match || '—' }}</span></div>
               </template>
               <div class="detail-row"><span class="dk">Evidence</span><span class="dv">{{ row.evidence || '—' }}</span></div>
-              <div class="detail-row"><span class="dk">Ticket ID</span><span class="dv">{{ row.ticket_id || '—' }}</span></div>
+              <div class="detail-row"><span class="dk">Data Leads</span><span class="dv">{{ row.ticket_id || '—' }}</span></div>
             </div>
           </div>
 
@@ -63,7 +63,7 @@
               </template>
               <div class="detail-row"><span class="dk">Timestamp</span><span class="dv">{{ qcTimestamp || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Evidence</span><span class="dv">{{ qcEvidenceText || '—' }}</span></div>
-              <div class="detail-row"><span class="dk">Ticket ID</span><span class="dv">{{ latest.qc_ticket_id || '—' }}</span></div>
+              <div class="detail-row"><span class="dk">Data Leads</span><span class="dv">{{ latest.qc_ticket_id || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Diajukan oleh (QC)</span><span class="dv">{{ latest.requested_by_username || '—' }}</span></div>
               <div class="detail-row"><span class="dk">Cek Team Leader QC</span><span class="dv">{{ tlQcText }}</span></div>
             </div>

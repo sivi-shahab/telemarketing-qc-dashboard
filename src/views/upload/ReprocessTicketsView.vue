@@ -5,7 +5,7 @@
       <div class="card">
         <h2 class="card-title">Proses Ulang Semua Tiket</h2>
         <p class="card-subtitle">
-          Setiap <strong>unique ticket id</strong> pada campaign yang dicentang diproses ulang
+          Setiap <strong>unique data leads</strong> pada campaign yang dicentang diproses ulang
           memakai konfigurasi campaign <strong>terbaru</strong> (prompt, scorecard, KB yang
           berlaku sekarang). Begitu satu tiket selesai, seluruh entry lamanya dihapus sehingga
           tersisa <strong>satu entry terbaru per unique id</strong>.
@@ -89,7 +89,7 @@
           <table class="items-table">
             <thead>
               <tr>
-                <th>Ticket ID</th>
+                <th>Data Leads</th>
                 <th>Campaign</th>
                 <th>Status</th>
                 <th>Entry lama dihapus</th>
