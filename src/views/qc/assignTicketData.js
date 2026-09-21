@@ -97,3 +97,30 @@ export function describeSplit(n, k) {
   return `${n} ticket dibagi ke ${k} QC aktif, didahulukan yang bebannya paling `
     + `sedikit sehingga totalnya berakhir merata. Jumlah per QC ditentukan server.`
 }
+
+/**
+ * Pecah daftar ticket id menjadi potongan-potongan untuk query string.
+ *
+ * Halaman ini hanya butuh data lokal untuk ticket yang BENAR-BENAR ada di
+ * tabelnya. Sebelumnya ia menarik /list_results halaman demi halaman tanpa satu
+ * pun filter — sampai 10.000 baris — lalu membuang hampir semuanya; dan
+ * /qc_assignments mengirim seluruh riwayat assignment.
+ *
+ * Id kosong dibuang dan duplikat dibuang, jadi daftar yang seluruhnya kosong
+ * menghasilkan NOL potongan — bukan satu potongan kosong. Bedanya penting:
+ * `ticket_ids=` kosong adalah permintaan yang tidak ada gunanya, dan di server
+ * artinya "tidak ada id yang diminta".
+ */
+export function chunkTicketIds(ids, size = 200) {
+  const seen = []
+  const taken = new Set()
+  for (const raw of ids || []) {
+    const t = String(raw ?? '').trim()
+    if (!t || taken.has(t)) continue
+    taken.add(t)
+    seen.push(t)
+  }
+  const out = []
+  for (let i = 0; i < seen.length; i += size) out.push(seen.slice(i, i + size))
+  return out
+}

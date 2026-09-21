@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { groupTickets, groupStatus, joinLocalResults, describeSplit } from './assignTicketData.js'
+import { groupTickets, groupStatus, joinLocalResults, describeSplit, chunkTicketIds } from './assignTicketData.js'
 
 test('groupTickets mengelompokkan beberapa tiket ke satu ticket id', () => {
   const groups = groupTickets([
@@ -225,4 +225,29 @@ test('joinLocalResults: sudah dicek tetapi belum disetujui', () => {
   assert.equal(row.qc_checked_at, '2026-09-10T08:00:00')
   assert.equal(row.manual_approved_at, null, 'kolom Approved At harus kosong, bukan meminjam Checked At')
   assert.equal(row.manual_approved_by, null)
+})
+
+// --- chunkTicketIds: pengayaan hanya untuk ticket yang tampil -----------------
+//
+// Halaman ini dulu menarik /list_results halaman demi halaman TANPA filter (sampai
+// 10.000 baris) lalu membuang hampir semuanya. Sekarang ia meminta ticket yang
+// benar-benar ada di tabelnya — dipotong supaya query string tidak tak terbatas.
+
+test('chunkTicketIds memotong daftar sesuai ukuran', () => {
+  assert.deepEqual(chunkTicketIds(['a', 'b', 'c', 'd', 'e'], 2), [['a', 'b'], ['c', 'd'], ['e']])
+})
+
+test('chunkTicketIds membuang id kosong dan duplikat', () => {
+  assert.deepEqual(chunkTicketIds(['a', '', 'a', null, ' b ', undefined], 10), [['a', 'b']])
+})
+
+test('chunkTicketIds tanpa id menghasilkan daftar kosong', () => {
+  assert.deepEqual(chunkTicketIds([], 10), [])
+  assert.deepEqual(chunkTicketIds(null, 10), [])
+})
+
+test('chunkTicketIds: tanpa potongan berarti tidak ada permintaan sama sekali', () => {
+  // Penting: nol potongan, BUKAN satu potongan kosong. Satu potongan kosong akan
+  // mengirim ticket_ids= kosong, dan itu permintaan yang tidak ada gunanya.
+  assert.equal(chunkTicketIds([''], 10).length, 0)
 })
