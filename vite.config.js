@@ -9,4 +9,18 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   base: process.env.VITE_BASE_PATH || '/',
+  build: {
+    rollupOptions: {
+      output: {
+        // Vendor library inti dipisah dari chunk per-halaman (17 September 2026,
+        // improvement.md item 5.4) — isinya nyaris tidak pernah berubah antar
+        // deploy, jadi nginx `Cache-Control: immutable` (lihat nginx.conf) bisa
+        // menahannya di cache browser lintas rilis, alih-alih ikut ter-invalidate
+        // tiap kali HANYA kode satu halaman yang berubah.
+        manualChunks: {
+          vendor: ['vue', 'vue-router', 'pinia', 'axios'],
+        },
+      },
+    },
+  },
 })

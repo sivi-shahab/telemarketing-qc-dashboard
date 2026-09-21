@@ -137,14 +137,20 @@
       <span v-if="docSlaError" class="sla-error">{{ docSlaError }}</span>
     </div>
 
-    <!-- Export agregat per kategori verifikasi (Admin). Berbeda dengan
+    <!-- Export agregat per kategori verifikasi / fase percakapan (Admin, SPQ Head,
+         Team Leader QC). Berbeda dengan
          tombol XLSX per baris: ini menarik SEMUA tiket Not Qualified & Pending yang
          punya temuan pada kategori terpilih, satu baris per parameter. Filter
          Campaign di atas ikut berlaku supaya hasilnya sama dengan yang terlihat. -->
     <div v-if="canExportVerification" class="export-bar">
       <span class="export-label">Export Agregat</span>
       <select v-model="exportCategory" class="select-input">
-        <option v-for="c in EXPORT_CATEGORIES" :key="c.key" :value="c.key">{{ c.label }}</option>
+        <optgroup label="Verifikasi">
+          <option v-for="c in exportVerifCats" :key="c.key" :value="c.key">{{ c.label }}</option>
+        </optgroup>
+        <optgroup v-if="exportPhases.length" label="Fase Percakapan">
+          <option v-for="c in exportPhases" :key="c.key" :value="c.key">{{ c.label }}</option>
+        </optgroup>
       </select>
       <button class="btn-export-agg" :disabled="exportingCategory" @click="exportVerification">
         {{ exportingCategory ? 'Menyiapkan…' : 'Export XLSX' }}
@@ -189,6 +195,7 @@
           <col v-if="isSimpleViewer" style="width: 9%" />
           <col v-if="!isDemoLayout" style="width: 6%" />
           <col :style="colStyle(7, 17)" />
+          <col v-if="isDemoLayout" style="width: 9%" />
           <col :style="colStyle(10, 11)" />
           <col v-if="showCriticalFailure" :style="colStyle(13, 15)" />
           <col v-if="isDemoLayout" style="width: 10%" />
@@ -212,6 +219,13 @@
             <th v-if="isSimpleViewer">Limit Sebelumnya</th>
             <th v-if="!isDemoLayout" class="num">Number of Calls</th>
             <th>Call Duration</th>
+            <!-- Waktu proses end-to-end tiket ini oleh AI (unduh PDF s/d penilaian
+                 LLM selesai), dari `results.processing_sec` — lihat `timings` di
+                 result_json untuk rincian per tahap. Ditambahkan 15 September 2026,
+                 khusus tata letak Demo (permintaan saat itu), supaya tiket yang
+                 proses-nya lama (mis. 030808fLO1, ~39 menit) langsung terlihat tanpa
+                 membuka detail. -->
+            <th v-if="isDemoLayout">AI Processing Time</th>
             <th>Campaign Interest</th>
             <!-- Isinya sama (critical_compliance_check); tata letak Demo menyebutnya
                  SCOREBOMB, istilah yang dipakai saat mendemokan ke orang awam. -->
@@ -277,8 +291,7 @@
                          sekali sementara baris lain punya — satu kolom dengan dua
                          bentuk baris, dan pembacanya harus menebak apakah badge yang
                          hilang itu berarti sesuatu. -->
-                    <span v-if="c.badge" class="cd-tag" :class="{ 'cd-tag-drop': c.excluded }"
-                          :title="c.reason || undefined">
+                    <span v-if="c.badge" class="cd-tag" :class="{ 'cd-tag-drop': c.excluded }">
                       {{ c.badge }}
                     </span>
                     <!-- Sumbu KEDUA, sengaja dipisah dari badge peran/sebab di atas:
@@ -290,10 +303,19 @@
                           title="Rekaman ini lebih dari 7 hari kalender sebelum rekaman terakhir tiket — di luar SLA, sehingga tiket dinilai penuh (bukan partial) dan perlu ditinjau.">
                       ⧗ di luar SLA 7 hari
                     </span>
+                    <!-- Alasan klasifikasi (15 September 2026): dulu cuma tooltip hover
+                         di badge — kasus ambigu seperti "pembatalan" yang nasabahnya
+                         lanjut lagi ("dibujuk lanjut") jadi tidak kebaca tanpa hover.
+                         Sekarang SELALU tampil, gaya sama seperti kotak Point of
+                         Improvement (AgentErrorTable.vue .poi-note) tapi abu-abu —
+                         catatan klasifikasi bukan saran perbaikan, jadi tidak boleh
+                         terbaca sebagai hal yang sama. -->
+                    <div v-if="c.reason" class="cd-reason-note">{{ c.reason }}</div>
                   </li>
                 </ul>
                 <span v-else>{{ group.primary.audio_duration || '—' }}</span>
               </td>
+              <td v-if="isDemoLayout" class="cell-date">{{ aiProcessingTime(group.primary) }}</td>
               <td>
                 <ul v-if="group.primary.campaign_interest && group.primary.campaign_interest.length" class="campaign-interest-list">
                   <li v-for="(c, i) in group.primary.campaign_interest" :key="i">{{ c }}</li>
@@ -548,12 +570,11 @@
                   @click="openAppealHistory(group.primary)"
                 >Riwayat ({{ appealHistoryCount(group.primary) }})</button>
               </td>
-              <!-- Pending Check: H+2 SLA timer from TMS submit_time (deadline = submit_time + 2 hari). -->
+              <!-- Pending Check: H+2 SLA timer from TMS submit_time (deadline = submit_time + 2 hari).
+                   Komponen sendiri (SlaCountdown) supaya timer 30 detiknya tidak memaksa
+                   seluruh ResultsView re-render — lihat komentarnya (improvement.md item 5.2). -->
               <td v-if="isPendingCheck" class="cell-timer" @click.stop>
-                <span v-if="slaInfo(group.primary)" :class="['sla-badge', slaInfo(group.primary).cls]" :title="slaInfo(group.primary).title">
-                  {{ slaInfo(group.primary).text }}
-                </span>
-                <span v-else>—</span>
+                <SlaCountdown :item="group.primary" />
               </td>
             </tr>
 
@@ -725,8 +746,8 @@
             <p class="del-warn">Tindakan ini permanen dan tidak dapat dibatalkan.</p>
           </div>
           <div v-else class="del-modal-body">
-            <p>Konfirmasi sekali lagi. Ketik ticket id <strong>{{ deleteItem.id }}</strong> untuk menghapus semua entry-nya.</p>
-            <input v-model="deleteConfirmText" class="del-input" placeholder="Ketik ticket id..." @keyup.enter="confirmDelete" />
+            <p>Konfirmasi sekali lagi. Ketik data leads <strong>{{ deleteItem.id }}</strong> untuk menghapus semua entry-nya.</p>
+            <input v-model="deleteConfirmText" class="del-input" placeholder="Ketik data leads..." @keyup.enter="confirmDelete" />
             <p v-if="deleteError" class="del-error">{{ deleteError }}</p>
           </div>
           <footer class="del-modal-foot">
@@ -905,10 +926,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, defineAsyncComponent, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import SidebarLayout from '../../components/SidebarLayout.vue'
-import EvaluationView from '../../components/EvaluationView.vue'
+// Async (17 September 2026, improvement.md item 5.4): EvaluationView (~88KB) hanya
+// dibutuhkan setelah pengguna membuka baris tiket — memuatnya statis berarti chunk
+// itu ikut ter-download begitu ResultsView mount, walau belum ada baris yang dibuka.
+const EvaluationView = defineAsyncComponent(() => import('../../components/EvaluationView.vue'))
 import UploadDocumentModal from '../../components/UploadDocumentModal.vue'
 import ViewDocumentModal from '../../components/ViewDocumentModal.vue'
 import ManualStatusHistoryModal from '../../components/ManualStatusHistoryModal.vue'
@@ -918,8 +942,10 @@ import QcApprovalModal from '../../components/QcApprovalModal.vue'
 import DocumentsSection from '../../components/DocumentsSection.vue'
 import AgentErrorTable from '../../components/AgentErrorTable.vue'
 import BadwordTable from '../../components/BadwordTable.vue'
+import SlaCountdown from '../../components/SlaCountdown.vue'
 import apiClient from '../../api/client.js'
 import { useAuthStore } from '../../stores/auth.js'
+import { useDataStore } from '../../stores/data.js'
 import { P } from '../../permissions.js'
 import { aiStatusLabel, aiStatusBadgeClass } from '../../utils/aiStatus.js'
 import { campaignsInScope } from '../../utils/campaignScope.js'
@@ -1056,6 +1082,7 @@ const results = ref({})
 const loadingResult = ref({})
 
 const auth = useAuthStore()
+const dataStore = useDataStore()
 const showAgentSummary = true
 // "Simple viewer" (sales agent, team leader, area manager, telesales head):
 // kolom Customer Name + Nomor Kartu, tanpa Passing Grade/Export. Sama dengan
@@ -1168,6 +1195,7 @@ const colCount = computed(() => {
   let n = 5 // ID, Number of Calls, Call Duration, Campaign Interest, AI Status
   if (isDemoLayout.value) n -= 1 // Number of Calls dilepas di tata letak Demo
   if (isDemoLayout.value) n += 1 // SCORECARD — hanya ada di tata letak Demo
+  if (isDemoLayout.value) n += 1 // AI Processing Time — hanya ada di tata letak Demo
   if (showManualStatus.value) n += 1 // Manual Status — hanya sisi QC & administrasi
   if (isSimpleViewer.value) n += 3 // Customer Name, Nomor Kartu, Limit Sebelumnya
   if (showCriticalFailure.value) n += 1 // Critical Failure(s) / SCOREBOMB
@@ -1233,7 +1261,7 @@ async function confirmDelete() {
   if (!deleteItem.value) return
   const ticketId = deleteItem.value.id
   if (deleteConfirmText.value.trim() !== ticketId) {
-    deleteError.value = 'Ketikan ticket id tidak cocok.'
+    deleteError.value = 'Ketikan data leads tidak cocok.'
     return
   }
   deleting.value = true
@@ -1679,50 +1707,10 @@ function findResult(resultId) {
   return rawItems.value.find((it) => it.result_id === resultId) || null
 }
 
-// --- Pending Check SLA timer (H+2 after TMS submit_time) ---
-// A ticking clock so the countdown updates live; only wired up in Pending Check mode.
-const SLA_HOURS = 48 // "H+2" = 2 hari setelah submit_time (cashline TMS)
-const nowTs = ref(Date.now())
-let slaTimer = null
-// Parse a TMS submit_time ("2026-06-17 15:24:53", naive WIB) into an epoch ms.
-function parseSubmitWib(s) {
-  const m = String(s).trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/)
-  if (!m) return NaN
-  const [, Y, Mo, D, H, Mi, S] = m
-  return Date.parse(`${Y}-${Mo}-${D}T${H}:${Mi}:${S || '00'}+07:00`)
-}
-function slaInfo(item) {
-  // Basis = TMS submit_time (disbursement submission, WIB). Fall back to the
-  // transcript's generated_at only when a ticket has no submit_time.
-  let base = NaN
-  if (item.submit_time) {
-    base = parseSubmitWib(item.submit_time)
-  } else if (item.generated_at) {
-    // Same UTC->WIB convention as formatDate: append 'Z' when the string is naive.
-    const iso = item.generated_at
-    const s = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : iso + 'Z'
-    base = new Date(s).getTime()
-  }
-  if (!Number.isFinite(base)) return null
-  const deadline = base + SLA_HOURS * 3600 * 1000
-  const remaining = deadline - nowTs.value
-  const deadlineStr = new Date(deadline).toLocaleString('id-ID', {
-    dateStyle: 'short', timeStyle: 'short', timeZone: 'Asia/Jakarta',
-  })
-  const title = `Deadline H+2: ${deadlineStr}`
-  const abs = Math.abs(remaining)
-  const d = Math.floor(abs / 86400000)
-  const h = Math.floor((abs % 86400000) / 3600000)
-  const m = Math.floor((abs % 3600000) / 60000)
-  const parts = []
-  if (d) parts.push(`${d}h`)
-  if (h || d) parts.push(`${h}j`)
-  parts.push(`${m}m`)
-  const dur = parts.join(' ')
-  if (remaining <= 0) return { text: `Terlambat ${dur}`, cls: 'over', title }
-  const cls = remaining <= 12 * 3600 * 1000 ? 'warn' : 'ok'
-  return { text: `${dur} lagi`, cls, title }
-}
+// Pending Check SLA timer (H+2 after TMS submit_time) pindah ke komponen
+// <SlaCountdown> (17 September 2026, improvement.md item 5.2) — masing-masing
+// baris punya timer sendiri, bukan satu `nowTs` bersama yang memaksa seluruh
+// halaman ini re-render tiap 30 detik.
 
 // Passing Grade cell: percentage only ("90%") from LLM passing_grade / maximum_score.
 // Kolom SCORECARD tata letak Demo: kode item yang belum beres, apa adanya dari
@@ -1731,6 +1719,20 @@ function slaInfo(item) {
 // itu pun dihitung backend dari scorecard yang sama.
 function scorecardIssues(item) {
   return Array.isArray(item.scorecard_issues) ? item.scorecard_issues : []
+}
+
+// Kolom AI Processing Time: waktu proses end-to-end (unduh PDF s/d skor akhir)
+// dari `results.processing_sec` (detik). Sama seperti `audio_duration` di backend
+// (`format_audio_duration`), diformat "<m>m <s>s" tanpa jam — mengikuti gaya kolom
+// Call Duration di sebelahnya. Tiket yang belum `done` atau diproses sebelum kolom
+// ini ada (`processing_sec` null) tampil "—".
+function aiProcessingTime(item) {
+  const sec = item.processing_sec
+  if (!Number.isFinite(sec)) return '—'
+  const total = Math.round(sec)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${m}m ${s}s`
 }
 
 // Kolom Call Duration tata letak Demo: satu butir per PDF. `audio_durations`
@@ -1976,9 +1978,12 @@ async function fetchAgentSummary(id) {
 // hasil kosong, jadi tidak ditawarkan.
 async function fetchCampaigns() {
   try {
-    const res = await apiClient.get('/list_campaigns')
+    // Di-cache 5 menit lewat dataStore (17 September 2026, improvement.md item
+    // 5.1) — sebelumnya ResultsView menembak /list_campaigns sendiri tiap dibuka,
+    // terpisah dari cache yang sudah dipakai StatsView.
+    const list = await dataStore.fetchCampaigns()
     campaignOptions.value = campaignsInScope(
-      (res.data.campaigns || []).filter((c) => c.is_active).map((c) => c.name)
+      (list || []).filter((c) => c.is_active).map((c) => c.name)
     )
   } catch {
     campaignOptions.value = []
@@ -2090,21 +2095,50 @@ function reloadResult() {
   }
 }
 
-// --- Export agregat per kategori verifikasi (Admin) ------------------------
-// Sejak 14 Agustus 2026 hanya Admin: export ini menjawab "tunjukkan semua temuan
-// pada satu kategori verifikasi", pekerjaan pengurusan data. SPQ Head memakai
-// Export Tiket di bawah.
+// --- Export agregat per kategori verifikasi / fase percakapan --------------
+// Menjawab "tunjukkan semua temuan pada satu kategori". Sejak 14 Agustus 2026 hanya
+// Admin; sejak 21 September 2026 (migrasi 0057; 0059 di repo 4-service) juga SPQ Head dan Team Leader QC.
+// Kelayakannya murni `results.export.verification`, jadi tombol ini mengikuti izin
+// role, bukan nama role. SPQ Head tetap punya Export Tiket di bawah.
 const canExportVerification = computed(() => auth.can(P.RESULTS_EXPORT_VERIFICATION))
-// Key-nya harus sama persis dengan VERIFICATION_EXPORT_CATEGORIES di
-// compliance/stats_aggregate.py — backend menolak key yang tidak dikenal (422).
-const EXPORT_CATEGORIES = [
+// Menu Export Agregat punya DUA grup, keduanya dari backend (`/export_categories`):
+//  - Verifikasi: kategori tetap (VERIFICATION_EXPORT_CATEGORIES) — satu baris per
+//    parameter yang MISMATCH.
+//  - Fase Percakapan (18 September 2026): satu per blok `conversation_phases` di KB
+//    campaign, urut seperti alur telepon — satu baris per item scorecard yang gagal.
+// Daftar fase dinamis (ikut campaign & revisi KB), jadi tidak ditulis mati di sini;
+// backend menolak key yang tidak dikenal (422). Daftar verifikasi di bawah hanya
+// cadangan bila pemanggilan gagal, supaya menunya tidak pernah kosong.
+const FALLBACK_VERIFICATION = [
   { key: 'verifikasi_statik', label: 'Verifikasi Statik' },
   { key: 'verifikasi_dinamik', label: 'Verifikasi Dinamik' },
   { key: 'cashline_verification', label: 'Cashline Verification' },
   { key: 'cardholder_verification', label: 'Cardholder Verification' },
 ]
-const exportCategory = ref(EXPORT_CATEGORIES[0].key)
+const exportVerifCats = ref(FALLBACK_VERIFICATION)
+const exportPhases = ref([])
+const exportCategory = ref(FALLBACK_VERIFICATION[0].key)
 const exportingCategory = ref(false)
+
+async function loadExportCategories() {
+  if (!canExportVerification.value) return
+  try {
+    const params = {}
+    if (filterCampaign.value) params.campaign = filterCampaign.value
+    const { data } = await apiClient.get('/export_categories', { params })
+    exportVerifCats.value = data.verification?.length ? data.verification : FALLBACK_VERIFICATION
+    exportPhases.value = data.phases || []
+  } catch {
+    exportVerifCats.value = FALLBACK_VERIFICATION
+    exportPhases.value = []
+  }
+  // Fase bergantung pada campaign; kalau pilihan sebelumnya tidak ada lagi, kembali
+  // ke item pertama daripada mengirim key yang akan ditolak backend.
+  const ada = [...exportVerifCats.value, ...exportPhases.value]
+    .some((c) => c.key === exportCategory.value)
+  if (!ada) exportCategory.value = exportVerifCats.value[0].key
+}
+watch(filterCampaign, loadExportCategories)
 
 async function exportVerification() {
   if (exportingCategory.value) return
@@ -2113,7 +2147,7 @@ async function exportVerification() {
     const params = { category: exportCategory.value }
     if (filterCampaign.value) params.campaign = filterCampaign.value
     const res = await apiClient.get('/export_verification_xlsx', { params, responseType: 'blob' })
-    downloadBlob(res, `${exportCategory.value}.xlsx`)
+    downloadBlob(res, `${exportCategory.value.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.xlsx`)
   } catch {
     alert('Gagal export XLSX agregat.')
   } finally {
@@ -2379,15 +2413,14 @@ onMounted(async () => {
   loadHierarchyOptions()
   loadDocSla()
   resumeBulkJob()
+  loadExportCategories()
   document.addEventListener('visibilitychange', onVisibilityChange)
-  if (isPendingCheck) slaTimer = setInterval(() => { nowTs.value = Date.now() }, 30000)
 })
 
 onBeforeUnmount(() => {
   stopPolling()
   stopReprocessPolling()
   stopBulkPolling()
-  if (slaTimer) clearInterval(slaTimer)
   clearTimeout(debounceTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
 })
@@ -2574,6 +2607,14 @@ onBeforeUnmount(() => {
   display: inline-block; margin-left: 4px; padding: 0 4px; border-radius: 4px;
   background: #f1f3f5; color: var(--text-muted); font-size: 10px; white-space: nowrap;
 }
+/* Alasan klasifikasi rekaman: sama bentuknya dengan .poi-note (AgentErrorTable.vue)
+   — border kiri + latar lembut + sudut membulat di sisi kanan — tapi abu-abu, bukan
+   biru, supaya tidak tertukar dengan kotak saran perbaikan (Point of Improvement). */
+.cd-reason-note {
+  margin: 3px 0 2px; padding: 4px 6px; border-left: 2px solid #9ca3af;
+  background: #f3f4f6; border-radius: 0 4px 4px 0;
+  font-size: 10.5px; line-height: 1.4; color: var(--text-muted);
+}
 
 /* Grade tata letak Demo: <nilai akhir>/<passing grade>. Passing grade biru (angka
    acuan), nilai akhir hijau bila memenuhi dan merah bila tidak. */
@@ -2629,14 +2670,8 @@ onBeforeUnmount(() => {
   border-radius: 999px; white-space: nowrap; margin: 1px 3px 1px 0;
 }
 .banding-badge.badge-wait { background: #fef3c7; color: #b45309; }
+/* Pending Check SLA timer (H+2) cell — badge styling sendiri kini di SlaCountdown.vue. */
 .cell-timer { text-align: left; white-space: nowrap; }
-.sla-badge {
-  display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 9px;
-  border-radius: 999px; white-space: nowrap;
-}
-.sla-badge.ok { background: #dcfce7; color: #15803d; }
-.sla-badge.warn { background: #fef3c7; color: #b45309; }
-.sla-badge.over { background: #fee2e2; color: #b91c1c; }
 .qc-approval-note {
   background: var(--green-bg); border: 1px solid #bbf7d0; border-radius: 12px;
   padding: 14px 16px; margin-bottom: 16px;

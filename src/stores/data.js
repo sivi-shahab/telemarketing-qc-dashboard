@@ -2,6 +2,33 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import apiClient from '../api/client.js'
 
+// Bungkus sebuah loader async supaya hasilnya di-cache selama `ttlMs` dan
+// panggilan yang tumpang tindih (mis. ResultsView + sebuah modal dibuka
+// hampir bersamaan) berbagi SATU request yang sedang berjalan, bukan
+// masing-masing menembakkan request sendiri (17 September 2026, improvement.md
+// item 5.1). `force=true` melewati cache — dipakai pemanggil yang tahu datanya
+// baru saja berubah (mis. setelah membuat campaign baru).
+function fetchOnce(loader, ttlMs = 5 * 60 * 1000) {
+  let cached = null
+  let cachedAt = 0
+  let inflight = null
+  return function (force = false) {
+    const now = Date.now()
+    if (!force && cached !== null && (now - cachedAt) < ttlMs) return Promise.resolve(cached)
+    if (!force && inflight) return inflight
+    inflight = loader().then((data) => {
+      cached = data
+      cachedAt = Date.now()
+      inflight = null
+      return data
+    }).catch((err) => {
+      inflight = null
+      throw err
+    })
+    return inflight
+  }
+}
+
 export const useDataStore = defineStore('data', () => {
   const stats = ref(null)
   const dailyStats = ref([])
@@ -32,9 +59,14 @@ export const useDataStore = defineStore('data', () => {
   }
 
   // Master Error Code catalog for the Manual Check "New Error Code" dropdown.
+  // Di-cache 5 menit (17 September 2026, improvement.md item 5.1): katalog ini
+  // hampir tidak pernah berubah dalam sesi kerja QC, tapi sebelum ini di-fetch
+  // ulang setiap kali salah satu dari 3 modal (AddErrorCodeModal,
+  // ErrorCodeManualCheckModal, CardHolderManualCheckModal) dibuka — yang dalam
+  // satu sesi review tiket bisa terjadi berkali-kali berturut-turut.
+  const _errorReasonsCache = fetchOnce(() => apiClient.get('/error_reasons').then(r => r.data))
   async function fetchErrorReasons() {
-    const res = await apiClient.get('/error_reasons')
-    return res.data // [{ code, error_type, category, risk_base, campaign, details, label }]
+    return _errorReasonsCache()
   }
 
   // Approve/Reject proportions over time for the 100% stacked column chart.
@@ -87,9 +119,13 @@ export const useDataStore = defineStore('data', () => {
     return res.data
   }
 
-  async function fetchCampaigns() {
-    const res = await apiClient.get('/list_campaigns')
-    campaigns.value = res.data.campaigns
+  // Di-cache 5 menit sama seperti fetchErrorReasons — dropdown campaign nyaris
+  // tidak berubah dalam satu sesi, tapi sebelum ini di-fetch ulang tiap ResultsView
+  // dibuka (di antara panggilan lain yang lebih sering: overview, hierarchy options,
+  // doc SLA — lihat komentar "4 API calls" di ResultsView.vue).
+  const _campaignsCache = fetchOnce(() => apiClient.get('/list_campaigns').then(r => r.data.campaigns))
+  async function fetchCampaigns(force = false) {
+    campaigns.value = await _campaignsCache(force)
     return campaigns.value
   }
 
