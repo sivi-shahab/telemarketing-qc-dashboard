@@ -38,8 +38,10 @@ const open = ref(false)
 const roleBadgeClass = computed(() => sharedBadgeClass(user.value?.role))
 
 // Daftar kosong = tidak dibatasi campaign (sisi QC & role bercakupan penuh), jadi
-// tidak perlu ditampilkan apa pun.
-const campaigns = computed(() => user.value?.campaigns || [])
+// tidak perlu ditampilkan apa pun. `campaigns_display` menyembunyikan anggota yang
+// tercakup grupnya: login ber-tag Telemarketing tampil "Telemarketing" saja, bukan
+// "Telemarketing, Cashline". API lama tanpa field itu jatuh ke `campaigns`.
+const campaigns = computed(() => user.value?.campaigns_display || user.value?.campaigns || [])
 
 // Role buatan operator memakai label dari /auth/me; util bersama menangani role bawaan.
 const roleLabel = computed(

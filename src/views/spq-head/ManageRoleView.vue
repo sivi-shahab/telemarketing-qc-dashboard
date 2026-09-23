@@ -276,7 +276,7 @@
                   <template v-else-if="u.effective_campaigns.length">
                     <div v-for="e in splitEffective(u.effective_campaigns, catalog.campaign_groups)" :key="e.name" class="camp-line">
                       <span class="pill">{{ e.name }}</span>
-                      <span v-if="e.includes.length" class="camp-includes">termasuk {{ e.includes.join(', ') }}</span>
+                      <span v-if="e.name in catalog.campaign_groups" class="camp-includes">semua produk telemarketing</span>
                     </div>
                   </template>
                   <span v-else class="camp-warn">⚠ tidak ada — user ini tidak melihat tiket apa pun</span>
