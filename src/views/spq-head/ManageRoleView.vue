@@ -168,12 +168,11 @@
 
           <div class="field">
             <label>Campaign</label>
-            <div class="checks campaigns">
-              <label v-for="c in catalog.campaigns" :key="c" class="check">
-                <input type="checkbox" :value="c" v-model="form.campaigns" />
-                <span>{{ c }}</span>
-              </label>
-            </div>
+            <CampaignChecks
+              v-model="form.campaigns"
+              :campaigns="catalog.campaigns"
+              :groups="catalog.campaign_groups"
+            />
             <!-- Membatasi role sisi sales ke campaign yang belum ada di roster =
                  user-nya tidak melihat tiket apa pun. Diperingatkan di sini karena
                  gejalanya (layar kosong) tidak menunjukkan sebabnya sama sekali. -->
@@ -265,17 +264,20 @@
                   <div v-if="u.campaign_from_roster" class="camp-label">ikut tag roster</div>
                 </td>
                 <td class="camp-cell">
-                  <div class="checks assign-checks">
-                    <label v-for="c in catalog.campaigns" :key="c" class="check">
-                      <input type="checkbox" :value="c" v-model="assignDraft[u.username]" />
-                      <span>{{ c }}</span>
-                    </label>
-                  </div>
+                  <CampaignChecks
+                    v-model="assignDraft[u.username]"
+                    :campaigns="catalog.campaigns"
+                    :groups="catalog.campaign_groups"
+                    inline
+                  />
                 </td>
                 <td class="camp-cell">
                   <span v-if="u.effective_all" class="muted">semua campaign</span>
                   <template v-else-if="u.effective_campaigns.length">
-                    <span v-for="c in u.effective_campaigns" :key="c" class="pill">{{ c }}</span>
+                    <div v-for="e in splitEffective(u.effective_campaigns, catalog.campaign_groups)" :key="e.name" class="camp-line">
+                      <span class="pill">{{ e.name }}</span>
+                      <span v-if="e.name in catalog.campaign_groups" class="camp-includes">semua produk telemarketing</span>
+                    </div>
                   </template>
                   <span v-else class="camp-warn">⚠ tidak ada — user ini tidak melihat tiket apa pun</span>
                 </td>
@@ -305,6 +307,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
+import CampaignChecks from '../../components/CampaignChecks.vue'
+import { splitEffective } from '../../utils/campaignTree.js'
 import apiClient from '../../api/client.js'
 import { useAuthStore } from '../../stores/auth.js'
 import { roleBadgeClass } from '../../utils/roleBadge.js'
@@ -313,7 +317,7 @@ const auth = useAuthStore()
 
 const tab = ref('list')
 const roles = ref([])
-const catalog = reactive({ groups: [], data_scopes: [], campaigns: [], campaigns_with_roster: [] })
+const catalog = reactive({ groups: [], data_scopes: [], campaigns: [], campaigns_with_roster: [], campaign_groups: {} })
 const loading = ref(true)
 const saving = ref(false)
 const error = ref('')
@@ -451,6 +455,7 @@ async function openAssign() {
     const res = await apiClient.get('/roles/user_campaigns')
     assignUsers.value = res.data?.users || []
     if (res.data?.campaigns?.length) catalog.campaigns = res.data.campaigns
+    if (res.data?.campaign_groups) catalog.campaign_groups = res.data.campaign_groups
     assignUsers.value.forEach((u) => { assignDraft[u.username] = [...(u.campaigns || [])] })
   } catch (e) {
     error.value = e.response?.data?.detail || 'Gagal memuat daftar user.'
@@ -497,6 +502,7 @@ async function load() {
     catalog.data_scopes = catRes.data.data_scopes || []
     catalog.campaigns = catRes.data.campaigns || []
     catalog.campaigns_with_roster = catRes.data.campaigns_with_roster || []
+    catalog.campaign_groups = catRes.data.campaign_groups || {}
   } catch (e) {
     error.value = e.response?.data?.detail || 'Gagal memuat daftar role'
   } finally {
@@ -566,8 +572,6 @@ onMounted(load)
   border-radius: 8px; font-size: 13px; outline: none;
 }
 .assign-toolbar .input:focus { border-color: var(--blue); }
-/* Checklist campaign dibuat mengalir menyamping supaya satu baris user tetap pendek. */
-.assign-checks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .assign-pager { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 12px; }
 
 .alert { font-size: 13px; padding: 10px 14px; border-radius: 10px; }
@@ -612,7 +616,6 @@ onMounted(load)
 .text-input:disabled { background: #f8fafc; color: var(--text-muted); }
 
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; }
-.checks.campaigns { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 500; }
 .form-actions { display: flex; gap: 10px; }
 
@@ -623,6 +626,7 @@ onMounted(load)
   color: var(--text-muted); margin-right: 2px;
 }
 .pill.tag { background: var(--blue-bg); color: var(--blue); }
+.camp-includes { font-size: 11px; color: var(--text-muted); }
 .camp-warn { font-size: 11.5px; font-weight: 700; color: var(--red); margin-top: 2px; }
 
 .camp-list { list-style: none; margin: 3px 0 0; padding: 0; }
