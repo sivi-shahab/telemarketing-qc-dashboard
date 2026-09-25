@@ -99,6 +99,11 @@
       <button class="bulk-cancel" :disabled="bulkCancelling" @click="cancelBulkJob">
         {{ bulkCancelling ? 'Membatalkan...' : 'Batalkan' }}
       </button>
+      <!-- "Batalkan" membiarkan tiket yang sedang diproses selesai; Kill (role
+           admin) menghentikan seluruh job SEKARANG JUGA. -->
+      <button v-if="isAdmin" class="bulk-cancel" :disabled="bulkKilling" @click="killBulkJob">
+        {{ bulkKilling ? 'Menghentikan...' : 'Kill' }}
+      </button>
       <span v-if="bulkError" class="bulk-err">{{ bulkError }}</span>
     </div>
 
@@ -543,6 +548,15 @@
                   <span v-if="reprocessBusy(group.primary)" class="spinner spinner-blue"></span>
                   {{ reprocessBusy(group.primary) ? 'Memproses...' : 'Reprocess' }}
                 </button>
+                <!-- Kill (role admin): hentikan reproses tiket INI saja — tiket lain
+                     di job massal yang sama jalan terus. Jalan keluar untuk tiket
+                     yang tersangkut "Memproses..." karena worker-nya mati. -->
+                <button
+                  v-if="isAdmin && reprocessBusy(group.primary)"
+                  class="btn-delete-row"
+                  :disabled="!!killingTicket[group.primary.id]"
+                  @click="killTicketReprocess(group.primary)"
+                >{{ killingTicket[group.primary.id] ? 'Menghentikan...' : 'Kill' }}</button>
                 <button
                   v-if="canDeleteTicket"
                   class="btn-delete-row"
@@ -1378,6 +1392,39 @@ async function pollReprocess(ticketId, jobId) {
   }
 }
 
+// --- Kill (role admin) -------------------------------------------------------
+// Sengaja role, bukan capability: `demo` memegang seluruh capability admin dan
+// tidak boleh ikut mematikan job. Server memakai aturan yang sama
+// (api/routers/reprocess.py `_require_admin_role`).
+const isAdmin = computed(() => auth.user?.role === 'admin')
+const killingTicket = ref({})   // ticket_id -> true selama permintaan Kill berjalan
+
+async function killTicketReprocess(row) {
+  const ticketId = row.id
+  if (!window.confirm(
+    `Kill reproses ticket ${ticketId}?\n\n` +
+    'Proses ulangnya dihentikan sekarang dan hasil barunya dibuang. ' +
+    'Entry lama ticket ini tetap utuh.'
+  )) return
+  killingTicket.value = { ...killingTicket.value, [ticketId]: true }
+  try {
+    await apiClient.post('/reprocess_ticket/kill', null, { params: { ticket_id: ticketId } })
+    if (reprocessTimers[ticketId]) clearTimeout(reprocessTimers[ticketId])
+    setReprocessActive(ticketId, null)
+    setReprocessError(ticketId, '')
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    setReprocessError(ticketId, typeof detail === 'string' ? detail : 'Gagal menghentikan reproses.')
+  } finally {
+    const next = { ...killingTicket.value }
+    delete next[ticketId]
+    killingTicket.value = next
+    // `reprocess_active` baris ini berasal dari server — muat ulang supaya tombol
+    // Reprocess/Delete-nya kembali hidup.
+    await fetchItems({ silent: true })
+  }
+}
+
 function stopReprocessPolling() {
   Object.values(reprocessTimers).forEach((t) => clearTimeout(t))
 }
@@ -1515,6 +1562,28 @@ function scheduleBulkPoll(jobId) {
 function stopBulkPolling() {
   if (bulkTimer) clearTimeout(bulkTimer)
   bulkTimer = null
+}
+
+const bulkKilling = ref(false)
+
+async function killBulkJob() {
+  if (!bulkJob.value) return
+  if (!window.confirm(
+    'Kill job Reprocess All sekarang?\n\n' +
+    'Tiket yang antre dilewati, tiket yang sedang diproses ditandai gagal dan ' +
+    'hasil barunya dibuang. Entry lama tiket tetap utuh.'
+  )) return
+  bulkKilling.value = true
+  bulkError.value = ''
+  try {
+    await apiClient.post(`/reprocess_job/${bulkJob.value.job_id}/kill`)
+    await loadBulkJob(bulkJob.value.job_id)
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    bulkError.value = typeof detail === 'string' ? detail : 'Gagal menghentikan job.'
+  } finally {
+    bulkKilling.value = false
+  }
 }
 
 async function cancelBulkJob() {
