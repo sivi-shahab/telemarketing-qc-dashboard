@@ -108,6 +108,72 @@
           </table>
         </div>
       </div>
+
+      <!-- Kill job yang belum selesai — khusus role admin. "Batalkan" di atas
+           membiarkan tiket yang sedang diproses jalan terus dan hanya ada untuk job
+           massal; panel ini menghentikan job apa pun (massal maupun satu-tiket dari
+           menu Results) SEKARANG JUGA, termasuk yang tersangkut karena worker-nya
+           mati. Server menolak role lain (api/routers/reprocess.py). -->
+      <div v-if="isAdmin" class="card">
+        <div class="job-head">
+          <h2 class="card-title">Job Reproses Aktif</h2>
+          <button class="btn-refresh" :disabled="loadingOpen" @click="fetchOpenJobs">
+            {{ loadingOpen ? 'Memuat...' : 'Muat ulang' }}
+          </button>
+        </div>
+        <p class="card-subtitle">
+          Job yang belum selesai. <strong>Kill</strong> menghentikan job seketika: tiket yang
+          antre dilewati, tiket yang sedang diproses ditandai gagal dan hasil barunya dibuang —
+          entry lama tiket tetap utuh, dan tiketnya bisa di-Reprocess/Delete lagi.
+        </p>
+        <div v-if="killMsg" class="error-msg">{{ killMsg }}</div>
+        <div v-if="!openJobs.length" class="hint">
+          {{ loadingOpen ? 'Memuat...' : 'Tidak ada job reproses yang sedang berjalan.' }}
+        </div>
+        <div v-else class="table-wrap">
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th>Jenis</th>
+                <th>Campaign</th>
+                <th>Dijalankan</th>
+                <th>Progres</th>
+                <th>Sedang diproses</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="j in openJobs" :key="j.job_id">
+                <td>
+                  <span class="badge" :class="j.status === 'cancelled' ? 'badge-amber' : 'badge-blue'">
+                    {{ j.scope === 'ticket' ? 'satu tiket' : 'massal' }}{{ j.status === 'cancelled' ? ' · dibatalkan' : '' }}
+                  </span>
+                </td>
+                <td>{{ (j.campaigns || []).join(', ') || '—' }}</td>
+                <td>
+                  {{ j.created_by_username || '—' }}<br />
+                  <span class="hint">{{ formatTime(j.created_at) }} · {{ ageLabel(j.created_at) }}</span>
+                </td>
+                <td>
+                  {{ j.counts.done + j.counts.failed + j.counts.skipped }}/{{ j.total_tickets }}
+                  <span v-if="j.counts.pending" class="hint"> · antre {{ j.counts.pending }}</span>
+                </td>
+                <td>
+                  <div v-for="it in j.items" :key="it.id" class="mono">
+                    {{ it.ticket_id }} <span class="hint">({{ ageLabel(it.started_at) }})</span>
+                  </div>
+                  <span v-if="!j.items.length" class="hint">—</span>
+                </td>
+                <td>
+                  <button class="btn-cancel" :disabled="killing === j.job_id" @click="kill(j)">
+                    {{ killing === j.job_id ? 'Menghentikan...' : 'Kill' }}
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </SidebarLayout>
 </template>
@@ -116,6 +182,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
+import { useAuthStore } from '../../stores/auth.js'
 
 const options = ref([])
 const selected = ref([])
@@ -125,6 +192,15 @@ const cancelling = ref(false)
 const errorMsg = ref('')
 const job = ref(null)
 let timer = null
+
+const auth = useAuthStore()
+// Sengaja role, bukan capability: `demo` memegang seluruh capability admin dan
+// tidak boleh ikut mematikan job. Server memakai aturan yang sama.
+const isAdmin = computed(() => auth.user?.role === 'admin')
+const openJobs = ref([])
+const loadingOpen = ref(false)
+const killing = ref(null)
+const killMsg = ref('')
 
 // Selama sebuah job berjalan, layar ini tidak boleh memulai job kedua — server pun
 // menolaknya dengan 409 (lihat api/routers/reprocess.py).
@@ -229,6 +305,54 @@ async function start() {
   }
 }
 
+function ageLabel(iso) {
+  if (!iso) return '—'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (Number.isNaN(ms)) return '—'
+  const min = Math.max(0, Math.floor(ms / 60000))
+  if (min < 60) return `${min} menit`
+  const h = Math.floor(min / 60)
+  return h < 24 ? `${h} jam ${min % 60} menit` : `${Math.floor(h / 24)} hari ${h % 24} jam`
+}
+
+async function fetchOpenJobs() {
+  if (!isAdmin.value) return
+  loadingOpen.value = true
+  try {
+    const res = await apiClient.get('/reprocess_jobs/open')
+    openJobs.value = res.data.jobs || []
+  } catch {
+    killMsg.value = 'Gagal memuat daftar job yang berjalan.'
+  } finally {
+    loadingOpen.value = false
+  }
+}
+
+async function kill(j) {
+  const n = j.counts.pending + j.counts.processing
+  if (!window.confirm(
+    `Kill job ini sekarang?\n\n${n} tiket yang belum selesai akan dihentikan: yang antre ` +
+    `dilewati, yang sedang diproses ditandai gagal dan hasil barunya dibuang. ` +
+    `Entry lama tiket tetap utuh.`
+  )) return
+  killMsg.value = ''
+  killing.value = j.job_id
+  try {
+    const res = await apiClient.post(`/reprocess_job/${j.job_id}/kill`)
+    if (job.value?.job_id === j.job_id) {
+      job.value = res.data
+      stopPoll()
+      await refreshOptions()
+    }
+  } catch (e) {
+    const detail = e.response?.data?.detail
+    killMsg.value = typeof detail === 'string' ? detail : 'Gagal menghentikan job.'
+  } finally {
+    killing.value = null
+    await fetchOpenJobs()
+  }
+}
+
 async function cancel() {
   if (!job.value) return
   if (!window.confirm('Batalkan job? Tiket yang sedang diproses tetap diselesaikan.')) return
@@ -244,7 +368,10 @@ async function cancel() {
   }
 }
 
-onMounted(fetchPreview)
+onMounted(() => {
+  fetchPreview()
+  fetchOpenJobs()
+})
 onBeforeUnmount(stopPoll)
 </script>
 
@@ -298,6 +425,12 @@ label { font-size: 13px; font-weight: 600; }
   border-radius: 8px; font-size: 13px; font-weight: 700;
 }
 .btn-cancel:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-refresh {
+  padding: 7px 14px; background: #fff; color: var(--blue); border: 1.5px solid var(--border);
+  border-radius: 8px; font-size: 13px; font-weight: 700;
+}
+.btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .error-msg {
   background: var(--red-bg); color: var(--red); border: 1px solid #fecaca;
