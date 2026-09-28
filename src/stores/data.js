@@ -77,15 +77,25 @@ export const useDataStore = defineStore('data', () => {
   }
 
   // `campaign` kosong = seluruh campaign (filter di tab Hierarki Failure Rate).
-  async function fetchHierarchy(campaign = '') {
-    const res = await apiClient.get('/stats/hierarchy', { params: campaign ? { campaign } : {} })
+  // `dateStart`/`dateEnd` ('YYYY-MM-DD', opsional) = filter tanggal tab itu — kontrol
+  // yang sama dengan grafik AI Status (18 September 2026).
+  async function fetchHierarchy(campaign = '', dateStart = '', dateEnd = '') {
+    const params = {}
+    if (campaign) params.campaign = campaign
+    if (dateStart) params.date_start = dateStart
+    if (dateEnd) params.date_end = dateEnd
+    const res = await apiClient.get('/stats/hierarchy', { params })
     return res.data // { all_telesales, area_managers }
   }
 
   // Per-QC assigned / approved / approve-rate. 403 for roles other than
-  // Team Leader QC / SPQ Head / Admin.
-  async function fetchQcPerformance(campaign = '') {
-    const res = await apiClient.get('/stats/qc_performance', { params: campaign ? { campaign } : {} })
+  // Team Leader QC / SPQ Head / Admin. `dateStart`/`dateEnd` — lihat fetchHierarchy.
+  async function fetchQcPerformance(campaign = '', dateStart = '', dateEnd = '') {
+    const params = {}
+    if (campaign) params.campaign = campaign
+    if (dateStart) params.date_start = dateStart
+    if (dateEnd) params.date_end = dateEnd
+    const res = await apiClient.get('/stats/qc_performance', { params })
     return res.data // [{ qc_username, name, assigned, approved, approve_rate }]
   }
 
@@ -96,16 +106,24 @@ export const useDataStore = defineStore('data', () => {
   }
 
   // Failure Reason (SPQ Head / Admin only, else 403): scorecard categories that
-  // fail most often + their reasons.
-  async function fetchFailureReasons(campaign = '') {
-    const res = await apiClient.get('/stats/failure_reasons', { params: campaign ? { campaign } : {} })
+  // fail most often + their reasons. `dateStart`/`dateEnd` — lihat fetchHierarchy.
+  async function fetchFailureReasons(campaign = '', dateStart = '', dateEnd = '') {
+    const params = {}
+    if (campaign) params.campaign = campaign
+    if (dateStart) params.date_start = dateStart
+    if (dateEnd) params.date_end = dateEnd
+    const res = await apiClient.get('/stats/failure_reasons', { params })
     return res.data // { total_evaluated, categories: [{ category, fail_count, pct, top_reasons }] }
   }
 
   // Sub-tab "Hierarki Based": pohon AM -> TL -> Agent, tiap simpul membawa kategori
   // scorecard terbesar miliknya sendiri.
-  async function fetchFailureReasonsHierarchy(campaign = '') {
-    const res = await apiClient.get('/stats/failure_reasons_hierarchy', { params: campaign ? { campaign } : {} })
+  async function fetchFailureReasonsHierarchy(campaign = '', dateStart = '', dateEnd = '') {
+    const params = {}
+    if (campaign) params.campaign = campaign
+    if (dateStart) params.date_start = dateStart
+    if (dateEnd) params.date_end = dateEnd
+    const res = await apiClient.get('/stats/failure_reasons_hierarchy', { params })
     return res.data // { total_evaluated, all_telesales, area_managers: [...] }
   }
 

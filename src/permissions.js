@@ -59,6 +59,7 @@ export const P = {
   STATS_QC_PERFORMANCE: 'stats.qc_performance',
   STATS_RISK_BASE: 'stats.risk_base',
   STATS_RISK_SYSTEM_NEW: 'stats.risk_system_new',
+  STATS_EXPORT_ERROR_RATE_PPT: 'stats.export.error_rate_ppt',
 
   // Administrasi
   ADMIN_ROLE_WRITE: 'admin.role.write',
@@ -79,6 +80,7 @@ export const ROUTE_PERMISSIONS = {
   '/dashboard/transcripts': P.MENU_TRANSCRIPTS,
   '/dashboard/sales-database': P.MENU_SALES_DATABASE,
   '/dashboard/qc-database': P.MENU_QC_DATABASE,
+  '/dashboard/error-rate-ppt': P.STATS_EXPORT_ERROR_RATE_PPT,
   '/upload/transcript': P.MENU_UPLOAD_TRANSCRIPT,
   '/upload/audio': P.MENU_UPLOAD_AUDIO,
   '/upload/result': P.MENU_GET_RESULT,

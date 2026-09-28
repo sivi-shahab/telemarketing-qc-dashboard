@@ -682,20 +682,6 @@
               <span class="reason-label">Alasan</span> {{ ev.mus_interest.reason }}
             </div>
           </div>
-          <div class="interest-card">
-            <div class="interest-head">
-              <span class="interest-name">
-                Mega Ultima Shield <span class="interest-tag interest-tag-strong">Kartu Kredit Non-Cashline</span>
-              </span>
-              <span :class="['badge', interestClass(ev.mus_cc_interest?.status)]">
-                {{ ev.mus_cc_interest?.status || 'NOT_STATED' }}
-              </span>
-            </div>
-            <Evidence :evidence="ev.mus_cc_interest?.evidence" />
-            <div v-if="ev.mus_cc_interest?.reason" class="interest-reason">
-              <span class="reason-label">Alasan</span> {{ ev.mus_cc_interest.reason }}
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1275,7 +1261,6 @@ const interestedProducts = computed(() => {
   const arr = []
   if (ev.value?.cashline_interest?.status === 'INTERESTED') arr.push('Mega Cashline')
   if (ev.value?.mus_interest?.status === 'INTERESTED') arr.push('Mega Ultima Shield')
-  if (ev.value?.mus_cc_interest?.status === 'INTERESTED') arr.push('MUS CC')
   return arr
 })
 const maxScoreReason = computed(() => {
@@ -1298,26 +1283,21 @@ const musWajibTidakDipenuhi = computed(() => {
 })
 
 // Maximum-score breakdown by product interest — cermin persis
-// compliance/scoring.py::max_score() (revisi scorecard v4, 14 September 2026):
-// Mega Cashline = 100, Mega Ultima Shield = 35.5, MUS Kartu Kredit = 13.25.
-// Summed at the end.
+// compliance/scoring.py::max_score() (revisi scorecard 25 September 2026):
+// Mega Cashline = 100, Mega Ultima Shield = 50 (MUS pada Kartu Kredit dipisah
+// jadi campaign tersendiri di luar Cashline). Summed at the end.
 //
 // Bobot MUS TETAP masuk ketika MUS wajib tetapi tidak dipenuhi: di situlah aturan
 // baru menggigit. Menurunkan penyebut ke 100 persis kekeliruan aturan lama —
 // rekaman cashline-saja jadi bisa LULUS dengan nilai penuh.
-//
-// MUS Kartu Kredit (mus_cc_interest) TIDAK punya padanan "wajib tidak dipenuhi":
-// murni aditif, bobotnya HANYA masuk penyebut saat benar-benar INTERESTED — lihat
-// docstring max_score() untuk alasannya.
 const maxScoreBreakdown = computed(() => {
   const out = []
   if (ev.value?.cashline_interest?.status === 'INTERESTED') out.push({ name: 'Mega Cashline', score: 100 })
   if (ev.value?.mus_interest?.status === 'INTERESTED') {
-    out.push({ name: 'Mega Ultima Shield', score: 35.5 })
+    out.push({ name: 'Mega Ultima Shield', score: 50 })
   } else if (musWajibTidakDipenuhi.value) {
-    out.push({ name: 'Mega Ultima Shield (wajib, tidak dipenuhi)', score: 35.5 })
+    out.push({ name: 'Mega Ultima Shield (wajib, tidak dipenuhi)', score: 50 })
   }
-  if (ev.value?.mus_cc_interest?.status === 'INTERESTED') out.push({ name: 'MUS Kartu Kredit', score: 13.25 })
   return out
 })
 
