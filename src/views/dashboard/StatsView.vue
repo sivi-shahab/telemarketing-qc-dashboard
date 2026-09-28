@@ -407,6 +407,28 @@
           <div class="skeleton" v-for="i in 4" :key="i" style="height:44px"></div>
         </div>
         <template v-else-if="hierarchy">
+          <!-- Filter tanggal — kontrol yang SAMA (dateStart/dateEnd) dengan grafik
+               "AI Status — per waktu" di tab Data Leads (18 September 2026): pohon
+               Hierarki di bawah dan tabel Daftar Productivity QC keduanya dihitung
+               ulang oleh backend dari jendela tanggal ini (lihat date_start/date_end
+               pada stats_hierarchy & stats_qc_performance), bukan cuma disaring di
+               layar — jadi KPI, pohon, dan tabel QC selalu konsisten satu sama lain.
+               Memakai ref yang sama dengan grafik supaya rentang yang sudah dipilih
+               di tab Data Leads otomatis ikut berlaku di sini, tanpa mengatur ulang. -->
+          <div class="cf-row">
+            <label class="cf-label">Tanggal</label>
+            <div class="date-range">
+              <label class="dr-label">Dari</label>
+              <input type="date" v-model="dateStart" class="date-input" />
+              <label class="dr-label">s/d</label>
+              <input type="date" v-model="dateEnd" class="date-input" />
+              <button v-if="hasDateFilter" class="clear-btn" @click="dateStart = ''; dateEnd = ''">Reset</button>
+            </div>
+            <span v-if="hasDateFilter" class="cf-note">
+              Semua angka di tab ini dibatasi ke tanggal <b>{{ dateStart || '…' }}</b> s/d <b>{{ dateEnd || '…' }}</b>.
+            </span>
+          </div>
+
           <div class="kpis">
             <!-- Nama kolomnya diganti 4 September 2026 atas permintaan bisnis:
                  "Submissions" (jumlah rekaman/PDF) -> "Total Recording", dan
@@ -595,6 +617,25 @@
                   @click="openFailureMode('aggregate')">Agregat</button>
           <button :class="['subtab', { active: failureMode === 'hierarchy' }]"
                   @click="openFailureMode('hierarchy')">Hierarki Based</button>
+        </div>
+
+        <!-- Filter tanggal — kontrol yang SAMA (dateStart/dateEnd) dengan grafik
+             "AI Status — per waktu" dan tab Failure Rate (18 September 2026):
+             berlaku untuk KEDUA sub-tab (Agregat & Hierarki Based), dihitung ulang
+             backend dari jendela tanggal ini (lihat date_start/date_end pada
+             stats_failure_reasons & stats_failure_reasons_hierarchy). -->
+        <div class="cf-row">
+          <label class="cf-label">Tanggal</label>
+          <div class="date-range">
+            <label class="dr-label">Dari</label>
+            <input type="date" v-model="dateStart" class="date-input" />
+            <label class="dr-label">s/d</label>
+            <input type="date" v-model="dateEnd" class="date-input" />
+            <button v-if="hasDateFilter" class="clear-btn" @click="dateStart = ''; dateEnd = ''">Reset</button>
+          </div>
+          <span v-if="hasDateFilter" class="cf-note">
+            Semua angka di tab ini dibatasi ke tanggal <b>{{ dateStart || '…' }}</b> s/d <b>{{ dateEnd || '…' }}</b>.
+          </span>
         </div>
 
         <!-- ------------------------- 1. AGREGAT ------------------------- -->
@@ -1289,15 +1330,21 @@ const RiskCells = (p) => {
 const canSeeFailureReasons = computed(() => auth.can(P.STATS_FAILURE_REASON))
 const failureData = ref(null)
 const loadingFailure = ref(false)
-// Campaign yang datanya sedang tersimpan. Tanpa penanda ini, cache "sudah ada data"
-// akan menahan hasil campaign lama saat filternya diganti.
+// Campaign + rentang tanggal yang datanya sedang tersimpan (lihat catatan yang sama
+// di hierarchyCampaign/hierarchyDateKey). Tanpa penanda ini, cache "sudah ada data"
+// akan menahan hasil campaign/tanggal lama saat filternya diganti.
 const failureCampaign = ref(null)
+const failureDateKey = ref(null)
 async function loadFailure(force = false) {
-  if (!force && failureData.value && failureCampaign.value === campaignFilter.value) return
+  const dateKey = `${dateStart.value}|${dateEnd.value}`
+  if (!force && failureData.value
+      && failureCampaign.value === campaignFilter.value
+      && failureDateKey.value === dateKey) return
   loadingFailure.value = true
   try {
-    failureData.value = await dataStore.fetchFailureReasons(campaignFilter.value)
+    failureData.value = await dataStore.fetchFailureReasons(campaignFilter.value, dateStart.value, dateEnd.value)
     failureCampaign.value = campaignFilter.value
+    failureDateKey.value = dateKey
   } finally {
     loadingFailure.value = false
   }
@@ -1314,13 +1361,18 @@ const failureMode = ref('aggregate')
 const failureHier = ref(null)
 const loadingFailureHier = ref(false)
 const failureHierCampaign = ref(null)
+const failureHierDateKey = ref(null)
 
 async function loadFailureHier(force = false) {
-  if (!force && failureHier.value && failureHierCampaign.value === campaignFilter.value) return
+  const dateKey = `${dateStart.value}|${dateEnd.value}`
+  if (!force && failureHier.value
+      && failureHierCampaign.value === campaignFilter.value
+      && failureHierDateKey.value === dateKey) return
   loadingFailureHier.value = true
   try {
-    failureHier.value = await dataStore.fetchFailureReasonsHierarchy(campaignFilter.value)
+    failureHier.value = await dataStore.fetchFailureReasonsHierarchy(campaignFilter.value, dateStart.value, dateEnd.value)
     failureHierCampaign.value = campaignFilter.value
+    failureHierDateKey.value = dateKey
   } finally {
     loadingFailureHier.value = false
   }
@@ -1389,7 +1441,11 @@ async function loadQcPerformance() {
   if (!canSeeQcTable.value) return
   loadingQcPerf.value = true
   try {
-    qcPerformance.value = await dataStore.fetchQcPerformance(campaignFilter.value)
+    // dateStart/dateEnd: filter tanggal yang sama dengan pohon Hierarki di atasnya
+    // (lihat catatan di date-range tab Failure Rate) — tabel ini SUDAH selalu
+    // di-refetch tiap tab dibuka (bukan di-cache seperti loadHierarchy), jadi
+    // cukup mengikuti nilai ref saat ini, tidak perlu penanda cache tersendiri.
+    qcPerformance.value = await dataStore.fetchQcPerformance(campaignFilter.value, dateStart.value, dateEnd.value)
   } catch {
     qcPerformance.value = []
   } finally {
@@ -1510,6 +1566,21 @@ watch(campaignFilter, () => {
     loadFailureMode(true)
   }
 })
+// Filter tanggal tab Failure Rate & Failure Reason memakai dateStart/dateEnd yang
+// SAMA dengan grafik AI Status (lihat date-range di template tab === 'hierarchy'
+// dan tab === 'failure', 18 September 2026) — jadi perubahannya harus ikut memuat
+// ulang pohon Hierarki, tabel QC, dan sub-tab Failure Reason yang sedang dibuka,
+// sama seperti campaignFilter di atas. Terpisah dari watcher [granularity,
+// dateStart, dateEnd, periodOffset] karena watcher itu hanya untuk grafik, dan
+// kedua tab ini tidak punya granularitas/paging sendiri.
+watch([dateStart, dateEnd], () => {
+  if (tab.value === 'hierarchy') {
+    loadHierarchy(true)
+    loadQcPerformance()
+  } else if (tab.value === 'failure') {
+    loadFailureMode(true)
+  }
+})
 // Performa Campaign kini tampil inline di bawah pie chart Overview (bukan tab
 // tersendiri), jadi datanya di-load bersamaan dengan overview saat mount.
 async function loadCampaignMonthly() {
@@ -1528,14 +1599,22 @@ async function loadCampaignMonthly() {
     loadingCampaign.value = false
   }
 }
-// Campaign yang pohonnya sedang tersimpan (lihat catatan di failureCampaign).
+// Campaign + rentang tanggal yang pohonnya sedang tersimpan (lihat catatan di
+// failureCampaign) — keduanya harus cocok atau pohon dimuat ulang, supaya
+// membuka tab ini lagi setelah dateStart/dateEnd berubah di tab lain tidak
+// diam-diam menyajikan pohon dari rentang yang sudah kedaluwarsa.
 const hierarchyCampaign = ref(null)
+const hierarchyDateKey = ref(null)
 async function loadHierarchy(force = false) {
-  if (!force && hierarchy.value && hierarchyCampaign.value === campaignFilter.value) return
+  const dateKey = `${dateStart.value}|${dateEnd.value}`
+  if (!force && hierarchy.value
+      && hierarchyCampaign.value === campaignFilter.value
+      && hierarchyDateKey.value === dateKey) return
   loadingHierarchy.value = true
   try {
-    hierarchy.value = await dataStore.fetchHierarchy(campaignFilter.value)
+    hierarchy.value = await dataStore.fetchHierarchy(campaignFilter.value, dateStart.value, dateEnd.value)
     hierarchyCampaign.value = campaignFilter.value
+    hierarchyDateKey.value = dateKey
   } finally {
     loadingHierarchy.value = false
   }

@@ -63,6 +63,9 @@
           <span class="icon">DQ</span> <span class="label">Database QC</span>
         </RouterLink>
         -->
+        <RouterLink v-if="can(P.STATS_EXPORT_ERROR_RATE_PPT)" to="/dashboard/error-rate-ppt" class="menu-item" active-class="active" :title="collapsed ? 'Generate PPT Error Rate' : ''">
+          <span class="icon">PP</span> <span class="label">Generate PPT Error Rate</span>
+        </RouterLink>
       </div>
 
       <div v-if="showUploadGroup" class="menu-group">

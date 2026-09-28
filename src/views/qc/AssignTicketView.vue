@@ -25,11 +25,19 @@
             :title="describeSplit(autoCount, autoQcCount)"
             @click="autoAssign"
           >{{ autoBusy ? 'Membagi…' : `⚡ Assign Otomatis (${autoCount})` }}</button>
+          <!-- Kebalikan dari Assign Otomatis: melepas SEMUA assignment yang sudah ada
+               dalam cakupan pemanggil — bukan hanya baris tanggal yang tampil —
+               sekali klik (25 September 2026, DELETE /qc_assignment). Riwayat
+               Manual Status yang sudah disubmit QC tidak ikut terhapus. -->
+          <button class="btn-revoke" :disabled="loading || revokeBusy || scopeAssigned === 0" @click="revokeAll">
+            {{ revokeBusy ? 'Melepas…' : revokeLabel }}
+          </button>
           <button class="btn-refresh" :disabled="loading" @click="loadAll">↻ Muat ulang</button>
         </div>
 
         <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
         <div v-if="autoMsg" class="ok-msg">{{ autoMsg }}</div>
+        <div v-if="revokeMsg" class="ok-msg">{{ revokeMsg }}</div>
 
         <div class="table-wrap">
           <table class="assign-table">
@@ -92,7 +100,12 @@
             </tbody>
           </table>
         </div>
-        <div class="note">Sumber: tickets-daily (H-1). Kosongkan tanggal untuk memakai data kemarin.</div>
+        <div class="note">
+          Sumber: tickets-daily (H-1). Kosongkan tanggal untuk memakai data kemarin.
+          <b>Lepas Semua</b> melepas <b>seluruh</b> ticket yang sudah di-assign dalam cakupan
+          Anda (semua tanggal, bukan hanya yang tampil di tabel), tanpa menghapus hasil
+          Manual Status yang sudah disubmit QC.
+        </div>
       </div>
     </div>
   </SidebarLayout>
@@ -132,6 +145,10 @@ const autoMsg = ref('')
 
 let inFlight = null        // AbortController permintaan tickets-daily terakhir
 let requestId = 0          // penanda anti balapan antar-permintaan
+// "Lepas Semua" (DELETE /qc_assignment) — jumlah yang SUDAH di-assign se-cakupan,
+// dari field `assigned` GET /qc_assignment/unassigned (lihat loadUnassignedSummary).
+const revokeBusy = ref(false)
+const revokeMsg = ref('')
 
 function qcLabel(username) {
   const q = qcUsers.value.find((u) => u.username === username)
@@ -149,6 +166,9 @@ const unassigned = computed(() => tickets.value.filter((t) => !t.assigned_qc))
 // hitungan baris yang termuat.
 const scopeUnassigned = ref(null)
 const scopeQcCount = ref(null)
+const scopeAssigned = ref(null)
+const revokeLabel = computed(() =>
+  scopeAssigned.value ? `✕ Lepas Semua (${scopeAssigned.value})` : '✕ Lepas Semua')
 const autoCount = computed(() => scopeUnassigned.value ?? unassigned.value.length)
 const autoQcCount = computed(() => scopeQcCount.value ?? qcUsers.value.length)
 
@@ -157,9 +177,11 @@ async function loadUnassignedSummary() {
     const res = await apiClient.get('/qc_assignment/unassigned')
     scopeUnassigned.value = Number(res.data?.unassigned ?? 0)
     scopeQcCount.value = Number(res.data?.qc_count ?? 0)
+    scopeAssigned.value = Number(res.data?.assigned ?? 0)
   } catch {
     scopeUnassigned.value = null
     scopeQcCount.value = null
+    scopeAssigned.value = null
   }
 }
 
@@ -298,6 +320,10 @@ async function assign(t) {
     t.assigned_qc = username
     // Take assigned_at from the response — reassigning refreshes it server-side.
     t.assigned_at = res.data?.assigned_at
+    // Kosongkan pilihan setelah berhasil — sama seperti unassign(). Tanpa ini
+    // dropdown & tombol Assign tetap "aktif" seolah belum ke-submit (25 September 2026).
+    pick.value[t.id] = ''
+    loadUnassignedSummary()
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || 'Gagal assign ticket.'
   } finally {
@@ -357,10 +383,42 @@ async function unassign(t) {
     t.assigned_qc = null
     t.assigned_at = null
     pick.value[t.id] = ''
+    loadUnassignedSummary()
   } catch (e) {
     errorMsg.value = e.response?.data?.detail || 'Gagal melepas assignment.'
   } finally {
     busy.value = null
+  }
+}
+
+// Lepas SEMUA assignment dalam cakupan pemanggil sekaligus (25 September 2026,
+// DELETE /qc_assignment) — kebalikan dari autoAssign(): tombol itu MENGISI yang
+// kosong, ini MENGOSONGKAN yang sudah ke-assign. Dikerjakan backend dalam satu
+// commit karena, sama seperti auto assign, yang perlu dilepas adalah SELURUH
+// antrean dalam cakupan, bukan hanya 100 baris yang termuat di tabel ini.
+async function revokeAll() {
+  const berapa = scopeAssigned.value
+    ? `${scopeAssigned.value} ticket yang sudah di-assign`
+    : 'semua ticket yang sudah di-assign'
+  if (!window.confirm(
+    `Lepas ${berapa} di cakupan Anda?\n\n` +
+    'Assignment-nya akan dihapus (QC kehilangan akses ke tiket itu), tetapi hasil ' +
+    'Manual Status yang sudah disubmit QC TIDAK ikut terhapus. Tindakan ini tidak bisa dibatalkan.'
+  )) return
+  revokeBusy.value = true
+  errorMsg.value = ''
+  revokeMsg.value = ''
+  try {
+    const res = await apiClient.delete('/qc_assignment')
+    const removed = res.data?.removed ?? 0
+    revokeMsg.value = removed
+      ? `${removed} assignment dilepas.`
+      : 'Tidak ada assignment untuk dilepas.'
+    await loadAll()
+  } catch (e) {
+    errorMsg.value = e.response?.data?.detail || 'Gagal melepas semua assignment.'
+  } finally {
+    revokeBusy.value = false
   }
 }
 
@@ -391,6 +449,8 @@ onMounted(loadAll)
 
 .btn-refresh { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
 .btn-refresh:disabled { opacity: 0.5; }
+.btn-revoke { padding: 8px 14px; border: 1.5px solid #fecaca; border-radius: 8px; background: #fff; color: var(--red); font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.btn-revoke:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .table-wrap { overflow-x: auto; }
 .assign-table { width: 100%; border-collapse: collapse; font-size: 14px; }

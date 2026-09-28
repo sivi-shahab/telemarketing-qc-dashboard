@@ -49,6 +49,11 @@ const routes = [
     path: '/dashboard/sales-database',
     component: () => import('../views/dashboard/SalesDatabaseView.vue'),
   },
+  {
+    // Generate PPT Error Rate Update (25 September 2026) — izin di ROUTE_PERMISSIONS.
+    path: '/dashboard/error-rate-ppt',
+    component: () => import('../views/dashboard/ErrorRatePptView.vue'),
+  },
   // qc-database dinonaktifkan (endpoint /list_qc_databases sudah dimatikan di API).
   // {
   //   path: '/dashboard/qc-database',
