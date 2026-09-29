@@ -123,6 +123,23 @@
                 </td>
                 <td class="u-created">{{ formatDate(u.created_at) }}</td>
                 <td class="col-action">
+                  <!-- Toggle aktif/nonaktif — khusus role QC: pembagian tiket
+                       otomatis (qc_assignment.py) cuma menyasar QC yang
+                       is_active, jadi ini yang dipakai supervisor QC untuk
+                       "mengeluarkan" seorang QC dari pool pembagian tanpa
+                       menghapus akunnya. -->
+                  <button
+                    v-if="u.role === 'qc'"
+                    class="btn-toggle"
+                    :class="u.is_active ? 'btn-toggle-off' : 'btn-toggle-on'"
+                    :disabled="u.id === currentUserId || togglingId === u.id"
+                    :title="u.id === currentUserId
+                      ? 'Tidak dapat menonaktifkan akun sendiri'
+                      : (u.is_active ? 'Nonaktifkan — dikeluarkan dari pembagian tiket QC' : 'Aktifkan kembali')"
+                    @click="toggleActive(u)"
+                  >
+                    {{ togglingId === u.id ? '…' : (u.is_active ? 'Nonaktifkan' : 'Aktifkan') }}
+                  </button>
                   <button
                     class="btn-del"
                     :disabled="u.id === currentUserId || deletingId === u.id"
@@ -235,6 +252,7 @@ const createError = ref('')
 const createOk = ref('')
 
 const deletingId = ref(null)
+const togglingId = ref(null)
 
 
 
@@ -328,6 +346,30 @@ async function deleteUser(u) {
   }
 }
 
+async function toggleActive(u) {
+  if (u.id === currentUserId.value) return
+  const next = !u.is_active
+  if (!window.confirm(
+    next
+      ? `Aktifkan kembali QC "${u.username}"?`
+      : `Nonaktifkan QC "${u.username}"? User ini tidak akan lagi kebagian tiket dari pembagian otomatis.`
+  )) return
+  togglingId.value = u.id
+  listError.value = ''
+  try {
+    await apiClient.patch(`/auth/users/${u.id}/active`, null, { params: { is_active: next } })
+    await fetchUsers()
+  } catch (e) {
+    listError.value = e.response?.status === 400
+      ? 'Tidak dapat menonaktifkan akun sendiri.'
+      : e.response?.status === 404
+        ? 'User tidak ditemukan.'
+        : 'Gagal mengubah status user.'
+  } finally {
+    togglingId.value = null
+  }
+}
+
 onMounted(() => { fetchUsers(); loadRoles() })
 </script>
 
@@ -414,6 +456,16 @@ label { font-size: 13px; font-weight: 600; }
 }
 .btn-del:hover:not(:disabled) { background: var(--red); color: #fff; }
 .btn-del:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-toggle {
+  padding: 6px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
+  margin-right: 6px; transition: background 0.15s, color 0.15s;
+}
+.btn-toggle-off { background: #fff; color: var(--text-muted); border: 1.5px solid var(--border); }
+.btn-toggle-off:hover:not(:disabled) { background: #f1f5f9; }
+.btn-toggle-on { background: #fff; color: #16a34a; border: 1.5px solid #bbf7d0; }
+.btn-toggle-on:hover:not(:disabled) { background: #16a34a; color: #fff; }
+.btn-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .empty { text-align: center; color: var(--text-muted); padding: 24px; }
 
