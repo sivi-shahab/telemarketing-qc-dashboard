@@ -66,18 +66,19 @@
         </div>
       </div>
 
-      <div v-if="detail" class="detail-card">
+      <div v-if="detail || detailError" class="detail-card">
         <div class="detail-head">
-          <h2 class="card-title">{{ detail.filename }}</h2>
+          <h2 class="card-title">{{ detail ? detail.filename : 'Detail' }}</h2>
           <button class="link-btn" @click="closeDetail">Tutup ✕</button>
         </div>
-        <div class="detail-body">
+        <div v-if="detailError" class="error-msg">{{ detailError }}</div>
+        <div v-if="detail" class="detail-body">
           <div class="detail-image">
             <img v-if="imageUrl" :src="imageUrl" :alt="detail.filename" />
           </div>
           <div class="detail-text">
             <div class="text-actions">
-              <button class="btn-small" :disabled="detail.status !== 'done'" @click="copyText">{{ copied ? 'Tersalin ✓' : 'Salin' }}</button>
+              <button class="btn-small" :disabled="detail.status !== 'done'" @click="copyText">{{ copyLabel }}</button>
               <button class="btn-small" :disabled="detail.status !== 'done'" @click="downloadText">Unduh .txt</button>
             </div>
             <pre v-if="detail.status === 'done'" class="ocr-text">{{ detail.text }}</pre>
@@ -115,6 +116,11 @@ const listError = ref('')
 const detail = ref(null)
 const imageUrl = ref('')
 const copied = ref(false)
+const copyFailed = ref(false)
+const detailError = ref('')
+const copyLabel = computed(() => (copyFailed.value ? 'Gagal menyalin' : copied.value ? 'Tersalin ✓' : 'Salin'))
+// Diset saat komponen dilepas supaya request yang masih berjalan tidak menjadwalkan polling lagi.
+let unmounted = false
 let pollTimer = null
 
 const showUploader = computed(() => items.value.some((i) => 'uploader_name' in i))
@@ -161,6 +167,7 @@ async function load() {
   listError.value = ''
   try {
     const { data } = await apiClient.get('/ocr_images', { params: { page: page.value, page_size: pageSize } })
+    if (unmounted) return
     items.value = data.items
     total.value = data.total
     if (detail.value) {
@@ -168,6 +175,7 @@ async function load() {
       if (fresh && fresh.status !== detail.value.status) await openDetail(fresh.id)
     }
   } catch (err) {
+    if (unmounted) return
     listError.value = errorText(err, 'Gagal memuat riwayat')
   } finally {
     loading.value = false
@@ -177,19 +185,29 @@ async function load() {
 
 function schedulePoll() {
   clearTimeout(pollTimer)
+  if (unmounted) return
   pollTimer = hasActive(items.value) ? setTimeout(load, POLL_MS) : null
 }
 
 async function openDetail(id) {
-  const { data } = await apiClient.get(`/ocr_images/${id}`)
-  const sameImage = detail.value && detail.value.id === id
-  detail.value = data
-  copied.value = false
-  if (!sameImage) {
-    if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
-    imageUrl.value = ''
-    const res = await apiClient.get(`/ocr_images/${id}/image`, { responseType: 'blob' })
-    imageUrl.value = URL.createObjectURL(res.data)
+  detailError.value = ''
+  try {
+    const { data } = await apiClient.get(`/ocr_images/${id}`)
+    if (unmounted) return
+    const sameImage = detail.value && detail.value.id === id
+    detail.value = data
+    copied.value = false
+    copyFailed.value = false
+    if (!sameImage) {
+      if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
+      imageUrl.value = ''
+      const res = await apiClient.get(`/ocr_images/${id}/image`, { responseType: 'blob' })
+      if (unmounted) return
+      imageUrl.value = URL.createObjectURL(res.data)
+    }
+  } catch (err) {
+    // Kegagalan detail ditampilkan di panel detail, bukan sebagai galat riwayat.
+    if (!unmounted) detailError.value = errorText(err, 'Gagal memuat detail')
   }
 }
 
@@ -197,6 +215,7 @@ function closeDetail() {
   if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
   imageUrl.value = ''
   detail.value = null
+  detailError.value = ''
 }
 
 async function retry(id) {
@@ -219,9 +238,36 @@ async function remove(it) {
   }
 }
 
+// Dashboard bisa dibuka lewat http biasa (bukan secure context) sehingga
+// navigator.clipboard tidak ada; jatuh ke textarea tersembunyi + execCommand.
+async function writeClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.setAttribute('readonly', '')
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  try {
+    if (!document.execCommand('copy')) throw new Error('execCommand gagal')
+  } finally {
+    document.body.removeChild(ta)
+  }
+}
+
 async function copyText() {
-  await navigator.clipboard.writeText(detail.value.text || '')
-  copied.value = true
+  try {
+    await writeClipboard(detail.value.text || '')
+    copied.value = true
+    copyFailed.value = false
+  } catch {
+    copied.value = false
+    copyFailed.value = true
+  }
 }
 
 function downloadText() {
@@ -235,6 +281,7 @@ function downloadText() {
 
 onMounted(load)
 onBeforeUnmount(() => {
+  unmounted = true
   clearTimeout(pollTimer)
   if (imageUrl.value) URL.revokeObjectURL(imageUrl.value)
 })
