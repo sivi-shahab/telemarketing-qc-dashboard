@@ -92,6 +92,10 @@ const routes = [
     component: () => import('../views/upload/ReprocessTicketsView.vue'),
   },
   {
+    path: '/upload/ocr-image',
+    component: () => import('../views/upload/OcrImageView.vue'),
+  },
+  {
     path: '/delete/campaign',
     component: () => import('../views/delete/DeleteCampaignView.vue'),
   },

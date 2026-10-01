@@ -29,6 +29,7 @@ export const P = {
   MENU_MANAGE_ROLE: 'menu.manage_role',
   MENU_ROLE_HIERARCHY: 'menu.role_hierarchy',
   MENU_COLLECTION_RESULTS: 'menu.collection_results',
+  MENU_OCR_IMAGE: 'menu.ocr_image',
 
   // Fitur di halaman Results
   RESULTS_EVALUATION_DETAIL: 'results.evaluation_detail',
@@ -88,6 +89,7 @@ export const ROUTE_PERMISSIONS = {
   '/upload/sales-database': P.MENU_UPLOAD_SALES_DATABASE,
   '/upload/qc-database': P.MENU_UPLOAD_QC_DATABASE,
   '/upload/reprocess': P.MENU_REPROCESS_TICKETS,
+  '/upload/ocr-image': P.MENU_OCR_IMAGE,
   '/delete/campaign': P.MENU_DELETE_CAMPAIGN,
   '/spq-head/users': P.MENU_MANAGE_USER,
   '/spq-head/manage-roles': P.MENU_MANAGE_ROLE,
@@ -104,6 +106,7 @@ export const LANDING_ORDER = [
   ['/dashboard/transcripts', P.MENU_TRANSCRIPTS],
   ['/dashboard/campaigns', P.MENU_CAMPAIGNS],
   ['/upload/transcript', P.MENU_UPLOAD_TRANSCRIPT],
+  ['/upload/ocr-image', P.MENU_OCR_IMAGE],
 ]
 
 export function landingPathFor(permissions) {

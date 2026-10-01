@@ -93,6 +93,9 @@
         <RouterLink v-if="can(P.MENU_REPROCESS_TICKETS)" to="/upload/reprocess" class="menu-item" active-class="active" :title="collapsed ? 'Reprocess All Ticket' : ''">
           <span class="icon">RA</span> <span class="label">Reprocess All Ticket</span>
         </RouterLink>
+        <RouterLink v-if="can(P.MENU_OCR_IMAGE)" to="/upload/ocr-image" class="menu-item" active-class="active" :title="collapsed ? 'OCR Gambar' : ''">
+          <span class="icon">OG</span> <span class="label">OCR Gambar</span>
+        </RouterLink>
       </div>
 
       <div v-if="can(P.MENU_DELETE_CAMPAIGN)" class="menu-group">
@@ -139,7 +142,7 @@ const can = auth.can
 const showUploadGroup = computed(() => auth.canAny(
   P.MENU_UPLOAD_CAMPAIGN, P.MENU_UPLOAD_AUDIO, P.MENU_UPLOAD_TRANSCRIPT,
   P.MENU_GET_RESULT, P.MENU_UPLOAD_SALES_DATABASE, P.MENU_UPLOAD_QC_DATABASE,
-  P.MENU_REPROCESS_TICKETS,
+  P.MENU_REPROCESS_TICKETS, P.MENU_OCR_IMAGE,
 ))
 // MENU_ROLE_HIERARCHY sengaja tidak ikut di sini: link-nya disembunyikan (lihat
 // template), jadi kalau ia satu-satunya izin yang dimiliki, judul grup
