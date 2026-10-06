@@ -165,11 +165,10 @@ test('joinLocalResults: ticket tanpa assignment tetap null', () => {
 // --- describeSplit ---------------------------------------------------------
 // Kalimat konfirmasi tombol "Assign Otomatis".
 //
-// Server TIDAK lagi membagi rata per batch: sejak aturan 4 September 2026
-// (api/routers/qc_assignment.py :: split_by_load) jatah dihitung dari beban yang SUDAH
-// dipegang tiap QC. Beban itu hanya diketahui server, jadi kalimat ini TIDAK boleh
-// menyebut angka per QC — menyebutnya berarti orang menyetujui pembagian yang bukan
-// yang akan terjadi.
+// Sejak 2 Oktober 2026 (qc_auto_assign.distribute_evenly) server membagi rata di
+// antara QC yang aktif SAAT INI, beban lama tidak dihitung. Server tetap bisa membuang
+// sebagian ticket, jadi kalimat ini TIDAK boleh menyebut angka per QC — menyebutnya
+// berarti orang menyetujui pembagian yang bukan yang akan terjadi.
 
 test('describeSplit: menyebut jumlah ticket dan jumlah QC', () => {
   const s = describeSplit(134, 12)
@@ -179,7 +178,7 @@ test('describeSplit: menyebut jumlah ticket dan jumlah QC', () => {
 
 test('describeSplit: menyebut aturannya, bukan hasil per QC', () => {
   const s = describeSplit(134, 12)
-  assert.match(s, /beban/i, 'harus menyebut bahwa jatahnya menghitung beban')
+  assert.match(s, /beban lama tidak dihitung/i, 'harus menyebut aturan per momen (2 Okt 2026)')
   assert.match(s, /ditentukan server/i)
 })
 

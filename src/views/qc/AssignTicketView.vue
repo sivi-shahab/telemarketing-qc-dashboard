@@ -1,7 +1,12 @@
 <template>
   <SidebarLayout title="Assign Ticket">
     <div class="assign-page">
-      <div class="card">
+      <div class="tab-group">
+        <button :class="['tab', { active: tab === 'assign' }]" @click="tab = 'assign'">Assign Ticket</button>
+        <button :class="['tab', { active: tab === 'log' }]" @click="tab = 'log'">Log QC</button>
+      </div>
+
+      <div v-if="tab === 'assign'" class="card">
         <h2 class="card-title">Assign Ticket ke QC</h2>
         <p class="card-subtitle">
           Bagikan Data Leads ke QC. Satu ticket hanya untuk satu QC — QC hanya bisa
@@ -33,6 +38,25 @@
             {{ revokeBusy ? 'Melepas…' : revokeLabel }}
           </button>
           <button class="btn-refresh" :disabled="loading" @click="loadAll">↻ Muat ulang</button>
+        </div>
+
+        <!-- Jadwal batch otomatis (GET /qc_assignment/schedule, diport dari 4-service
+             5 Oktober 2026). Tombol manual di atas tetap jalan kapan saja; batch
+             terjadwal membagi sisa antrean se-sistem dengan aturan yang sama dan
+             di-skip kalau antreannya sudah habis. Saklarnya QC_AUTO_ASSIGN_ENABLED
+             (default mati) — saat mati, banner hanya menyebut statusnya. -->
+        <div v-if="schedule" class="schedule-bar" :class="{ off: !schedule.enabled }">
+          <template v-if="schedule.enabled">
+            <span class="countdown-label">Auto assign berikutnya</span>
+            <span class="countdown mono">{{ countdownText }}</span>
+            <span class="muted">({{ nextSlotLabel }} WIB)</span>
+          </template>
+          <span v-else class="countdown-label">Auto assign terjadwal dimatikan</span>
+          <span class="slots">
+            Jadwal harian (WIB):
+            <span v-for="sl in schedule.slots" :key="sl" class="slot-chip"
+                  :class="{ next: schedule.enabled && sl === nextSlotLabel }">{{ sl }}</span>
+          </span>
         </div>
 
         <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
@@ -107,12 +131,84 @@
           Manual Status yang sudah disubmit QC.
         </div>
       </div>
+
+      <div v-else class="card">
+        <h2 class="card-title">Log Assign QC</h2>
+        <p class="card-subtitle">
+          Tiket yang di-assign ke tiap QC pada tanggal terpilih. Log ini mengikuti
+          kepemilikan tiket <b>saat ini</b> — bila sebuah tiket sempat dipindah dari satu
+          QC ke QC lain, yang tercatat di sini hanya assign/re-assign yang <b>terakhir</b>.
+        </p>
+
+        <div class="toolbar">
+          <label class="dr-label">Tanggal</label>
+          <input type="date" v-model="logDate" class="text-input" @change="loadLog" />
+          <button class="btn-refresh" :disabled="logLoading" @click="setToday">Hari Ini</button>
+          <button class="btn-refresh" :disabled="logLoading" @click="loadLog">↻ Muat ulang</button>
+        </div>
+
+        <div v-if="logError" class="error-msg">{{ logError }}</div>
+
+        <!-- Ringkasan per QC — total tiket & persentasenya terhadap SELURUH tiket yang
+             ter-assign pada HARI terpilih, supaya ketahuan apakah pembagiannya sudah
+             merata. Untuk hari ini mencakup SEMUA QC aktif walau jatahnya 0 — QC yang
+             tidak kebagian sama sekali justru info paling penting untuk pengecekan
+             merata. -->
+        <div class="panel-title">Ringkasan per QC — {{ logPeriodLabel }}</div>
+        <div v-if="logLoading" class="empty">Memuat…</div>
+        <div v-else class="table-wrap">
+          <table class="assign-table">
+            <thead>
+              <tr><th>QC</th><th>Jumlah Data Leads</th></tr>
+            </thead>
+            <tbody>
+              <tr v-if="!dailySummary.length"><td colspan="2" class="empty">Tidak ada QC untuk ditampilkan.</td></tr>
+              <tr v-for="row in dailySummary" :key="row.qc_username">
+                <td><span class="badge badge-yellow">{{ row.qc_name }}</span></td>
+                <td>{{ row.count }} <span class="muted">({{ row.pct }}%)</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="panel-title" style="margin-top: 18px">Rincian Tiket</div>
+        <div v-if="logLoading" class="empty">Memuat…</div>
+        <div v-else-if="!logDays.length" class="empty">Tidak ada assignment pada tanggal ini.</div>
+        <div v-else class="log-days">
+          <div v-for="day in logDays" :key="day.date" class="day-card">
+            <div class="day-head">
+              <span class="day-label">{{ dayLabel(day.date) }}</span>
+              <span class="day-total">{{ day.total }} ticket</span>
+            </div>
+            <div class="table-wrap">
+              <table class="assign-table">
+                <thead>
+                  <tr>
+                    <th>QC</th>
+                    <th class="num-col">Jumlah</th>
+                    <th>Data Leads</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="q in day.qc" :key="q.qc_username">
+                    <td><span class="badge badge-yellow">{{ q.qc_name }}</span></td>
+                    <td class="num-col mono">{{ q.count }}</td>
+                    <td class="ticket-ids">
+                      <span v-for="tid in q.ticket_ids" :key="tid" class="mono ticket-chip">{{ tid }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </SidebarLayout>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
 import { groupTickets, joinLocalResults, describeSplit, chunkTicketIds } from './assignTicketData.js'
@@ -131,6 +227,7 @@ const MAX_FETCH_PAGES = 100
 // query string yang masuk akal — daftar dipotong, bukan dipendekkan.
 const TICKET_IDS_PER_REQUEST = 200
 
+const tab = ref('assign') // 'assign' | 'log'
 const tickets = ref([])
 const qcUsers = ref([])
 const loading = ref(true)
@@ -422,11 +519,158 @@ async function revokeAll() {
   }
 }
 
-onMounted(loadAll)
+// --- Jadwal auto assign + countdown ---------------------------------------
+// Hitung mundur memakai jam SERVER (selisih `now` server vs jam browser disimpan di
+// `clockSkewMs`), jadi tetap benar walau jam browser pemakai meleset. Saat mencapai
+// nol, jadwal diminta ulang dan tabel dimuat ulang (batch-nya mungkin baru jalan).
+const schedule = ref(null)
+const remainingSec = ref(0)
+let clockSkewMs = 0
+let tickTimer = null
+
+const pad2 = (n) => String(n).padStart(2, '0')
+const countdownText = computed(() => {
+  const t = Math.max(0, remainingSec.value)
+  return `${pad2(Math.floor(t / 3600))}:${pad2(Math.floor((t % 3600) / 60))}:${pad2(t % 60)}`
+})
+// Jam:menit WIB dari next_run_at. Server mengirim offset +07:00, tapi sengaja
+// diformat ulang ke Asia/Jakarta ketimbang dipotong dari string, supaya tidak ikut
+// salah kalau suatu saat server mengirim UTC.
+const nextSlotLabel = computed(() => {
+  if (!schedule.value?.next_run_at) return ''
+  return new Date(schedule.value.next_run_at).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jakarta',
+  })
+})
+
+async function loadSchedule() {
+  try {
+    const res = await apiClient.get('/qc_assignment/schedule')
+    schedule.value = res.data
+    clockSkewMs = new Date(res.data.now).getTime() - Date.now()
+    tick()
+  } catch {
+    schedule.value = null // jadwal hanya pelengkap; layar tetap bisa dipakai tanpanya
+  }
+}
+
+let refreshing = false
+async function tick() {
+  if (!schedule.value?.enabled) return
+  const target = new Date(schedule.value.next_run_at).getTime()
+  remainingSec.value = Math.max(0, Math.ceil((target - (Date.now() + clockSkewMs)) / 1000))
+  if (remainingSec.value === 0 && !refreshing) {
+    refreshing = true
+    try {
+      // Beri worker beberapa detik menyelesaikan batch sebelum data dimuat ulang.
+      await new Promise((r) => setTimeout(r, 5000))
+      await loadSchedule()
+      await loadAll()
+    } finally {
+      refreshing = false
+    }
+  }
+}
+
+onMounted(() => {
+  loadAll()
+  loadSchedule()
+  tickTimer = setInterval(tick, 1000)
+})
+onBeforeUnmount(() => clearInterval(tickTimer))
+
+// --- Log QC (tab kedua) ----------------------------------------------------
+const logDays = ref([])
+const logLoading = ref(false)
+const logError = ref('')
+const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
+// Satu hari saja — default hari ini menurut kalender WIB, bukan zona waktu browser,
+// supaya cocok dengan tanggal yang dikelompokkan backend.
+const wibToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+const logDate = ref(wibToday())
+
+function setToday() {
+  logDate.value = wibToday()
+  loadLog()
+}
+
+function formatDateID(dateStr) {
+  if (!dateStr) return null
+  const [y, m, d] = dateStr.split('-').map(Number)
+  return `${d} ${MONTHS_ID[m - 1]} ${y}`
+}
+
+const logPeriodLabel = computed(() => formatDateID(logDate.value) || 'pilih tanggal')
+
+// Ringkasan per QC untuk tanggal terpilih: total tiket + persentasenya terhadap
+// SELURUH tiket yang ter-assign hari itu. Daftar QC aktif hanya dipakai untuk HARI
+// INI: riwayat aktif/nonaktif per hari tidak disimpan, jadi untuk tanggal lampau
+// yang ditampilkan hanya QC yang benar-benar kebagian tiket hari itu.
+const dailySummary = computed(() => {
+  const totals = new Map()
+  if (logDate.value === wibToday()) {
+    for (const u of qcUsers.value) {
+      totals.set(u.username, { qc_username: u.username, qc_name: u.name || u.username, count: 0 })
+    }
+  }
+  for (const day of logDays.value) {
+    for (const q of day.qc) {
+      if (!totals.has(q.qc_username)) {
+        totals.set(q.qc_username, { qc_username: q.qc_username, qc_name: q.qc_name, count: 0 })
+      }
+      totals.get(q.qc_username).count += q.count
+    }
+  }
+  const rows = Array.from(totals.values())
+  const total = rows.reduce((sum, r) => sum + r.count, 0)
+  return rows
+    .map((r) => ({ ...r, pct: total ? Math.round((r.count / total) * 1000) / 10 : 0 }))
+    .sort((a, b) => b.count - a.count || a.qc_name.localeCompare(b.qc_name))
+})
+
+// "Hari ini"/"Kemarin" dihitung dari kalender WIB, tidak dari mem-parse `day.date`
+// sebagai Date (bisa geser sehari kalau zona waktu browser bukan WIB).
+function dayLabel(dateStr) {
+  const formatted = formatDateID(dateStr)
+  const yesterdayWib = new Date(Date.now() - 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' })
+  if (dateStr === wibToday()) return `Hari Ini — ${formatted}`
+  if (dateStr === yesterdayWib) return `Kemarin — ${formatted}`
+  return formatted
+}
+
+async function loadLog() {
+  logLoading.value = true
+  logError.value = ''
+  try {
+    const res = await apiClient.get('/qc_assignment/log', {
+      params: {
+        date_start: logDate.value || undefined,
+        date_end: logDate.value || undefined,
+      },
+    })
+    logDays.value = res.data?.days || []
+  } catch (e) {
+    logError.value = e.response?.data?.detail || 'Gagal memuat log QC.'
+  } finally {
+    logLoading.value = false
+  }
+}
+
+// Muat saat tab Log QC pertama kali dibuka, bukan saat halaman dimuat.
+let logLoaded = false
+watch(tab, (t) => {
+  if (t === 'log' && !logLoaded) {
+    logLoaded = true
+    loadLog()
+  }
+})
 </script>
 
 <style scoped>
 .assign-page { display: flex; flex-direction: column; gap: 20px; }
+.tab-group { display: flex; gap: 6px; }
+.tab { padding: 9px 16px; border: 1.5px solid var(--border); border-radius: 8px; background: #fff; font-size: 13px; font-weight: 700; color: var(--text-muted); cursor: pointer; }
+.tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 .card { background: #fff; border: 1px solid var(--border); border-radius: 16px; padding: 28px 32px; display: flex; flex-direction: column; gap: 14px; }
 .card-title { font-size: 17px; font-weight: 700; }
 .card-subtitle { font-size: 13px; color: var(--text-muted); margin-top: -8px; }
@@ -472,4 +716,23 @@ onMounted(loadAll)
 .empty { text-align: center; color: var(--text-muted); padding: 24px; }
 .note { font-size: 12px; color: var(--text-muted); }
 .error-msg { background: var(--red-bg); color: var(--red); border: 1px solid #fecaca; border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+
+.panel-title { font-size: 14px; font-weight: 700; }
+.schedule-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border: 1px solid #bfdbfe; border-radius: 8px; background: #eff6ff; font-size: 13px; }
+.schedule-bar.off { background: #f1f5f9; border-color: var(--border); }
+.countdown-label { font-weight: 700; }
+.countdown { font-size: 16px; font-weight: 700; color: var(--blue); }
+.slots { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-muted); font-size: 12px; }
+.slot-chip { font-family: ui-monospace, monospace; padding: 2px 8px; border-radius: 999px; background: #fff; border: 1px solid var(--border); }
+.slot-chip.next { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+
+.dr-label { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.log-days { display: flex; flex-direction: column; gap: 18px; }
+.day-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.day-head { display: flex; align-items: baseline; justify-content: space-between; }
+.day-label { font-size: 14px; font-weight: 700; }
+.day-total { font-size: 12px; color: var(--text-muted); }
+.num-col { white-space: nowrap; }
+.ticket-ids { display: flex; flex-wrap: wrap; gap: 6px; }
+.ticket-chip { font-size: 11px; background: #f1f5f9; color: var(--text-muted); padding: 2px 8px; border-radius: 999px; }
 </style>
