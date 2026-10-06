@@ -81,21 +81,21 @@ export function joinLocalResults(groups, localItems, assignments) {
 /**
  * Kalimat konfirmasi untuk tombol "Assign Otomatis".
  *
- * Server TIDAK lagi membagi rata per batch. Sejak aturan 4 September 2026
- * (`api/routers/qc_assignment.py` :: `split_by_load`) jatah dihitung dari beban yang
- * SUDAH dipegang tiap QC: yang paling sedikit dapat lebih dulu, seri diundi, dan
- * antreannya dikocok.
+ * Aturan server (2 Oktober 2026, `qc_auto_assign.distribute_evenly`, mengganti aturan
+ * "merata atas total beban" 4 September): antrean dibagi rata di antara QC yang AKTIF
+ * saat tombol ditekan, beban lama tidak dihitung, antrean dikocok dan seri diundi.
  *
- * Karena itu jumlah per QC TIDAK bisa dihitung di browser — beban yang sudah ada hanya
- * diketahui server. Kalimat ini sengaja berhenti pada apa yang benar-benar dijanjikan:
- * berapa ticket, ke berapa QC, dan aturan pembagiannya. Menyebut "n ticket per QC"
- * seperti rumus lama berarti orang menyetujui pembagian yang bukan yang akan terjadi.
+ * Jumlah per QC tetap TIDAK dihitung di browser — server bisa membuang sebagian ticket
+ * (di luar cakupan, atau keburu di-assign orang lain). Kalimat ini sengaja berhenti
+ * pada apa yang benar-benar dijanjikan: berapa ticket, ke berapa QC, dan aturan
+ * pembagiannya. Menyebut "n ticket per QC" seperti rumus lama berarti orang
+ * menyetujui pembagian yang bukan yang akan terjadi.
  */
 export function describeSplit(n, k) {
   if (!k) return 'Tidak ada QC aktif untuk dibagikan.'
   if (!n) return 'Tidak ada ticket yang belum di-assign.'
-  return `${n} ticket dibagi ke ${k} QC aktif, didahulukan yang bebannya paling `
-    + `sedikit sehingga totalnya berakhir merata. Jumlah per QC ditentukan server.`
+  return `${n} ticket dibagi acak & merata ke ${k} QC aktif saat ini (beban lama `
+    + `tidak dihitung, selisih antar-QC paling banyak 1). Jumlah per QC ditentukan server.`
 }
 
 /**
