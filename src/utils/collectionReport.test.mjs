@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import {
   verdictTone, verdictLabel, commitmentBadge, scorePercent, formatEvidence,
   scorecardCategories, filterScorecard, humanizeField, SCORECARD_CATEGORIES,
-  caseLabel, caseSummary,
+  caseLabel, caseSummary, groupScorecardByCase,
 } from './collectionReport.js'
 
 test('verdictTone memetakan kedua kosakata verdict', () => {
@@ -84,4 +84,19 @@ test('scorecard berkasus: kategori urut data, filter per kasus', () => {
   assert.deepEqual(scorecardCategories(items), ['Verifikasi Nasabah', 'Kerahasiaan Data'])
   assert.deepEqual(filterScorecard(items, '', '', 'etika_penagihan').map(i => i.item_code), ['B'])
   assert.deepEqual(filterScorecard(items, '', '').map(i => i.item_code), ['A', 'B', 'C'])
+})
+
+test('groupScorecardByCase: satu tabel per kasus, laporan datar satu kelompok', () => {
+  const items = [
+    { item_code: 'A', case: 'standard_penagihan' },
+    { item_code: 'B', case: 'etika_penagihan' },
+    { item_code: 'C', case: 'standard_penagihan' },
+  ]
+  const cases = [{ case: 'standard_penagihan', case_points: 2 }, { case: 'etika_penagihan', case_points: 97 }]
+  const g = groupScorecardByCase(items, cases)
+  assert.deepEqual(g.map(x => [x.case, x.items.map(i => i.item_code), x.summary?.case_points]),
+    [['standard_penagihan', ['A', 'C'], 2], ['etika_penagihan', ['B'], 97]])
+  const flat = groupScorecardByCase([{ item_code: 'X' }], [])
+  assert.deepEqual(flat.map(x => [x.case, x.items.length]), [[null, 1]])
+  assert.deepEqual(groupScorecardByCase(null, null), [{ case: null, summary: null, items: [] }])
 })
