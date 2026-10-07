@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   verdictTone, verdictLabel, commitmentBadge, scorePercent, formatEvidence,
   scorecardCategories, filterScorecard, humanizeField, SCORECARD_CATEGORIES,
+  caseLabel, caseSummary,
 } from './collectionReport.js'
 
 test('verdictTone memetakan kedua kosakata verdict', () => {
@@ -65,4 +66,22 @@ test('filterScorecard menggabungkan kategori dan pencarian', () => {
 test('humanizeField', () => {
   assert.equal(humanizeField('outstanding_amount'), 'outstanding amount')
   assert.equal(humanizeField(null), '')
+})
+
+test('caseLabel & caseSummary scorecard berkasus', () => {
+  assert.equal(caseLabel('etika_penagihan'), 'Etika Penagihan')
+  assert.equal(caseLabel('lain_lain'), 'lain lain')
+  assert.deepEqual(caseSummary({}), [])
+  assert.deepEqual(caseSummary({ case_summary: [{ case: 'x' }] }), [{ case: 'x' }])
+})
+
+test('scorecard berkasus: kategori urut data, filter per kasus', () => {
+  const items = [
+    { item_code: 'A', category: 'Verifikasi Nasabah', case: 'standard_penagihan' },
+    { item_code: 'B', category: 'Kerahasiaan Data', case: 'etika_penagihan' },
+    { item_code: 'C', category: 'Verifikasi Nasabah', case: 'standard_penagihan' },
+  ]
+  assert.deepEqual(scorecardCategories(items), ['Verifikasi Nasabah', 'Kerahasiaan Data'])
+  assert.deepEqual(filterScorecard(items, '', '', 'etika_penagihan').map(i => i.item_code), ['B'])
+  assert.deepEqual(filterScorecard(items, '', '').map(i => i.item_code), ['A', 'B', 'C'])
 })

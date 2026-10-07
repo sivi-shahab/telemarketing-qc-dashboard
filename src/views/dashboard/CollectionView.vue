@@ -78,6 +78,8 @@
             <th>Agent</th>
             <th>Konsumen</th>
             <th class="num">Skor</th>
+            <th class="num" title="Standard Penagihan — poin item standar (maks 30)">Standard</th>
+            <th class="num" title="Etika Penagihan — satu item gagal menolkan skor akhir (maks 120)">Etika</th>
             <th>Hasil</th>
             <th>Kritis</th>
             <th class="num">Error Code</th>
@@ -102,6 +104,16 @@
               <td>{{ row.consumer_full_name || '—' }}</td>
               <td class="num mono">
                 <template v-if="row.score != null">{{ row.score }} / {{ row.maximum_score }}</template>
+                <template v-else>—</template>
+              </td>
+              <td class="num mono">
+                <span v-if="row.standard_score != null" class="case-score" :class="`tone-${verdictTone(row.standard_status)}`"
+                  :title="`Standard Penagihan: ${verdictLabel(row.standard_status)}`">{{ row.standard_score }} / {{ row.standard_maximum }}</span>
+                <template v-else>—</template>
+              </td>
+              <td class="num mono">
+                <span v-if="row.etika_score != null" class="case-score" :class="`tone-${verdictTone(row.etika_status)}`"
+                  :title="`Etika Penagihan: ${verdictLabel(row.etika_status)}`">{{ row.etika_score }} / {{ row.etika_maximum }}</span>
                 <template v-else>—</template>
               </td>
               <td><span class="pill" :class="`tone-${verdictTone(row.ai_status)}`">{{ verdictLabel(row.ai_status) }}</span></td>
@@ -442,7 +454,7 @@ const auth = useAuthStore()
 const canDeleteTicket = computed(() => auth.can(P.ADMIN_TICKET_DELETE))
 const canReprocessTicket = computed(() => auth.can(P.ADMIN_TICKET_REPROCESS))
 const showActionColumn = computed(() => canDeleteTicket.value || canReprocessTicket.value)
-const colCount = computed(() => 9 + (showActionColumn.value ? 1 : 0))
+const colCount = computed(() => 11 + (showActionColumn.value ? 1 : 0))
 
 // Filter layar dalam bentuk body POST — nama field sama persis dengan parameter
 // GET /collection/results supaya tidak ada filter yang diam-diam hilang.
@@ -793,6 +805,7 @@ onUnmounted(() => {
 .tone-danger { color: var(--red); }  .pill.tone-danger { background: var(--red-bg); border-color: var(--red); }
 .tone-warning { color: var(--yellow); } .pill.tone-warning { background: var(--yellow-bg); border-color: var(--yellow); }
 .tone-muted { color: var(--text-muted); }   .pill.tone-muted { background: #f1f5f9; border-color: var(--border); }
+.case-score { font-weight: 600; }
 
 /* Reprocess / Delete — disalin dari ResultsView.vue supaya kedua menu identik. */
 .btn-reprocess-all, .btn-delete-all {
