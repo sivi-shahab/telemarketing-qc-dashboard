@@ -53,6 +53,22 @@ export function caseSummary(report) {
   return Array.isArray(report?.case_summary) ? report.case_summary : []
 }
 
+// Item scorecard dikelompokkan per kasus (urutan kemunculan), masing-masing dengan
+// baris case_summary-nya. Laporan datar (tanpa kasus) = satu kelompok, case null.
+export function groupScorecardByCase(items, cases) {
+  const list = items || []
+  if (!list.some(it => it.case)) return [{ case: null, summary: null, items: list }]
+  const byCase = Object.fromEntries((cases || []).map(c => [c.case, c]))
+  const groups = []
+  for (const it of list) {
+    const key = it.case || null
+    let g = groups.find(x => x.case === key)
+    if (!g) groups.push(g = { case: key, summary: byCase[key] || null, items: [] })
+    g.items.push(it)
+  }
+  return groups
+}
+
 export function verdictTone(value) {
   if (SUCCESS.has(value)) return 'success'
   if (DANGER.has(value)) return 'danger'
