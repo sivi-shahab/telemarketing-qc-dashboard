@@ -17,7 +17,11 @@
         <tr>
           <td>
             <span class="ct-name">Skor Maksimal Evaluasi</span>
-            <div class="ct-reason">
+            <div v-if="cases.length" class="ct-reason">
+              Standard Penagihan + Etika Penagihan. Item opsional adalah bonus; ambang lulus dihitung dari
+              bobot item wajib ({{ report.base_maximum_score ?? '—' }} poin).
+            </div>
+            <div v-else class="ct-reason">
               {{ report.agunan_discussion_status === 'NOT_INITIATED'
                 ? 'Kategori "Prosedur Penarikan Agunan" (16 poin) dieksklusi dari perhitungan karena topik agunan tidak dibahas.'
                 : 'Kategori "Prosedur Penarikan Agunan" (16 poin) diikutsertakan secara penuh.' }}
@@ -25,8 +29,24 @@
           </td>
           <td class="ct-result">{{ report.maximum_score ?? '—' }}</td>
         </tr>
+        <tr v-for="c in cases" :key="c.case" class="row-case">
+          <td>
+            <span class="ct-name">{{ caseLabel(c.case) }}</span>
+            <span class="badge case-badge" :class="`tone-${verdictTone(c.case_result)}`">{{ verdictLabel(c.case_result) }}</span>
+            <div class="ct-reason">
+              Item wajib {{ c.mandatory_earned }} / {{ c.mandatory_weight }} · bonus opsional {{ c.optional_earned }}
+              <template v-if="c.case === 'etika_penagihan'"> · satu item etika Belum Sesuai menolkan Total Skor Audit</template>
+            </div>
+          </td>
+          <td class="ct-result">{{ c.case_points }} / {{ c.max_points }}</td>
+        </tr>
         <tr>
-          <td><span class="ct-name">Total Skor Audit</span></td>
+          <td>
+            <span class="ct-name">Total Skor Audit</span>
+            <div v-if="etikaGated" class="ct-reason ct-danger">
+              Dinolkan karena ada pelanggaran Etika Penagihan (sebelum gerbang: {{ rawTotal }}).
+            </div>
+          </td>
           <td class="ct-result">{{ report.ai_score_phase_2 ?? '—' }}</td>
         </tr>
         <tr>
@@ -69,7 +89,7 @@
         <div class="meta-label">Campaign</div>
         <div class="meta-value">{{ campaign }}</div>
       </div>
-      <div class="meta-item">
+      <div v-if="!cases.length" class="meta-item">
         <div class="meta-label">Pembahasan Agunan</div>
         <div class="meta-value">{{ report.agunan_discussion_status ? verdictLabel(report.agunan_discussion_status) : '—' }}</div>
       </div>
@@ -79,9 +99,12 @@
 
 <script setup>
 import { computed } from 'vue'
-import { scorePercent, verdictLabel } from '../../utils/collectionReport.js'
+import { caseLabel, caseSummary, scorePercent, verdictLabel, verdictTone } from '../../utils/collectionReport.js'
 
 const props = defineProps({ report: { type: Object, required: true }, campaign: { type: String, default: '' } })
+const cases = computed(() => caseSummary(props.report))
+const etikaGated = computed(() => cases.value.some(c => c.case === 'etika_penagihan' && c.case_result === 'FAIL'))
+const rawTotal = computed(() => Math.round(cases.value.reduce((n, c) => n + (Number(c.case_points) || 0), 0) * 10) / 10)
 const percent = computed(() => Math.round(scorePercent(props.report)))
 const isPass = computed(() => props.report.ai_status === 'PASS')
 </script>
@@ -107,4 +130,7 @@ const isPass = computed(() => props.report.ai_status === 'PASS')
 .row-total .ct-name { font-weight: 700; }
 .row-total .ct-result { background: #eef2f6; }
 .meta-value.small { font-size: 13px; }
+.row-case .ct-name { padding-left: 12px; }
+.case-badge { margin-left: 8px; font-size: 11px; }
+.ct-danger { color: var(--red); }
 </style>

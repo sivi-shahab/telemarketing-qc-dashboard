@@ -3,6 +3,10 @@
     <div class="block-head">
       <span class="block-title">Hasil Scorecard ({{ items.length }} item)</span>
       <div class="sc-filter">
+        <select v-if="caseKeys.length" v-model="caseKey" aria-label="Filter kelompok">
+          <option value="">Semua Kelompok</option>
+          <option v-for="k in caseKeys" :key="k" :value="k">{{ caseLabel(k) }}</option>
+        </select>
         <select v-model="category" aria-label="Filter kategori">
           <option value="">Semua Kategori ({{ items.length }})</option>
           <option v-for="c in categories" :key="c" :value="c">{{ c }}</option>
@@ -30,7 +34,7 @@
             <td colspan="9" class="empty-inline">Tidak ada indikator yang cocok dengan pencarian / filter kategori.</td>
           </tr>
           <tr v-for="(it, i) in filtered" :key="`${it.item_code}-${i}`">
-            <td class="strong">{{ it.item_code || '—' }}<div class="cat-sub">{{ it.category }}</div></td>
+            <td class="strong">{{ it.item_code || '—' }}<div class="cat-sub">{{ it.category }}</div><div v-if="it.case" class="cat-sub">{{ caseLabel(it.case) }}{{ it.optional ? ' · opsional' : '' }}</div></td>
             <td>{{ it.requirement || '—' }}</td>
             <td><span class="badge" :class="it.tolerable === 'NO' ? 'tone-danger' : 'tone-muted'">{{ it.tolerable || '—' }}</span></td>
             <td class="num">{{ it.weight ?? '—' }}</td>
@@ -48,16 +52,18 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { scorecardCategories, filterScorecard, verdictTone } from '../../utils/collectionReport.js'
+import { caseLabel, scorecardCategories, filterScorecard, verdictTone } from '../../utils/collectionReport.js'
 import EvidenceCell from './EvidenceCell.vue'
 
 const props = defineProps({ report: { type: Object, required: true } })
 const category = ref('')
 const query = ref('')
+const caseKey = ref('')
 
 const items = computed(() => props.report.scorecard_result || [])
 const categories = computed(() => scorecardCategories(items.value))
-const filtered = computed(() => filterScorecard(items.value, category.value, query.value))
+const caseKeys = computed(() => [...new Set(items.value.map(it => it.case).filter(Boolean))])
+const filtered = computed(() => filterScorecard(items.value, category.value, query.value, caseKey.value))
 </script>
 
 <style scoped>

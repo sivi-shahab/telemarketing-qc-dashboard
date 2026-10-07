@@ -38,6 +38,21 @@ export const SCORECARD_CATEGORIES = [
   'Penutup & Dokumentasi Panggilan',
 ]
 
+// Dua kasus scorecard v01 (Okt 2026), urutan tampilan tetap: standard lalu etika.
+export const CASE_LABELS = {
+  standard_penagihan: 'Standard Penagihan',
+  etika_penagihan: 'Etika Penagihan',
+}
+
+export function caseLabel(value) {
+  return CASE_LABELS[value] || humanizeField(value) || '—'
+}
+
+// Laporan scorecard datar (pra-v01) tidak punya case_summary — kembalikan [].
+export function caseSummary(report) {
+  return Array.isArray(report?.case_summary) ? report.case_summary : []
+}
+
 export function verdictTone(value) {
   if (SUCCESS.has(value)) return 'success'
   if (DANGER.has(value)) return 'danger'
@@ -60,6 +75,10 @@ export function scorePercent(report) {
 }
 
 export function scorecardCategories(items) {
+  // Scorecard berkasus punya kategori sendiri — tampilkan apa adanya, urut data.
+  if ((items || []).some(it => it.case)) {
+    return [...new Set((items || []).map(it => it.category).filter(Boolean))]
+  }
   const extra = []
   for (const it of items || []) {
     const c = it.category
@@ -68,11 +87,12 @@ export function scorecardCategories(items) {
   return [...SCORECARD_CATEGORIES, ...extra]
 }
 
-// Filter kategori ('' = semua) + pencarian bebas atas kode, requirement, alasan.
-export function filterScorecard(items, category, query) {
+// Filter kategori & kasus ('' = semua) + pencarian bebas atas kode, requirement, alasan.
+export function filterScorecard(items, category, query, caseKey = '') {
   const q = (query || '').trim().toLowerCase()
   return (items || []).filter(it => {
     if (category && it.category !== category) return false
+    if (caseKey && it.case !== caseKey) return false
     if (!q) return true
     return [it.item_code, it.requirement, it.reason].some(v => String(v || '').toLowerCase().includes(q))
   })
