@@ -28,5 +28,6 @@ services:
     ports:
       - "4006:4006"
     # Tanpa depends_on ke `api` (beda compose file) — Nginx tetap jalan meski API
-    # belum siap; request-nya yang akan gagal sampai API naik.
+    # belum siap (nama `api` diurai saat request, lihat nginx.conf); /api-b/
+    # dijawab 502 sampai API naik.
     restart: unless-stopped
