@@ -135,9 +135,10 @@
       <div v-else class="card">
         <h2 class="card-title">Log Assign QC</h2>
         <p class="card-subtitle">
-          Tiket yang di-assign ke tiap QC pada tanggal terpilih. Log ini mengikuti
-          kepemilikan tiket <b>saat ini</b> — bila sebuah tiket sempat dipindah dari satu
-          QC ke QC lain, yang tercatat di sini hanya assign/re-assign yang <b>terakhir</b>.
+          <b>Riwayat</b>: setiap assign, pindah, dan lepas pada tanggal terpilih — dari QC
+          mana ke QC mana, oleh siapa, lewat jalur apa (tercatat sejak 12 Oktober 2026).
+          <b>Kepemilikan</b>: tiket yang dipegang tiap QC <b>saat ini</b>, menurut tanggal
+          assign terakhirnya.
         </p>
 
         <div class="toolbar">
@@ -148,6 +149,45 @@
         </div>
 
         <div v-if="logError" class="error-msg">{{ logError }}</div>
+
+        <div class="tab-group">
+          <button :class="['tab', 'tab-sm', { active: logView === 'riwayat' }]" @click="logView = 'riwayat'">Riwayat</button>
+          <button :class="['tab', 'tab-sm', { active: logView === 'kepemilikan' }]" @click="logView = 'kepemilikan'">Kepemilikan</button>
+        </div>
+
+        <!-- Riwayat lengkap dari qc_assignment_events (GET /qc_assignment/events, 12
+             Oktober 2026), terbaru dulu. Baris "Data awal" = kepemilikan yang sudah
+             ada saat tabel riwayat dibuat; perpindahan sebelum itu tidak tersimpan. -->
+        <template v-if="logView === 'riwayat'">
+          <div class="toolbar">
+            <span class="panel-title">Riwayat Assignment — {{ logPeriodLabel }}</span>
+            <input v-model.trim="eventSearch" class="text-input search" type="search" placeholder="Cari Data Leads / QC / pelaku…" />
+            <span class="count">{{ filteredEvents.length }} / {{ events.length }} kejadian</span>
+          </div>
+          <div v-if="eventsTruncated" class="note">Hanya 5.000 kejadian terbaru yang ditampilkan.</div>
+          <div v-if="logLoading" class="empty">Memuat…</div>
+          <div v-else class="table-wrap">
+            <table class="assign-table">
+              <thead>
+                <tr><th>Waktu</th><th>Data Leads</th><th>Aksi</th><th>Dari QC</th><th>Ke QC</th><th>Oleh</th><th>Jalur</th></tr>
+              </thead>
+              <tbody>
+                <tr v-if="!filteredEvents.length"><td colspan="7" class="empty">Tidak ada riwayat pada tanggal ini.</td></tr>
+                <tr v-for="e in filteredEvents" :key="e.id">
+                  <td class="cell-date">{{ formatDate(e.created_at) }}</td>
+                  <td class="mono">{{ e.ticket_id }}</td>
+                  <td><span :class="['badge', `badge-${eventActionLabel(e.action).tone}`]">{{ eventActionLabel(e.action).text }}</span></td>
+                  <td>{{ e.previous_qc_name || '—' }}</td>
+                  <td>{{ e.qc_name || '—' }}</td>
+                  <td class="muted">{{ e.actor_username || '—' }}</td>
+                  <td><span class="pill">{{ eventSourceLabel(e.source) }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <template v-else>
 
         <!-- Ringkasan per QC — total tiket & persentasenya terhadap SELURUH tiket yang
              ter-assign pada HARI terpilih, supaya ketahuan apakah pembagiannya sudah
@@ -202,6 +242,7 @@
             </div>
           </div>
         </div>
+        </template>
       </div>
     </div>
   </SidebarLayout>
@@ -211,7 +252,10 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
-import { groupTickets, joinLocalResults, describeSplit, chunkTicketIds } from './assignTicketData.js'
+import {
+  groupTickets, joinLocalResults, describeSplit, chunkTicketIds,
+  eventActionLabel, eventSourceLabel, filterEvents,
+} from './assignTicketData.js'
 
 // Baris tiket diambil lewat App B (`GET /tickets_daily`), bukan menembak App C
 // langsung dari browser: permintaan langsung tidak melewati App B sehingga
@@ -585,6 +629,12 @@ onBeforeUnmount(() => clearInterval(tickTimer))
 const logDays = ref([])
 const logLoading = ref(false)
 const logError = ref('')
+// Riwayat lengkap (qc_assignment_events) — tampilan bawaan tab Log QC.
+const logView = ref('riwayat')
+const events = ref([])
+const eventsTruncated = ref(false)
+const eventSearch = ref('')
+const filteredEvents = computed(() => filterEvents(events.value, eventSearch.value))
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
 // Satu hari saja — default hari ini menurut kalender WIB, bukan zona waktu browser,
 // supaya cocok dengan tanggal yang dikelompokkan backend.
@@ -644,13 +694,17 @@ async function loadLog() {
   logLoading.value = true
   logError.value = ''
   try {
-    const res = await apiClient.get('/qc_assignment/log', {
-      params: {
-        date_start: logDate.value || undefined,
-        date_end: logDate.value || undefined,
-      },
-    })
+    const params = {
+      date_start: logDate.value || undefined,
+      date_end: logDate.value || undefined,
+    }
+    const [res, ev] = await Promise.all([
+      apiClient.get('/qc_assignment/log', { params }),
+      apiClient.get('/qc_assignment/events', { params }),
+    ])
     logDays.value = res.data?.days || []
+    events.value = ev.data?.events || []
+    eventsTruncated.value = !!ev.data?.truncated
   } catch (e) {
     logError.value = e.response?.data?.detail || 'Gagal memuat log QC.'
   } finally {
@@ -710,6 +764,11 @@ watch(tab, (t) => {
 .pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: var(--text-muted); text-transform: capitalize; }
 .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
 .badge-yellow { background: var(--yellow-bg); color: var(--yellow); }
+.badge-green { background: #dcfce7; color: #15803d; }
+.badge-blue { background: #dbeafe; color: #1d4ed8; }
+.badge-red { background: var(--red-bg); color: var(--red); }
+.badge-gray { background: #f1f5f9; color: var(--text-muted); }
+.tab-sm { padding: 6px 12px; font-size: 12px; }
 .col-action { white-space: nowrap; }
 .pick { padding: 6px 8px; min-width: 130px; font-size: 13px; }
 .btn-assign { margin-left: 6px; padding: 6px 12px; background: var(--blue); color: #fff; border: none; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }

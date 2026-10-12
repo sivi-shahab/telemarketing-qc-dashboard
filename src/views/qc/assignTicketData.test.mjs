@@ -250,3 +250,37 @@ test('chunkTicketIds: tanpa potongan berarti tidak ada permintaan sama sekali', 
   // mengirim ticket_ids= kosong, dan itu permintaan yang tidak ada gunanya.
   assert.equal(chunkTicketIds([''], 10).length, 0)
 })
+
+// --- Riwayat assignment (tab Log QC, qc_assignment_events) -------------------
+
+import { eventActionLabel, eventSourceLabel, filterEvents } from './assignTicketData.js'
+
+test('label aksi riwayat', () => {
+  assert.deepEqual(eventActionLabel('assign'), { text: 'Assign', tone: 'green' })
+  assert.deepEqual(eventActionLabel('reassign'), { text: 'Pindah', tone: 'blue' })
+  assert.deepEqual(eventActionLabel('unassign'), { text: 'Lepas', tone: 'red' })
+  assert.deepEqual(eventActionLabel('aneh'), { text: 'aneh', tone: 'gray' })
+})
+
+test('label jalur riwayat', () => {
+  assert.equal(eventSourceLabel('manual'), 'Manual')
+  assert.equal(eventSourceLabel('auto'), 'Assign Otomatis')
+  assert.equal(eventSourceLabel('scheduler'), 'Batch terjadwal')
+  assert.equal(eventSourceLabel('lepas'), 'Lepas')
+  assert.equal(eventSourceLabel('lepas_semua'), 'Lepas Semua')
+  assert.equal(eventSourceLabel('user_deleted'), 'User QC dihapus')
+  assert.equal(eventSourceLabel('backfill'), 'Data awal')
+  assert.equal(eventSourceLabel(null), '—')
+})
+
+test('filterEvents mencari di ticket, QC lama/baru, dan pelaku', () => {
+  const ev = [
+    { ticket_id: 'T-1', qc_username: 'qc_a', qc_name: 'Ani', previous_qc_username: null, previous_qc_name: null, actor_username: 'tl' },
+    { ticket_id: 'T-2', qc_username: null, qc_name: null, previous_qc_username: 'qc_b', previous_qc_name: 'Budi', actor_username: 'spq' },
+  ]
+  assert.equal(filterEvents(ev, '').length, 2)
+  assert.deepEqual(filterEvents(ev, 't-2').map((e) => e.ticket_id), ['T-2'])
+  assert.deepEqual(filterEvents(ev, 'budi').map((e) => e.ticket_id), ['T-2'])
+  assert.deepEqual(filterEvents(ev, 'ANI').map((e) => e.ticket_id), ['T-1'])
+  assert.deepEqual(filterEvents(ev, 'spq').map((e) => e.ticket_id), ['T-2'])
+})
