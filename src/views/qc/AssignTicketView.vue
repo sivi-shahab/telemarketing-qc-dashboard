@@ -243,7 +243,7 @@ const autoMsg = ref('')
 let inFlight = null        // AbortController permintaan tickets-daily terakhir
 let requestId = 0          // penanda anti balapan antar-permintaan
 // "Lepas Semua" (DELETE /qc_assignment) — jumlah yang SUDAH di-assign se-cakupan,
-// dari field `assigned` GET /qc_assignment/unassigned (lihat loadUnassignedSummary).
+// dari field `releasable` GET /qc_assignment/unassigned (lihat loadUnassignedSummary).
 const revokeBusy = ref(false)
 const revokeMsg = ref('')
 
@@ -274,7 +274,11 @@ async function loadUnassignedSummary() {
     const res = await apiClient.get('/qc_assignment/unassigned')
     scopeUnassigned.value = Number(res.data?.unassigned ?? 0)
     scopeQcCount.value = Number(res.data?.qc_count ?? 0)
-    scopeAssigned.value = Number(res.data?.assigned ?? 0)
+    // `releasable` = baris yang benar-benar dihapus Lepas Semua (12 Oktober 2026).
+    // `assigned` dihitung dari results dan tidak memuat tiket App C — dulu angkanya
+    // 0 bagi login Telemarketing sehingga tombolnya ter-disable. `assigned` hanya
+    // cadangan untuk API lama yang belum mengirim `releasable`.
+    scopeAssigned.value = Number(res.data?.releasable ?? res.data?.assigned ?? 0)
   } catch {
     scopeUnassigned.value = null
     scopeQcCount.value = null
