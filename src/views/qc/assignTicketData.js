@@ -124,3 +124,41 @@ export function chunkTicketIds(ids, size = 200) {
   for (let i = 0; i < seen.length; i += size) out.push(seen.slice(i, i + size))
   return out
 }
+
+// --- Riwayat assignment (tab Log QC, GET /qc_assignment/events) -------------
+
+const EVENT_ACTIONS = {
+  assign: { text: 'Assign', tone: 'green' },
+  reassign: { text: 'Pindah', tone: 'blue' },
+  unassign: { text: 'Lepas', tone: 'red' },
+}
+
+/** Label + warna untuk kolom Aksi. Aksi tak dikenal ditampilkan apa adanya. */
+export function eventActionLabel(action) {
+  return EVENT_ACTIONS[action] || { text: String(action ?? '—'), tone: 'gray' }
+}
+
+const EVENT_SOURCES = {
+  manual: 'Manual',
+  auto: 'Assign Otomatis',
+  scheduler: 'Batch terjadwal',
+  lepas: 'Lepas',
+  lepas_semua: 'Lepas Semua',
+  user_deleted: 'User QC dihapus',
+  // Kepemilikan yang sudah ada saat tabel riwayat dibuat (migrasi 0065).
+  backfill: 'Data awal',
+}
+
+/** Label kolom Jalur (`source` event). */
+export function eventSourceLabel(source) {
+  if (!source) return '—'
+  return EVENT_SOURCES[source] || source
+}
+
+/** Saring riwayat dengan teks bebas: ticket id, QC lama/baru (username/nama), pelaku. */
+export function filterEvents(events, query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return events || []
+  const fields = ['ticket_id', 'qc_username', 'qc_name', 'previous_qc_username', 'previous_qc_name', 'actor_username']
+  return (events || []).filter((e) => fields.some((f) => String(e[f] ?? '').toLowerCase().includes(q)))
+}
