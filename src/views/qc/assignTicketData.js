@@ -79,6 +79,33 @@ export function joinLocalResults(groups, localItems, assignments) {
 }
 
 /**
+ * Baris untuk ticket yang dicari LINTAS TANGGAL (13 Oktober 2026): ticket yang tidak
+ * ada di tickets-daily tanggal yang dimuat — termasuk tiket upload langsung yang
+ * tidak pernah lewat App C sama sekali, padahal tetap bisa di-assign (batch
+ * terjadwal membaca `results`, bukan tickets-daily).
+ *
+ * Datanya dari /list_results dan /qc_assignments untuk `ids` yang diminta. Id yang
+ * tidak dikenal keduanya dibuang. Upload ulang: yang dipakai kemunculan PERTAMA,
+ * sama seperti joinLocalResults. `outsideDaily` menandai baris ini supaya layar
+ * bisa menyebut asalnya.
+ */
+export function rowsOutsideDaily(ids, localItems, assignments) {
+  const rows = []
+  for (const id of ids || []) {
+    const local = (localItems || []).find((it) => it?.id === id) || null
+    const assigned = (assignments || []).find((a) => a?.ticket_id === id) || null
+    if (!local && !assigned) continue
+    rows.push({
+      ...joinLocalResults([{ id, campaigns: [], tickets: [], latest: null }], local ? [local] : [], assigned ? [assigned] : [])[0],
+      campaigns: local?.campaign ? [local.campaign] : [],
+      status: local?.status || 'belum diproses',
+      outsideDaily: true,
+    })
+  }
+  return rows
+}
+
+/**
  * Pilihan dropdown filter Campaign: campaign unik dari baris yang termuat, urut
  * abjad. Nilainya kode campaign App C apa adanya (`ACT02`, `LOC26`, …) — sama
  * dengan yang tampil di kolom Campaign.
