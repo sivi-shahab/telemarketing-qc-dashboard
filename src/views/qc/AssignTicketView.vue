@@ -14,7 +14,7 @@
         </p>
 
         <div class="toolbar">
-          <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Data Leads…" />
+          <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Data Leads… (id persis: semua tanggal)" />
           <input v-model="loadDate" class="text-input filter" type="date" title="Kosongkan = data kemarin (H-1)" @change="loadAll" />
           <select v-model="campaignFilter" class="text-input filter" title="Assign Otomatis &amp; Lepas Semua ikut campaign ini">
             <option value="">Semua campaign</option>
@@ -85,9 +85,15 @@
             </thead>
             <tbody>
               <tr v-if="loading"><td colspan="8" class="empty">Memuat…</td></tr>
-              <tr v-else-if="!filtered.length"><td colspan="8" class="empty">Tidak ada ticket yang cocok.</td></tr>
+              <tr v-else-if="!filtered.length && outsideLoading"><td colspan="8" class="empty">Mencari di semua tanggal…</td></tr>
+              <tr v-else-if="!filtered.length"><td colspan="8" class="empty">
+                Tidak ada ticket yang cocok.<template v-if="search"> Ticket di luar tanggal ini dicari dengan id persis.</template>
+              </td></tr>
               <tr v-for="t in filtered" :key="t.id">
-                <td class="mono">{{ t.id || '—' }}</td>
+                <td class="mono">
+                  {{ t.id || '—' }}
+                  <span v-if="t.outsideDaily" class="pill pill-outside" title="Tidak ada di tickets-daily tanggal yang dimuat (mis. upload langsung). Tidak ikut Assign Otomatis / Lepas Semua di layar ini.">di luar tanggal ini</span>
+                </td>
                 <td>{{ t.campaigns.join(', ') || '—' }}</td>
                 <td><span class="pill">{{ t.status }}</span></td>
                 <td>
@@ -125,6 +131,7 @@
                     {{ busy === t.id ? '…' : 'Assign' }}
                   </button>
                   <button v-if="t.assigned_qc" class="btn-unassign" :disabled="busy === t.id" @click="unassign(t)">Lepas</button>
+                  <button v-if="t.assigned_qc" class="btn-history" title="Riwayat assign ticket ini di semua tanggal" @click="openTicketHistory(t.id)">Riwayat</button>
                 </td>
               </tr>
             </tbody>
@@ -132,6 +139,8 @@
         </div>
         <div class="note">
           Sumber: tickets-daily (H-1). Kosongkan tanggal untuk memakai data kemarin.
+          Ticket yang tidak ada di tanggal ini (mis. upload langsung) bisa dicari dengan
+          <b>id persis</b> di kolom cari — ditandai <i>di luar tanggal ini</i>.
           <b>Assign Otomatis</b> dan <b>Lepas Semua</b> mengikuti <b>tanggal</b> dan
           <b>campaign</b> yang dipilih (tidak terpengaruh kolom cari / filter QC). Lepas
           Semua tidak menghapus hasil Manual Status yang sudah disubmit QC.
@@ -277,7 +286,7 @@ import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
 import {
   groupTickets, joinLocalResults, describeSplit, chunkTicketIds,
-  campaignOptions, filterByCampaign,
+  campaignOptions, filterByCampaign, rowsOutsideDaily,
   eventActionLabel, eventSourceLabel, filterEvents,
 } from './assignTicketData.js'
 
@@ -364,14 +373,60 @@ async function loadUnassignedSummary() {
   }
 }
 
+function passesAssignee(t) {
+  if (assigneeFilter.value === '__none__' && t.assigned_qc) return false
+  if (assigneeFilter.value && assigneeFilter.value !== '__none__' && t.assigned_qc !== assigneeFilter.value) return false
+  return true
+}
+
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
-  return campaignRows.value.filter((t) => {
+  const rows = campaignRows.value.filter((t) => {
     if (q && !String(t.id || '').toLowerCase().includes(q)) return false
-    if (assigneeFilter.value === '__none__' && t.assigned_qc) return false
-    if (assigneeFilter.value && assigneeFilter.value !== '__none__' && t.assigned_qc !== assigneeFilter.value) return false
-    return true
+    return passesAssignee(t)
   })
+  // Hasil cari lintas tanggal hanya mengisi tabel bila tanggal ini tidak punya
+  // yang cocok — lihat lookupOutsideDaily.
+  return rows.length ? rows : outsideRows.value.filter(passesAssignee)
+})
+
+// Cari LINTAS TANGGAL (13 Oktober 2026). Tabel ini hanya memuat tickets-daily satu
+// tanggal, padahal ada ticket yang tidak pernah lewat sana — upload langsung ke
+// `results` — dan tetap ter-assign oleh batch terjadwal. Bila kolom cari tidak
+// cocok dengan satu baris pun, id-nya ditanyakan ke /list_results + /qc_assignments
+// (keduanya mencocokkan id PERSIS dan tetap mengikuti cakupan login). Baris ini
+// sengaja di luar `tickets`: Assign Otomatis & Lepas Semua tetap per tanggal.
+const outsideRows = ref([])
+const outsideLoading = ref(false)
+let outsideTimer = null
+let outsideReq = 0
+
+async function lookupOutsideDaily() {
+  const q = search.value
+  const myId = ++outsideReq
+  const known = q && tickets.value.some((t) => String(t.id || '').toLowerCase().includes(q.toLowerCase()))
+  if (!q || known) {
+    outsideRows.value = []
+    outsideLoading.value = false
+    return
+  }
+  outsideLoading.value = true
+  try {
+    const [local, assignments] = await Promise.all([fetchLocalResults([q]), fetchAssignments([q])])
+    if (myId !== outsideReq) return
+    outsideRows.value = rowsOutsideDaily([q], local, assignments)
+  } catch {
+    if (myId === outsideReq) outsideRows.value = []
+  } finally {
+    if (myId === outsideReq) outsideLoading.value = false
+  }
+}
+
+watch(search, () => {
+  clearTimeout(outsideTimer)
+  outsideRows.value = []
+  outsideLoading.value = !!search.value
+  outsideTimer = setTimeout(lookupOutsideDaily, 400)
 })
 
 // Backend stores naive UTC; parse as UTC then render in WIB (Asia/Jakarta).
@@ -470,6 +525,7 @@ async function loadAll() {
     }
     if (myId !== requestId) return
     tickets.value = joinLocalResults(groups, local, assignments)
+    lookupOutsideDaily()
     // Campaign terpilih tidak ada di tanggal yang baru dimuat -> kembali ke semua,
     // supaya tabel tidak kosong tanpa sebab yang terlihat.
     if (campaignFilter.value && !campaigns.value.includes(campaignFilter.value)) campaignFilter.value = ''
@@ -668,7 +724,7 @@ onMounted(() => {
   loadSchedule()
   tickTimer = setInterval(tick, 1000)
 })
-onBeforeUnmount(() => clearInterval(tickTimer))
+onBeforeUnmount(() => { clearInterval(tickTimer); clearTimeout(outsideTimer) })
 
 // --- Log QC (tab kedua) ----------------------------------------------------
 const logDays = ref([])
@@ -706,6 +762,14 @@ async function searchTicketHistory() {
   } finally {
     ticketLoading.value = false
   }
+}
+
+// Dari baris tabel Assign Ticket: langsung ke riwayat ticket itu di tab Log QC.
+function openTicketHistory(id) {
+  ticketQuery.value = id
+  logView.value = 'riwayat'
+  tab.value = 'log'
+  searchTicketHistory()
 }
 
 function clearTicketHistory() {
@@ -853,7 +917,9 @@ watch(tab, (t) => {
 .cell-date { white-space: nowrap; font-size: 12px; color: var(--text-muted); }
 .approved-at { display: block; color: #16a34a; font-weight: 600; }
 .approved-by { display: block; font-size: 11px; margin-top: 2px; }
+.btn-history { margin-left: 4px; padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 6px; background: #fff; font-size: 12px; font-weight: 700; color: var(--blue); cursor: pointer; }
 .pill { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #f1f5f9; color: var(--text-muted); text-transform: capitalize; }
+.pill-outside { margin-left: 6px; background: #fef3c7; color: #92400e; text-transform: none; }
 .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
 .badge-yellow { background: var(--yellow-bg); color: var(--yellow); }
 .badge-green { background: #dcfce7; color: #15803d; }

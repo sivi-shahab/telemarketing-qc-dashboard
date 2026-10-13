@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { groupTickets, groupStatus, joinLocalResults, describeSplit, chunkTicketIds, campaignOptions, filterByCampaign } from './assignTicketData.js'
+import { groupTickets, groupStatus, joinLocalResults, describeSplit, chunkTicketIds, campaignOptions, filterByCampaign, rowsOutsideDaily } from './assignTicketData.js'
 
 test('groupTickets mengelompokkan beberapa tiket ke satu ticket id', () => {
   const groups = groupTickets([
@@ -311,4 +311,29 @@ test('filterByCampaign: kosong = semua; tiket multi-campaign cocok bila salah sa
   assert.deepEqual(filterByCampaign(rows, 'ACT02').map((r) => r.id), ['A1', 'B2'])
   assert.deepEqual(filterByCampaign(rows, 'LOC26').map((r) => r.id), ['A1'])
   assert.deepEqual(filterByCampaign(rows, 'XYZ'), [])
+})
+
+test('rowsOutsideDaily: tiket upload langsung (tanpa tickets-daily) tetap jadi baris', () => {
+  const local = [
+    { id: 'X1', campaign: 'Cashline', status: 'done', qc_checked_at: '2026-10-13T10:00:00' },
+    { id: 'X1', campaign: 'Cashline', status: 'error' }, // upload ulang lebih lama — diabaikan
+  ]
+  const assignments = [{ ticket_id: 'X1', qc_username: 'qc1', assigned_at: '2026-10-13T09:30:01' }]
+  const [row] = rowsOutsideDaily(['X1'], local, assignments)
+  assert.equal(row.id, 'X1')
+  assert.deepEqual(row.campaigns, ['Cashline'])
+  assert.equal(row.status, 'done')
+  assert.equal(row.outsideDaily, true)
+  assert.equal(row.assigned_qc, 'qc1')
+  assert.equal(row.assigned_at, '2026-10-13T09:30:01')
+  assert.equal(row.qc_checked_at, '2026-10-13T10:00:00')
+})
+
+test('rowsOutsideDaily: hanya assignment (belum ada result) tetap tampil; tidak dikenal dibuang', () => {
+  const rows = rowsOutsideDaily(['A', 'B'], [], [{ ticket_id: 'A', qc_username: 'qc2', assigned_at: null }])
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].id, 'A')
+  assert.equal(rows[0].status, 'belum diproses')
+  assert.deepEqual(rows[0].campaigns, [])
+  assert.deepEqual(rowsOutsideDaily([], null, null), [])
 })
