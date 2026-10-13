@@ -107,6 +107,7 @@ export function filterByCampaign(rows, campaign) {
  * Aturan server (2 Oktober 2026, `qc_auto_assign.distribute_evenly`, mengganti aturan
  * "merata atas total beban" 4 September): antrean dibagi rata di antara QC yang AKTIF
  * saat tombol ditekan, beban lama tidak dihitung, antrean dikocok dan seri diundi.
+ * Sejak 13 Oktober 2026 rata juga PER CAMPAIGN (campaign App C), bukan hanya total.
  *
  * Jumlah per QC tetap TIDAK dihitung di browser — server bisa membuang sebagian ticket
  * (di luar cakupan, atau keburu di-assign orang lain). Kalimat ini sengaja berhenti
@@ -117,8 +118,9 @@ export function filterByCampaign(rows, campaign) {
 export function describeSplit(n, k) {
   if (!k) return 'Tidak ada QC aktif untuk dibagikan.'
   if (!n) return 'Tidak ada ticket yang belum di-assign.'
-  return `${n} ticket dibagi acak & merata ke ${k} QC aktif saat ini (beban lama `
-    + `tidak dihitung, selisih antar-QC paling banyak 1). Jumlah per QC ditentukan server.`
+  return `${n} ticket dibagi acak & merata ke ${k} QC aktif saat ini, rata per campaign `
+    + `dan total (beban lama tidak dihitung, selisih antar-QC paling banyak 1). `
+    + `Jumlah per QC ditentukan server.`
 }
 
 /**

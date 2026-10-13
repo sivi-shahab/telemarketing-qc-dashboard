@@ -530,6 +530,9 @@ async function autoAssign() {
   try {
     const form = new FormData()
     for (const t of pending) form.append('ticket_ids', t.id)
+    // Tanggal yang sama dengan tabel ini, supaya server membaca campaign App C
+    // tiket-tiketnya untuk pembagian rata per campaign.
+    if (loadDate.value) form.append('load_date', loadDate.value)
     const res = await apiClient.post('/qc_assignment/auto', form)
 
     // Baris diperbarui dari jawaban server, bukan dari tebakan pembagian di sini:
