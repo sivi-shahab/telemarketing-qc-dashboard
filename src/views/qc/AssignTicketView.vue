@@ -47,9 +47,10 @@
         </div>
 
         <!-- Jadwal batch otomatis (GET /qc_assignment/schedule, diport dari 4-service
-             5 Oktober 2026). Sejak 13 Oktober 2026 jalan tiap 5 menit: tiket App C
-             H-0/H-1 yang statusnya sudah done langsung dibagi rata harian; yang belum
-             done dicoba lagi di putaran berikutnya. Tombol manual tetap jalan kapan saja. Saklarnya QC_AUTO_ASSIGN_ENABLED
+             5 Oktober 2026). Sejak 13 Oktober 2026 tiap slot memakai gerbang status:
+             data baru App C (H-0/H-1) baru dibagi rata harian bila semuanya sudah done;
+             selama belum, status dicek ulang tiap 5 menit sampai slot berikutnya.
+             Tombol manual tetap jalan kapan saja. Saklarnya QC_AUTO_ASSIGN_ENABLED
              (default mati) — saat mati, banner hanya menyebut statusnya. -->
         <div v-if="schedule" class="schedule-bar" :class="{ off: !schedule.enabled }">
           <template v-if="schedule.enabled">
@@ -59,7 +60,7 @@
           </template>
           <span v-else class="countdown-label">Auto assign terjadwal dimatikan</span>
           <span class="slots">
-            Jadwal (tiket done H-0/H-1):
+            Jadwal harian (WIB, dicek ulang tiap 5 menit sampai semua done):
             <span v-for="sl in schedule.slots" :key="sl" class="slot-chip"
                   :class="{ next: schedule.enabled && sl === nextSlotLabel }">{{ sl }}</span>
           </span>
