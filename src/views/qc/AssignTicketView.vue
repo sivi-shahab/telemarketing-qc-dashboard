@@ -143,15 +143,16 @@
         <p class="card-subtitle">
           <b>Riwayat</b>: setiap assign, pindah, dan lepas pada tanggal terpilih — dari QC
           mana ke QC mana, oleh siapa, lewat jalur apa (tercatat sejak 12 Oktober 2026).
+          Isi <b>Riwayat ticket</b> untuk melihat seluruh riwayat satu ticket di semua tanggal.
           <b>Kepemilikan</b>: tiket yang dipegang tiap QC <b>saat ini</b>, menurut tanggal
           assign terakhirnya.
         </p>
 
         <div class="toolbar">
           <label class="dr-label">Tanggal</label>
-          <input type="date" v-model="logDate" class="text-input" @change="loadLog" />
+          <input type="date" v-model="logDate" class="text-input" @change="onLogDateChange" />
           <button class="btn-refresh" :disabled="logLoading" @click="setToday">Hari Ini</button>
-          <button class="btn-refresh" :disabled="logLoading" @click="loadLog">↻ Muat ulang</button>
+          <button class="btn-refresh" :disabled="logLoading || ticketLoading" @click="reloadLog">↻ Muat ulang</button>
         </div>
 
         <div v-if="logError" class="error-msg">{{ logError }}</div>
@@ -165,20 +166,36 @@
              Oktober 2026), terbaru dulu. Baris "Data awal" = kepemilikan yang sudah
              ada saat tabel riwayat dibuat; perpindahan sebelum itu tidak tersimpan. -->
         <template v-if="logView === 'riwayat'">
+          <!-- Riwayat SATU ticket di semua tanggal (13 Oktober 2026): GET
+               /qc_assignment/events?ticket_id=… tanpa batas tanggal. Ticket id harus
+               persis — server mencocokkan dengan "=". Cakupan campaign tetap berlaku. -->
+          <form class="toolbar" @submit.prevent="searchTicketHistory">
+            <label class="dr-label">Riwayat ticket</label>
+            <input v-model.trim="ticketQuery" class="text-input search" type="search" placeholder="Ticket id (persis), semua tanggal" />
+            <button class="btn-refresh" type="submit" :disabled="!ticketQuery || ticketLoading">
+              {{ ticketLoading ? 'Mencari…' : 'Cari semua tanggal' }}
+            </button>
+            <button v-if="ticketHistory" class="btn-refresh" type="button" @click="clearTicketHistory">✕ Kembali ke {{ logPeriodLabel }}</button>
+          </form>
+          <div v-if="ticketError" class="error-msg">{{ ticketError }}</div>
+
           <div class="toolbar">
-            <span class="panel-title">Riwayat Assignment — {{ logPeriodLabel }}</span>
-            <input v-model.trim="eventSearch" class="text-input search" type="search" placeholder="Cari Data Leads / QC / pelaku…" />
-            <span class="count">{{ filteredEvents.length }} / {{ events.length }} kejadian</span>
+            <span v-if="ticketHistory" class="panel-title">Riwayat Data Leads {{ ticketHistory.ticketId }} — semua tanggal</span>
+            <span v-else class="panel-title">Riwayat Assignment — {{ logPeriodLabel }}</span>
+            <input v-model.trim="eventSearch" class="text-input search" type="search" placeholder="Saring Data Leads / QC / pelaku…" />
+            <span class="count">{{ filteredEvents.length }} / {{ shownEvents.length }} kejadian</span>
           </div>
-          <div v-if="eventsTruncated" class="note">Hanya 5.000 kejadian terbaru yang ditampilkan.</div>
-          <div v-if="logLoading" class="empty">Memuat…</div>
+          <div v-if="shownTruncated" class="note">Hanya 5.000 kejadian terbaru yang ditampilkan.</div>
+          <div v-if="logLoading || ticketLoading" class="empty">Memuat…</div>
           <div v-else class="table-wrap">
             <table class="assign-table">
               <thead>
                 <tr><th>Waktu</th><th>Data Leads</th><th>Aksi</th><th>Dari QC</th><th>Ke QC</th><th>Oleh</th><th>Jalur</th></tr>
               </thead>
               <tbody>
-                <tr v-if="!filteredEvents.length"><td colspan="7" class="empty">Tidak ada riwayat pada tanggal ini.</td></tr>
+                <tr v-if="!filteredEvents.length"><td colspan="7" class="empty">{{ ticketHistory
+                  ? 'Tidak ada riwayat untuk ticket ini (id tidak persis sama, di luar cakupan Anda, atau perpindahannya sebelum 12 Oktober 2026).'
+                  : 'Tidak ada riwayat pada tanggal ini.' }}</td></tr>
                 <tr v-for="e in filteredEvents" :key="e.id">
                   <td class="cell-date">{{ formatDate(e.created_at) }}</td>
                   <td class="mono">{{ e.ticket_id }}</td>
@@ -659,7 +676,54 @@ const logView = ref('riwayat')
 const events = ref([])
 const eventsTruncated = ref(false)
 const eventSearch = ref('')
-const filteredEvents = computed(() => filterEvents(events.value, eventSearch.value))
+// Riwayat satu ticket lintas tanggal. null = tidak aktif (tabel menampilkan tanggal
+// terpilih); selain itu { ticketId, events, truncated }.
+const ticketQuery = ref('')
+const ticketHistory = ref(null)
+const ticketLoading = ref(false)
+const ticketError = ref('')
+const shownEvents = computed(() => (ticketHistory.value ? ticketHistory.value.events : events.value))
+const shownTruncated = computed(() => (ticketHistory.value ? ticketHistory.value.truncated : eventsTruncated.value))
+const filteredEvents = computed(() => filterEvents(shownEvents.value, eventSearch.value))
+
+async function searchTicketHistory() {
+  const tid = ticketQuery.value
+  if (!tid) return
+  ticketLoading.value = true
+  ticketError.value = ''
+  try {
+    const res = await apiClient.get('/qc_assignment/events', { params: { ticket_id: tid } })
+    ticketHistory.value = {
+      ticketId: tid,
+      events: res.data?.events || [],
+      truncated: !!res.data?.truncated,
+    }
+  } catch (e) {
+    ticketError.value = e.response?.data?.detail || 'Gagal memuat riwayat ticket.'
+  } finally {
+    ticketLoading.value = false
+  }
+}
+
+function clearTicketHistory() {
+  ticketHistory.value = null
+  ticketError.value = ''
+}
+
+// Ganti tanggal = kembali ke tampilan per tanggal; muat ulang ikut memuat ulang
+// riwayat ticket yang sedang dibuka.
+function onLogDateChange() {
+  clearTicketHistory()
+  loadLog()
+}
+
+function reloadLog() {
+  loadLog()
+  if (ticketHistory.value) {
+    ticketQuery.value = ticketHistory.value.ticketId
+    searchTicketHistory()
+  }
+}
 const MONTHS_ID = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
 // Satu hari saja — default hari ini menurut kalender WIB, bukan zona waktu browser,
 // supaya cocok dengan tanggal yang dikelompokkan backend.
@@ -668,7 +732,7 @@ const logDate = ref(wibToday())
 
 function setToday() {
   logDate.value = wibToday()
-  loadLog()
+  onLogDateChange()
 }
 
 function formatDateID(dateStr) {
