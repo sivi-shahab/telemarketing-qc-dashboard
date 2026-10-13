@@ -1,8 +1,9 @@
 <template>
-  <SidebarLayout title="Manage User">
+  <SidebarLayout :title="manageAll ? 'Manage User' : 'Kelola QC'">
     <div class="manage-page">
-      <!-- Create user -->
-      <div class="card">
+      <!-- Create user — hanya Admin (ADMIN_USER_WRITE). Team Leader QC (Kelola QC)
+           tidak bisa membuat user. -->
+      <div v-if="manageAll" class="card">
         <h2 class="card-title">Buat User Baru</h2>
         <p class="card-subtitle">Tambahkan akun baru beserta role-nya.</p>
 
@@ -47,7 +48,11 @@
 
       <!-- User table -->
       <div class="card">
-        <h2 class="card-title">Daftar User</h2>
+        <h2 class="card-title">{{ manageAll ? 'Daftar User' : 'Daftar QC Telemarketing' }}</h2>
+        <p v-if="!manageAll" class="card-subtitle">
+          QC yang dinonaktifkan tidak bisa login dan tidak lagi kebagian tiket dari pembagian otomatis.
+          Pembuatan / penghapusan user tetap melalui Admin.
+        </p>
 
         <!-- Toolbar: search + filter role/status -->
         <div class="table-toolbar">
@@ -57,7 +62,7 @@
             type="search"
             placeholder="Cari nama, username (NIP), atau email…"
           />
-          <select v-model="roleFilter" class="text-input filter-select">
+          <select v-if="manageAll" v-model="roleFilter" class="text-input filter-select">
             <option value="">Semua Role</option>
             <option v-for="r in roleOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
           </select>
@@ -141,6 +146,7 @@
                     {{ togglingId === u.id ? '…' : (u.is_active ? 'Nonaktifkan' : 'Aktifkan') }}
                   </button>
                   <button
+                    v-if="manageAll"
                     class="btn-del"
                     :disabled="u.id === currentUserId || deletingId === u.id"
                     :title="u.id === currentUserId ? 'Tidak dapat menghapus akun sendiri' : 'Hapus user'"
@@ -164,9 +170,14 @@ import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
 import { roleBadgeClass, roleLabel as sharedRoleLabel } from '../../utils/roleBadge.js'
 import { useAuthStore } from '../../stores/auth.js'
+import { P } from '../../permissions.js'
 
 const auth = useAuthStore()
 const currentUserId = computed(() => auth.user?.id)
+// Admin mengelola semua user. Tanpa ADMIN_USER_WRITE (Team Leader QC lewat menu
+// Kelola QC) halaman ini hanya menampilkan QC Telemarketing — backend yang
+// menyaringnya — dan hanya tombol Aktifkan/Nonaktifkan.
+const manageAll = computed(() => auth.can(P.ADMIN_USER_WRITE))
 
 const users = ref([])
 const loading = ref(true)
@@ -281,7 +292,7 @@ async function fetchUsers() {
     users.value = res.data
   } catch (e) {
     listError.value = e.response?.status === 403
-      ? 'Akses hanya untuk SPQ Head.'
+      ? 'Anda tidak memiliki akses ke daftar user.'
       : 'Gagal memuat daftar user.'
   } finally {
     loading.value = false
@@ -370,7 +381,7 @@ async function toggleActive(u) {
   }
 }
 
-onMounted(() => { fetchUsers(); loadRoles() })
+onMounted(() => { fetchUsers(); if (manageAll.value) loadRoles() })
 </script>
 
 <style scoped>

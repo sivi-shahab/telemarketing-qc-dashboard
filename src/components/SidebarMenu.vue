@@ -46,6 +46,9 @@
         <RouterLink v-if="can(P.MENU_ASSIGN_TICKET)" to="/qc/assign" class="menu-item" active-class="active" :title="collapsed ? 'Assign Ticket' : ''">
           <span class="icon">AT</span> <span class="label">Assign Ticket</span>
         </RouterLink>
+        <RouterLink v-if="can(P.QC_USER_ACTIVE_WRITE) && !can(P.MENU_MANAGE_USER)" to="/qc/users" class="menu-item" active-class="active" :title="collapsed ? 'Kelola QC' : ''">
+          <span class="icon">KQ</span> <span class="label">Kelola QC</span>
+        </RouterLink>
         <RouterLink v-if="can(P.MENU_MANUAL_CHECK)" to="/dashboard/banding-review" class="menu-item" active-class="active" :title="collapsed ? 'Manual Check' : ''">
           <span class="icon">MC</span> <span class="label">Manual Check</span>
         </RouterLink>
