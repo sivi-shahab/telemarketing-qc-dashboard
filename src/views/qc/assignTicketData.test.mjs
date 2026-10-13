@@ -182,6 +182,10 @@ test('describeSplit: menyebut aturannya, bukan hasil per QC', () => {
   assert.match(s, /ditentukan server/i)
 })
 
+test('describeSplit: menyebut rata per campaign', () => {
+  assert.match(describeSplit(134, 12), /per campaign/)
+})
+
 test('describeSplit: TIDAK menjanjikan jumlah per QC', () => {
   // Rumus lama: "11 ticket per QC, 2 QC pertama dapat 12". Kalimat seperti itu tidak
   // boleh muncul lagi — server tidak membagi begitu.
