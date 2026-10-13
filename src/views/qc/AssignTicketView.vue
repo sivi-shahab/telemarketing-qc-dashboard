@@ -14,7 +14,7 @@
         </p>
 
         <div class="toolbar">
-          <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Data Leads… (id persis: semua tanggal)" />
+          <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Data Leads… (tak ada di tanggal ini: semua tanggal)" />
           <input v-model="loadDate" class="text-input filter" type="date" title="Kosongkan = data kemarin (H-1)" @change="loadAll" />
           <select v-model="campaignFilter" class="text-input filter" title="Assign Otomatis &amp; Lepas Semua ikut campaign ini">
             <option value="">Semua campaign</option>
@@ -87,12 +87,12 @@
               <tr v-if="loading"><td colspan="8" class="empty">Memuat…</td></tr>
               <tr v-else-if="!filtered.length && outsideLoading"><td colspan="8" class="empty">Mencari di semua tanggal…</td></tr>
               <tr v-else-if="!filtered.length"><td colspan="8" class="empty">
-                Tidak ada ticket yang cocok.<template v-if="search"> Ticket di luar tanggal ini dicari dengan id persis.</template>
+                Tidak ada ticket yang cocok.<template v-if="search"> Ticket di luar tanggal ini dicari di semua tanggal (minimal 4 karakter).</template>
               </td></tr>
               <tr v-for="t in filtered" :key="t.id">
                 <td class="mono">
                   {{ t.id || '—' }}
-                  <span v-if="t.outsideDaily" class="pill pill-outside" title="Tidak ada di tickets-daily tanggal yang dimuat (mis. upload langsung). Tidak ikut Assign Otomatis / Lepas Semua di layar ini.">di luar tanggal ini</span>
+                  <span v-if="t.outsideDaily" class="pill pill-outside" title="Tidak ada di tickets-daily tanggal yang dimuat. Tidak ikut Assign Otomatis / Lepas Semua di layar ini.">di luar tanggal ini</span>
                 </td>
                 <td>{{ t.campaigns.join(', ') || '—' }}</td>
                 <td><span class="pill">{{ t.status }}</span></td>
@@ -139,8 +139,8 @@
         </div>
         <div class="note">
           Sumber: tickets-daily (H-1). Kosongkan tanggal untuk memakai data kemarin.
-          Ticket yang tidak ada di tanggal ini (mis. upload langsung) bisa dicari dengan
-          <b>id persis</b> di kolom cari — ditandai <i>di luar tanggal ini</i>.
+          Kolom cari yang tidak cocok dengan tanggal ini mencari di <b>semua tanggal</b>,
+          sama seperti menu Transkrip — hasilnya ditandai <i>di luar tanggal ini</i>.
           <b>Assign Otomatis</b> dan <b>Lepas Semua</b> mengikuti <b>tanggal</b> dan
           <b>campaign</b> yang dipilih (tidak terpengaruh kolom cari / filter QC). Lepas
           Semua tidak menghapus hasil Manual Status yang sudah disubmit QC.
@@ -390,31 +390,48 @@ const filtered = computed(() => {
   return rows.length ? rows : outsideRows.value.filter(passesAssignee)
 })
 
-// Cari LINTAS TANGGAL (13 Oktober 2026). Tabel ini hanya memuat tickets-daily satu
-// tanggal, padahal ada ticket yang tidak pernah lewat sana — upload langsung ke
-// `results` — dan tetap ter-assign oleh batch terjadwal. Bila kolom cari tidak
-// cocok dengan satu baris pun, id-nya ditanyakan ke /list_results + /qc_assignments
-// (keduanya mencocokkan id PERSIS dan tetap mengikuti cakupan login). Baris ini
-// sengaja di luar `tickets`: Assign Otomatis & Lepas Semua tetap per tanggal.
+// Cari LINTAS TANGGAL (13 Oktober 2026), sama seperti kolom cari menu Transkrip:
+// bila kolom cari tidak cocok dengan satu baris pun di tanggal yang dimuat,
+// GET /tickets_daily?tiket_id= (substring, tanpa tanggal = semua tanggal) lalu
+// diperkaya /list_results + /qc_assignments seperti baris biasa. Ticket yang tidak
+// pernah lewat App C (upload langsung ke `results`) jatuh ke pencarian id PERSIS di
+// /list_results + /qc_assignments. Baris ini sengaja di luar `tickets`: Assign
+// Otomatis & Lepas Semua tetap per tanggal.
+const OUTSIDE_MIN_CHARS = 4 // substring sependek ini bisa menarik puluhan ribu baris
 const outsideRows = ref([])
 const outsideLoading = ref(false)
 let outsideTimer = null
 let outsideReq = 0
 
+async function fetchOutsideDaily(q) {
+  const loaded = new Set(tickets.value.map((t) => t.id))
+  const res = await apiClient.get('/tickets_daily', { params: { tiket_id: q } })
+  const groups = groupTickets(res.data.items || []).filter((g) => !loaded.has(g.id))
+  if (!groups.length) {
+    const [local, assignments] = await Promise.all([fetchLocalResults([q]), fetchAssignments([q])])
+    return rowsOutsideDaily([q], local, assignments)
+  }
+  const ids = groups.map((g) => g.id)
+  const [local, assignments] = await Promise.all([
+    fetchLocalResults(ids).catch(() => []),
+    fetchAssignments(ids).catch(() => []),
+  ])
+  return joinLocalResults(groups, local, assignments).map((r) => ({ ...r, outsideDaily: true }))
+}
+
 async function lookupOutsideDaily() {
   const q = search.value
   const myId = ++outsideReq
   const known = q && tickets.value.some((t) => String(t.id || '').toLowerCase().includes(q.toLowerCase()))
-  if (!q || known) {
+  if (!q || q.length < OUTSIDE_MIN_CHARS || known) {
     outsideRows.value = []
     outsideLoading.value = false
     return
   }
   outsideLoading.value = true
   try {
-    const [local, assignments] = await Promise.all([fetchLocalResults([q]), fetchAssignments([q])])
-    if (myId !== outsideReq) return
-    outsideRows.value = rowsOutsideDaily([q], local, assignments)
+    const rows = await fetchOutsideDaily(q)
+    if (myId === outsideReq) outsideRows.value = rows
   } catch {
     if (myId === outsideReq) outsideRows.value = []
   } finally {
@@ -425,7 +442,7 @@ async function lookupOutsideDaily() {
 watch(search, () => {
   clearTimeout(outsideTimer)
   outsideRows.value = []
-  outsideLoading.value = !!search.value
+  outsideLoading.value = search.value.length >= OUTSIDE_MIN_CHARS
   outsideTimer = setTimeout(lookupOutsideDaily, 400)
 })
 
