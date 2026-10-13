@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { groupTickets, groupStatus, joinLocalResults, describeSplit, chunkTicketIds } from './assignTicketData.js'
+import { groupTickets, groupStatus, joinLocalResults, describeSplit, chunkTicketIds, campaignOptions, filterByCampaign } from './assignTicketData.js'
 
 test('groupTickets mengelompokkan beberapa tiket ke satu ticket id', () => {
   const groups = groupTickets([
@@ -283,4 +283,28 @@ test('filterEvents mencari di ticket, QC lama/baru, dan pelaku', () => {
   assert.deepEqual(filterEvents(ev, 'budi').map((e) => e.ticket_id), ['T-2'])
   assert.deepEqual(filterEvents(ev, 'ANI').map((e) => e.ticket_id), ['T-1'])
   assert.deepEqual(filterEvents(ev, 'spq').map((e) => e.ticket_id), ['T-2'])
+})
+
+test('campaignOptions: campaign unik dari semua baris, urut abjad, kosong dibuang', () => {
+  const rows = [
+    { id: 'A1', campaigns: ['LOC26', 'ACT02'] },
+    { id: 'B2', campaigns: ['ACT02'] },
+    { id: 'C3', campaigns: [] },
+    { id: 'D4' },
+  ]
+  assert.deepEqual(campaignOptions(rows), ['ACT02', 'LOC26'])
+  assert.deepEqual(campaignOptions(null), [])
+})
+
+test('filterByCampaign: kosong = semua; tiket multi-campaign cocok bila salah satunya sama', () => {
+  const rows = [
+    { id: 'A1', campaigns: ['LOC26', 'ACT02'] },
+    { id: 'B2', campaigns: ['ACT02'] },
+    { id: 'C3', campaigns: ['MCS'] },
+    { id: 'D4' },
+  ]
+  assert.equal(filterByCampaign(rows, ''), rows)
+  assert.deepEqual(filterByCampaign(rows, 'ACT02').map((r) => r.id), ['A1', 'B2'])
+  assert.deepEqual(filterByCampaign(rows, 'LOC26').map((r) => r.id), ['A1'])
+  assert.deepEqual(filterByCampaign(rows, 'XYZ'), [])
 })

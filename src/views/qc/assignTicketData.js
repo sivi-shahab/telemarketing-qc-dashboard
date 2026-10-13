@@ -79,6 +79,29 @@ export function joinLocalResults(groups, localItems, assignments) {
 }
 
 /**
+ * Pilihan dropdown filter Campaign: campaign unik dari baris yang termuat, urut
+ * abjad. Nilainya kode campaign App C apa adanya (`ACT02`, `LOC26`, …) — sama
+ * dengan yang tampil di kolom Campaign.
+ */
+export function campaignOptions(rows) {
+  const set = new Set()
+  for (const r of rows || []) {
+    for (const c of r?.campaigns || []) if (c) set.add(c)
+  }
+  return Array.from(set).sort((a, b) => String(a).localeCompare(String(b)))
+}
+
+/**
+ * Baris yang termasuk campaign terpilih. `campaign` kosong = semua baris. Satu
+ * ticket id bisa membawa beberapa campaign (lihat groupTickets) — cukup salah
+ * satunya cocok.
+ */
+export function filterByCampaign(rows, campaign) {
+  if (!campaign) return rows || []
+  return (rows || []).filter((r) => (r?.campaigns || []).includes(campaign))
+}
+
+/**
  * Kalimat konfirmasi untuk tombol "Assign Otomatis".
  *
  * Aturan server (2 Oktober 2026, `qc_auto_assign.distribute_evenly`, mengganti aturan

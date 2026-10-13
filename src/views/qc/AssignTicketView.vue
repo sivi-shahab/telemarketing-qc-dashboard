@@ -16,6 +16,10 @@
         <div class="toolbar">
           <input v-model.trim="search" class="text-input search" type="search" placeholder="Cari Data Leads…" />
           <input v-model="loadDate" class="text-input filter" type="date" title="Kosongkan = data kemarin (H-1)" @change="loadAll" />
+          <select v-model="campaignFilter" class="text-input filter" title="Assign Otomatis &amp; Lepas Semua ikut campaign ini">
+            <option value="">Semua campaign</option>
+            <option v-for="c in campaigns" :key="c" :value="c">{{ c }}</option>
+          </select>
           <select v-model="assigneeFilter" class="text-input filter">
             <option value="">Semua</option>
             <option value="__none__">Belum di-assign</option>
@@ -23,7 +27,9 @@
           </select>
           <span class="count">{{ filtered.length }} / {{ tickets.length }} ticket</span>
           <!-- Membagi SEMUA ticket yang belum punya QC, bukan hanya yang lolos
-               filter di atas: filternya alat pandang, bukan pilihan pembagian. -->
+               filter cari/QC: kedua filter itu alat pandang, bukan pilihan pembagian.
+               Pengecualiannya filter CAMPAIGN (13 Oktober 2026): bila dipilih, hanya
+               ticket campaign itu yang dibagi. -->
           <button
             class="btn-auto"
             :disabled="loading || autoBusy || !unassigned.length || !qcUsers.length"
@@ -32,8 +38,8 @@
           >{{ autoBusy ? 'Membagi…' : `⚡ Assign Otomatis (${autoCount})` }}</button>
           <!-- Kebalikan dari Assign Otomatis: melepas assignment ticket TANGGAL yang
                sedang dimuat (12 Oktober 2026; sebelumnya seluruh tanggal), sekali
-               klik lewat DELETE /qc_assignment. Filter cari/QC tidak ikut, sama
-               seperti Assign Otomatis. Riwayat Manual Status tidak ikut terhapus. -->
+               klik lewat DELETE /qc_assignment. Filter cari/QC tidak ikut; filter
+               campaign ikut — sama seperti Assign Otomatis. Riwayat Manual Status tidak ikut terhapus. -->
           <button class="btn-revoke" :disabled="loading || revokeBusy || !assignedOnDate.length" @click="revokeAll">
             {{ revokeBusy ? 'Melepas…' : revokeLabel }}
           </button>
@@ -126,9 +132,9 @@
         </div>
         <div class="note">
           Sumber: tickets-daily (H-1). Kosongkan tanggal untuk memakai data kemarin.
-          <b>Lepas Semua</b> melepas seluruh ticket yang sudah di-assign pada <b>tanggal
-          yang dipilih</b> (tidak terpengaruh kolom cari / filter QC), tanpa menghapus hasil
-          Manual Status yang sudah disubmit QC.
+          <b>Assign Otomatis</b> dan <b>Lepas Semua</b> mengikuti <b>tanggal</b> dan
+          <b>campaign</b> yang dipilih (tidak terpengaruh kolom cari / filter QC). Lepas
+          Semua tidak menghapus hasil Manual Status yang sudah disubmit QC.
         </div>
       </div>
 
@@ -254,6 +260,7 @@ import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
 import {
   groupTickets, joinLocalResults, describeSplit, chunkTicketIds,
+  campaignOptions, filterByCampaign,
   eventActionLabel, eventSourceLabel, filterEvents,
 } from './assignTicketData.js'
 
@@ -278,6 +285,7 @@ const loading = ref(true)
 const errorMsg = ref('')
 const search = ref('')
 const assigneeFilter = ref('')
+const campaignFilter = ref('') // kosong = semua campaign
 const loadDate = ref('')   // kosong -> tidak dikirim -> API pakai mode "yesterday"
 const pick = ref({})       // ticket_id -> selected qc username
 const busy = ref(null)     // ticket_id currently mutating
@@ -295,9 +303,17 @@ function qcLabel(username) {
   return q?.name || username
 }
 
-// Yang belum punya QC DI ANTARA baris yang termuat. Dipakai untuk mengirim daftar
-// ticket_ids ke server — bukan untuk angka di tombol, lihat scopeUnassigned.
-const unassigned = computed(() => tickets.value.filter((t) => !t.assigned_qc))
+const campaigns = computed(() => campaignOptions(tickets.value))
+// Baris termuat yang masuk campaign terpilih. Berbeda dengan filter cari/QC, filter
+// campaign ikut menentukan apa yang dibagi Assign Otomatis dan dilepas Lepas Semua.
+// Server tetap mengiris ticket_ids-nya dengan cakupan login, jadi filter ini hanya
+// bisa mempersempit, tidak pernah melebarkan.
+const campaignRows = computed(() => filterByCampaign(tickets.value, campaignFilter.value))
+
+// Yang belum punya QC DI ANTARA baris yang termuat (dan campaign terpilih). Dipakai
+// untuk mengirim daftar ticket_ids ke server — bukan untuk angka di tombol, lihat
+// scopeUnassigned.
+const unassigned = computed(() => campaignRows.value.filter((t) => !t.assigned_qc))
 
 // Angka SEBENARNYA antrean dalam cakupan login ini, dari GET /qc_assignment/unassigned.
 // Tabel ini hanya memuat ticket H-1 yang lolos filter, sedangkan Auto Assign membagi
@@ -310,10 +326,14 @@ const scopeQcCount = ref(null)
 // Semua baris tanggal itu termuat (tickets-daily dipaginasi server) dan kolom QC-nya
 // dari GET /qc_assignments dengan cakupan yang sama dengan DELETE, jadi angka di
 // tombol = yang akan dilepas.
-const assignedOnDate = computed(() => tickets.value.filter((t) => t.assigned_qc))
+const assignedOnDate = computed(() => campaignRows.value.filter((t) => t.assigned_qc))
 const revokeLabel = computed(() =>
   assignedOnDate.value.length ? `✕ Lepas Semua (${assignedOnDate.value.length})` : '✕ Lepas Semua')
-const autoCount = computed(() => scopeUnassigned.value ?? unassigned.value.length)
+// Dengan filter campaign, yang dikirim ke server persis `unassigned` — angka antrean
+// se-cakupan dari /qc_assignment/unassigned tidak lagi berlaku (server mengenal nama
+// campaign `results`, bukan kode App C di baris ini).
+const autoCount = computed(() =>
+  campaignFilter.value ? unassigned.value.length : (scopeUnassigned.value ?? unassigned.value.length))
 const autoQcCount = computed(() => scopeQcCount.value ?? qcUsers.value.length)
 
 async function loadUnassignedSummary() {
@@ -329,7 +349,7 @@ async function loadUnassignedSummary() {
 
 const filtered = computed(() => {
   const q = search.value.toLowerCase()
-  return tickets.value.filter((t) => {
+  return campaignRows.value.filter((t) => {
     if (q && !String(t.id || '').toLowerCase().includes(q)) return false
     if (assigneeFilter.value === '__none__' && t.assigned_qc) return false
     if (assigneeFilter.value && assigneeFilter.value !== '__none__' && t.assigned_qc !== assigneeFilter.value) return false
@@ -433,6 +453,9 @@ async function loadAll() {
     }
     if (myId !== requestId) return
     tickets.value = joinLocalResults(groups, local, assignments)
+    // Campaign terpilih tidak ada di tanggal yang baru dimuat -> kembali ke semua,
+    // supaya tabel tidak kosong tanpa sebab yang terlihat.
+    if (campaignFilter.value && !campaigns.value.includes(campaignFilter.value)) campaignFilter.value = ''
     qcUsers.value = users.data || []
   } catch (e) {
     if (e.name === 'AbortError' || e.name === 'CanceledError') return
@@ -481,7 +504,8 @@ async function assign(t) {
 async function autoAssign() {
   const pending = unassigned.value
   if (!pending.length || !qcUsers.value.length) return
-  if (!window.confirm(`${describeSplit(pending.length, autoQcCount.value)}\n\nLanjutkan?`)) return
+  const camp = campaignFilter.value ? `Campaign ${campaignFilter.value}: ` : ''
+  if (!window.confirm(`${camp}${describeSplit(pending.length, autoQcCount.value)}\n\nLanjutkan?`)) return
 
   autoBusy.value = true
   errorMsg.value = ''
@@ -542,7 +566,8 @@ async function revokeAll() {
   if (!ids.length) return
   const tanggal = loadDate.value || 'kemarin (H-1)'
   if (!window.confirm(
-    `Lepas ${ids.length} ticket yang sudah di-assign pada tanggal ${tanggal}?\n\n` +
+    `Lepas ${ids.length} ticket yang sudah di-assign pada tanggal ${tanggal}`
+      + (campaignFilter.value ? ` (campaign ${campaignFilter.value})` : '') + '?\n\n' +
     'Assignment-nya akan dihapus (QC kehilangan akses ke tiket itu), tetapi hasil ' +
     'Manual Status yang sudah disubmit QC TIDAK ikut terhapus. Tindakan ini tidak bisa dibatalkan.'
   )) return
