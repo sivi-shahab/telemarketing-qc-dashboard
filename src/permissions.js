@@ -63,10 +63,14 @@ export const P = {
   STATS_EXPORT_ERROR_RATE_PPT: 'stats.export.error_rate_ppt',
 
   // Administrasi
+  ADMIN_USER_WRITE: 'admin.user.write',
   ADMIN_ROLE_WRITE: 'admin.role.write',
   ADMIN_TICKET_DELETE: 'admin.ticket.delete',
   ADMIN_TICKET_REPROCESS: 'admin.ticket.reprocess',
   ADMIN_DOC_SLA_WRITE: 'admin.doc_sla.write',
+  // Kelola QC: aktifkan/nonaktifkan QC Telemarketing tanpa buat/hapus user
+  // (Team Leader QC). Menu sekaligus gate endpoint-nya.
+  QC_USER_ACTIVE_WRITE: 'qc.user.active.write',
 }
 
 // Peta path -> capability yang dibutuhkan, dipakai guard router. Path yang tidak
@@ -95,6 +99,7 @@ export const ROUTE_PERMISSIONS = {
   '/spq-head/manage-roles': P.MENU_MANAGE_ROLE,
   '/spq-head/roles': P.MENU_ROLE_HIERARCHY,
   '/qc/assign': P.MENU_ASSIGN_TICKET,
+  '/qc/users': P.QC_USER_ACTIVE_WRITE,
 }
 
 // Urutan halaman fallback saat user membuka path yang tidak diizinkan: pakai
