@@ -125,6 +125,13 @@
                   <span class="badge" :class="u.is_active ? 'badge-green' : 'badge-gray'">
                     {{ u.is_active ? 'active' : 'inactive' }}
                   </span>
+                  <!-- Nonaktif dari Kelola QC (Team Leader QC) hanya sampai 00.00 WIB;
+                       sesudahnya QC aktif kembali otomatis. -->
+                  <div
+                    v-if="!u.is_active && u.inactive_until"
+                    class="u-inactive-until"
+                    :title="`Aktif kembali otomatis ${formatDate(u.inactive_until)}`"
+                  >s/d 00.00 WIB</div>
                 </td>
                 <td class="u-created">{{ formatDate(u.created_at) }}</td>
                 <td class="col-action">
@@ -363,7 +370,9 @@ async function toggleActive(u) {
   if (!window.confirm(
     next
       ? `Aktifkan kembali QC "${u.username}"?`
-      : `Nonaktifkan QC "${u.username}"? User ini tidak akan lagi kebagian tiket dari pembagian otomatis.`
+      : manageAll.value
+        ? `Nonaktifkan QC "${u.username}"? User ini tidak akan lagi kebagian tiket dari pembagian otomatis sampai diaktifkan kembali.`
+        : `Nonaktifkan QC "${u.username}" sampai 00.00 WIB nanti? Sampai jam itu user ini tidak kebagian tiket dari pembagian otomatis; lewat dari itu aktif kembali otomatis.`
   )) return
   togglingId.value = u.id
   listError.value = ''
@@ -468,6 +477,7 @@ label { font-size: 13px; font-weight: 600; }
 .btn-del:hover:not(:disabled) { background: var(--red); color: #fff; }
 .btn-del:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.u-inactive-until { margin-top: 2px; font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 .btn-toggle {
   padding: 6px 14px; border-radius: 7px; font-size: 13px; font-weight: 600;
   margin-right: 6px; transition: background 0.15s, color 0.15s;
