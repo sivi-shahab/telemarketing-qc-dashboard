@@ -197,6 +197,7 @@ const EVENT_SOURCES = {
   lepas: 'Lepas',
   lepas_semua: 'Lepas Semua',
   user_deleted: 'User QC dihapus',
+  qc_nonaktif: 'QC nonaktif (dibagi ulang)',
   // Kepemilikan yang sudah ada saat tabel riwayat dibuat (migrasi 0065).
   backfill: 'Data awal',
 }
