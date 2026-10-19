@@ -382,6 +382,9 @@
                      dilengkapi dari sisi Ascend, bukan oleh agent/QC) dan dokumen
                      pendukung yang ditunggu beserta tenggat H+2-nya. -->
                 <div v-if="group.primary.pending_reason" class="ai-status-note">{{ group.primary.pending_reason }}</div>
+                <!-- Data TMS/Ascend kosong: worker mengecek ulang DWH tiap 30 menit (maks
+                     7 hari) dan mereproses tiketnya begitu datanya lengkap. -->
+                <div v-if="group.primary.reference_retry_note" class="ai-status-note note-retry">{{ group.primary.reference_retry_note }}</div>
                 <!-- Not Qualified karena sebab yang TIDAK terbaca dari skor: sejak
                      21 Agustus 2026 hanya badword. Penyebutan verifikasi statik yang
                      berubah-ubah tetap menggugurkan tiket, tetapi tidak lagi diberi
@@ -2013,6 +2016,8 @@ async function fetchItems({ silent = false } = {}) {
   // Auto-start/stop polling: run only while some row is still being processed.
   if (hasInProgress()) startPolling()
   else stopPolling()
+  if (hasReferenceRetry()) startRetryRefresh()
+  else stopRetryRefresh()
 }
 
 
@@ -2100,6 +2105,33 @@ function stopPolling() {
   if (!pollTimer) return
   clearInterval(pollTimer)
   pollTimer = null
+}
+
+// --- Refresh retry data acuan -------------------------------------------
+// Tiket "Data TMS/Ascend Kosong" dicek ulang worker tiap 30 menit; begitu datanya
+// lengkap tiketnya direproses. Daftar ikut dimuat ulang dengan selang yang sama
+// supaya tiket itu (dan tombol Reprocess-nya yang terkunci) muncul tanpa refresh
+// manual — sesudah itu poll 7 detik di atas yang mengambil alih.
+const RETRY_REFRESH_MS = 30 * 60 * 1000
+let retryTimer = null
+
+function hasReferenceRetry() {
+  const has = (r) => (r.reference_retry_note || '').startsWith('Dicek ulang')
+  if (GROUPING_MODE === 'server') return serverGroups.value.some((g) => g.results.some(has))
+  return rawItems.value.some(has)
+}
+
+function startRetryRefresh() {
+  if (retryTimer) return
+  retryTimer = setInterval(() => {
+    if (document.visibilityState !== 'hidden') fetchItems({ silent: true })
+  }, RETRY_REFRESH_MS)
+}
+
+function stopRetryRefresh() {
+  if (!retryTimer) return
+  clearInterval(retryTimer)
+  retryTimer = null
 }
 
 function onVisibilityChange() {
@@ -2488,6 +2520,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopPolling()
+  stopRetryRefresh()
   stopReprocessPolling()
   stopBulkPolling()
   clearTimeout(debounceTimer)
@@ -2874,6 +2907,8 @@ onBeforeUnmount(() => {
 .ai-status-note { margin-top: 3px; font-size: 10.5px; font-weight: 600; color: #b45309; line-height: 1.3; white-space: normal; }
 /* Catatan kegagalan (badword) dibedakan dari catatan Pending: merah, bukan amber. */
 .ai-status-note.note-fail { color: var(--red); font-weight: 700; }
+/* Jadwal cek ulang data acuan: keterangan sekunder di bawah alasan Pending. */
+.ai-status-note.note-retry { color: #64748b; font-weight: 500; }
 /* Masih mengikuti AI Status (belum disentuh human) — dibuat lebih redup. */
 .mstatus-inherited { opacity: 0.55; font-weight: 600; }
 
