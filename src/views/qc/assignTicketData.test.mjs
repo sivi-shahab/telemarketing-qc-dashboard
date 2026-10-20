@@ -273,6 +273,7 @@ test('label jalur riwayat', () => {
   assert.equal(eventSourceLabel('lepas'), 'Lepas')
   assert.equal(eventSourceLabel('lepas_semua'), 'Lepas Semua')
   assert.equal(eventSourceLabel('user_deleted'), 'User QC dihapus')
+  assert.equal(eventSourceLabel('qc_ganti_role'), 'QC ganti role (dibagi ulang)')
   assert.equal(eventSourceLabel('backfill'), 'Data awal')
   assert.equal(eventSourceLabel(null), '—')
 })

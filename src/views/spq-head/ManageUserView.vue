@@ -51,7 +51,8 @@
         <h2 class="card-title">{{ manageAll ? 'Daftar User' : 'Daftar QC Telemarketing' }}</h2>
         <p v-if="!manageAll" class="card-subtitle">
           QC yang dinonaktifkan tidak bisa login dan tidak lagi kebagian tiket dari pembagian otomatis.
-          Pembuatan / penghapusan user tetap melalui Admin.
+          Data QC (username/NIP, nama, email, password) bisa diubah lewat tombol Edit; setiap perubahan tercatat
+          di Riwayat Perubahan. Pembuatan / penghapusan user tetap melalui Admin.
         </p>
 
         <!-- Toolbar: search + filter role/status -->
@@ -141,7 +142,7 @@
                        "mengeluarkan" seorang QC dari pool pembagian tanpa
                        menghapus akunnya. -->
                   <button
-                    v-if="u.role === 'qc'"
+                    v-if="u.role === 'qc' && canToggle"
                     class="btn-toggle"
                     :class="u.is_active ? 'btn-toggle-off' : 'btn-toggle-on'"
                     :disabled="u.id === currentUserId || togglingId === u.id"
@@ -152,6 +153,12 @@
                   >
                     {{ togglingId === u.id ? '…' : (u.is_active ? 'Nonaktifkan' : 'Aktifkan') }}
                   </button>
+                  <button
+                    v-if="canEdit"
+                    class="btn-toggle btn-edit"
+                    title="Ubah data user"
+                    @click="openEdit(u)"
+                  >Edit</button>
                   <button
                     v-if="manageAll"
                     class="btn-del"
@@ -167,6 +174,93 @@
           </table>
         </div>
       </div>
+
+      <!-- Riwayat Perubahan — hanya untuk yang boleh edit (endpoint-nya 403 bila tidak). -->
+      <div v-if="canEdit" class="card">
+        <h2 class="card-title">Riwayat Perubahan</h2>
+        <p class="card-subtitle">Perubahan username (NIP), nama, email, role, dan password. Isi password tidak pernah disimpan.</p>
+        <div class="table-toolbar">
+          <select v-model="historyUserId" class="text-input filter-select" @change="loadHistory">
+            <option value="">Semua User</option>
+            <option v-for="u in users" :key="u.id" :value="u.id">{{ u.name || u.username }} ({{ u.username }})</option>
+          </select>
+        </div>
+        <div v-if="historyError" class="error-msg">{{ historyError }}</div>
+        <div class="table-wrap">
+          <table class="user-table">
+            <thead>
+              <tr><th>Waktu</th><th>User</th><th>Perubahan</th><th>Oleh</th></tr>
+            </thead>
+            <tbody>
+              <tr v-if="historyLoading"><td colspan="4" class="empty">Memuat...</td></tr>
+              <tr v-else-if="history.length === 0"><td colspan="4" class="empty">Belum ada perubahan.</td></tr>
+              <tr v-for="h in history" :key="h.id">
+                <td class="u-created">{{ formatDate(h.created_at) }}</td>
+                <td>
+                  <span class="u-name">{{ h.target_name || h.target_username }}</span>
+                  <span class="u-email">{{ h.target_username }}</span>
+                </td>
+                <td>
+                  <strong>{{ fieldLabel(h.field) }}</strong>:
+                  <template v-if="h.field === 'password'">diubah</template>
+                  <template v-else>{{ h.old_value ?? '—' }} → {{ h.new_value ?? '—' }}</template>
+                </td>
+                <td>{{ h.actor_username }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Edit -->
+    <div v-if="editing" class="modal-backdrop" @click.self="closeEdit">
+      <div class="modal-box" role="dialog" aria-modal="true">
+        <h2 class="card-title">Edit User</h2>
+        <form class="create-form" @submit.prevent="saveEdit">
+          <div class="field">
+            <label>Username (NIP)</label>
+            <input v-model.trim="editForm.username" class="text-input" type="text" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label>Nama</label>
+            <input v-model.trim="editForm.name" class="text-input" type="text" autocomplete="off" required />
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input v-model.trim="editForm.email" class="text-input" type="email" autocomplete="off" required />
+          </div>
+          <div v-if="manageAll" class="field">
+            <label>Role</label>
+            <select v-model="editForm.role" class="text-input" :disabled="editing.id === currentUserId">
+              <option v-for="r in roleOptions" :key="r.key" :value="r.key">{{ r.label }}</option>
+            </select>
+            <span v-if="editing.id === currentUserId" class="field-hint">Role akun sendiri tidak dapat diubah.</span>
+          </div>
+          <div class="field">
+            <label>Password baru</label>
+            <input v-model="editForm.password" class="text-input" type="password" autocomplete="new-password" />
+            <span class="field-hint">Kosongkan bila tidak ingin mengubah password.</span>
+          </div>
+          <div class="field">
+            <label>Konfirmasi Password</label>
+            <input v-model="editForm.confirmPassword" class="text-input" type="password" autocomplete="new-password" />
+          </div>
+
+          <div v-if="warnings.length" class="warn-box">
+            <div v-for="w in warnings" :key="w">⚠ {{ w }}</div>
+          </div>
+          <div v-if="editError" class="error-msg">{{ editError }}</div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn-toggle btn-toggle-off" :disabled="saving" @click="closeEdit">Batal</button>
+            <button class="btn-create" type="submit" :disabled="saving">
+              <span v-if="saving" class="spinner"></span>
+              {{ saving ? 'Menyimpan...' : 'Simpan' }}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </SidebarLayout>
 </template>
@@ -178,13 +272,16 @@ import apiClient from '../../api/client.js'
 import { roleBadgeClass, roleLabel as sharedRoleLabel } from '../../utils/roleBadge.js'
 import { useAuthStore } from '../../stores/auth.js'
 import { P } from '../../permissions.js'
+import { buildUserPatch, editWarnings, fieldLabel } from '../../utils/userEdit.js'
 
 const auth = useAuthStore()
 const currentUserId = computed(() => auth.user?.id)
 // Admin mengelola semua user. Tanpa ADMIN_USER_WRITE (Team Leader QC lewat menu
 // Kelola QC) halaman ini hanya menampilkan QC Telemarketing — backend yang
-// menyaringnya — dan hanya tombol Aktifkan/Nonaktifkan.
+// menyaringnya — dengan tombol Aktifkan/Nonaktifkan dan/atau Edit sesuai izin.
 const manageAll = computed(() => auth.can(P.ADMIN_USER_WRITE))
+const canEdit = computed(() => auth.can(P.ADMIN_USER_WRITE) || auth.can(P.QC_USER_EDIT))
+const canToggle = computed(() => auth.can(P.ADMIN_USER_WRITE) || auth.can(P.QC_USER_ACTIVE_WRITE))
 
 const users = ref([])
 const loading = ref(true)
@@ -390,7 +487,85 @@ async function toggleActive(u) {
   }
 }
 
-onMounted(() => { fetchUsers(); if (manageAll.value) loadRoles() })
+// ---- Edit user ----
+const editing = ref(null)        // baris user yang sedang diedit
+const editForm = reactive({ username: '', name: '', email: '', role: '', password: '', confirmPassword: '' })
+const editError = ref('')
+const saving = ref(false)
+
+function openEdit(u) {
+  editing.value = u
+  Object.assign(editForm, {
+    username: u.username || '', name: u.name || '', email: u.email || '',
+    role: u.role, password: '', confirmPassword: '',
+  })
+  editError.value = ''
+}
+function closeEdit() {
+  if (saving.value) return
+  editing.value = null
+}
+
+const canEditRole = computed(() => manageAll.value && editing.value && editing.value.id !== currentUserId.value)
+const editPatch = computed(() =>
+  editing.value ? buildUserPatch(editing.value, editForm, { canEditRole: !!canEditRole.value }) : {})
+const warnings = computed(() =>
+  editing.value
+    ? editWarnings(editing.value, editPatch.value, { salesScope: !!editing.value.campaign_from_roster })
+    : [])
+
+async function saveEdit() {
+  const u = editing.value
+  if (!u) return
+  editError.value = ''
+  const patch = editPatch.value
+  if (Object.keys(patch).length === 0) {
+    editError.value = 'Tidak ada perubahan.'
+    return
+  }
+  if (patch.password && patch.password !== editForm.confirmPassword) {
+    editError.value = 'Konfirmasi password tidak cocok.'
+    return
+  }
+  if (warnings.value.length && !window.confirm(`${warnings.value.join('\n\n')}\n\nLanjutkan menyimpan?`)) return
+  saving.value = true
+  try {
+    const res = await apiClient.patch(`/auth/users/${u.id}`, patch)
+    const i = users.value.findIndex(x => x.id === u.id)
+    if (i >= 0) users.value.splice(i, 1, res.data)
+    editing.value = null
+    if (u.id === currentUserId.value) await auth.reloadMe()
+    await loadHistory()
+  } catch (e) {
+    const d = e.response?.data?.detail
+    editError.value = typeof d === 'string' ? d : 'Gagal menyimpan perubahan. Coba lagi.'
+  } finally {
+    saving.value = false
+  }
+}
+
+// ---- Riwayat Perubahan ----
+const history = ref([])
+const historyUserId = ref('')
+const historyLoading = ref(false)
+const historyError = ref('')
+async function loadHistory() {
+  if (!canEdit.value) return
+  historyLoading.value = true
+  historyError.value = ''
+  try {
+    const params = { limit: 100 }
+    if (historyUserId.value !== '') params.user_id = historyUserId.value
+    const res = await apiClient.get('/auth/users/history', { params })
+    history.value = res.data
+  } catch {
+    historyError.value = 'Gagal memuat riwayat perubahan.'
+  } finally {
+    historyLoading.value = false
+  }
+}
+
+onMounted(() => { fetchUsers(); loadHistory(); if (manageAll.value) loadRoles() })
 </script>
 
 <style scoped>
@@ -487,6 +662,24 @@ label { font-size: 13px; font-weight: 600; }
 .btn-toggle-on { background: #fff; color: #16a34a; border: 1.5px solid #bbf7d0; }
 .btn-toggle-on:hover:not(:disabled) { background: #16a34a; color: #fff; }
 .btn-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-edit { color: var(--blue); border: 1.5px solid var(--border); background: #fff; }
+.btn-edit:hover:not(:disabled) { background: var(--blue-bg); }
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-box {
+  background: #fff; border-radius: 16px; padding: 24px 28px; width: 100%; max-width: 480px;
+  max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px;
+}
+.modal-box .create-form { max-width: none; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
+.modal-actions .btn-toggle { margin-right: 0; }
+.warn-box {
+  background: var(--yellow-bg); color: var(--yellow); border-radius: 8px;
+  padding: 10px 14px; font-size: 13px; display: flex; flex-direction: column; gap: 6px;
+}
 
 .empty { text-align: center; color: var(--text-muted); padding: 24px; }
 

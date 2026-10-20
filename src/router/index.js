@@ -158,10 +158,15 @@ const LANDING_ORDER = [
   '/upload/result',
 ]
 
+// Nilai ROUTE_PERMISSIONS boleh string atau array (array = cukup salah satu).
+function hasPerm(perms, need) {
+  return Array.isArray(need) ? need.some(n => perms.includes(n)) : perms.includes(need)
+}
+
 function landingFor(perms) {
   for (const path of LANDING_ORDER) {
     const need = ROUTE_PERMISSIONS[path]
-    if (!need || perms.includes(need)) return path
+    if (!need || hasPerm(perms, need)) return path
   }
   return '/login'
 }
@@ -186,7 +191,7 @@ router.beforeEach(to => {
   if (!Array.isArray(user?.permissions)) return true
 
   const need = requiredPermission(to.path)
-  if (need && !user.permissions.includes(need)) return landingFor(user.permissions)
+  if (need && !hasPerm(user.permissions, need)) return landingFor(user.permissions)
   return true
 })
 
