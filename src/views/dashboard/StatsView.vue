@@ -39,7 +39,7 @@
                         :class="['gran-btn', { active: granularity === g.key }]"
                         @click="granularity = g.key; periodOffset = 0">{{ g.label }}</button>
               </div>
-              <div class="date-range">
+              <div class="date-range" title="Tanggal tiket dimuat App C (load_date terakhir); tiket tanpa data App C memakai Tanggal Agree">
                 <label class="dr-label">Dari</label>
                 <input type="date" v-model="dateStart" class="date-input" @change="periodOffset = 0" />
                 <label class="dr-label">s/d</label>
@@ -225,7 +225,7 @@
                         :class="['gran-btn', { active: granularity === g.key }]"
                         @click="granularity = g.key; periodOffset = 0">{{ g.label }}</button>
               </div>
-              <div class="date-range">
+              <div class="date-range" title="Tanggal tiket dimuat App C (load_date terakhir); tiket tanpa data App C memakai Tanggal Agree">
                 <label class="dr-label">Dari</label>
                 <input type="date" v-model="dateStart" class="date-input" @change="periodOffset = 0" />
                 <label class="dr-label">s/d</label>
@@ -417,7 +417,7 @@
                di tab Data Leads otomatis ikut berlaku di sini, tanpa mengatur ulang. -->
           <div class="cf-row">
             <label class="cf-label">Tanggal</label>
-            <div class="date-range">
+            <div class="date-range" title="Tanggal tiket dimuat App C (load_date terakhir); tiket tanpa data App C memakai Tanggal Agree">
               <label class="dr-label">Dari</label>
               <input type="date" v-model="dateStart" class="date-input" />
               <label class="dr-label">s/d</label>
@@ -626,7 +626,7 @@
              stats_failure_reasons & stats_failure_reasons_hierarchy). -->
         <div class="cf-row">
           <label class="cf-label">Tanggal</label>
-          <div class="date-range">
+          <div class="date-range" title="Tanggal tiket dimuat App C (load_date terakhir); tiket tanpa data App C memakai Tanggal Agree">
             <label class="dr-label">Dari</label>
             <input type="date" v-model="dateStart" class="date-input" />
             <label class="dr-label">s/d</label>
