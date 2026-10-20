@@ -44,8 +44,8 @@
         <option v-for="s in hierOptions.qc_support_users" :key="s.username" :value="s.username">{{ s.name }}</option>
       </select>
       <input v-model="filterTicketId" class="text-input" placeholder="ID..." @input="debouncedFilter" />
-      <div class="date-range">
-        <span class="dr-label">Tanggal</span>
+      <div class="date-range" title="Tanggal tiket dimuat App C (load_date terakhir); tiket tanpa data App C memakai Tanggal Agree">
+        <span class="dr-label">Tanggal Load App C</span>
         <input type="date" v-model="filterDateStart" class="date-input" @change="applyFilter" />
         <span class="dr-sep">s/d</span>
         <input type="date" v-model="filterDateEnd" class="date-input" @change="applyFilter" />
