@@ -15,7 +15,7 @@
           <div class="warn-title">Sebelum menjalankan</div>
           <ul>
             <li><strong>Satu panggilan LLM per tiket</strong> — {{ selectedTickets }} tiket terpilih berarti {{ selectedTickets }} panggilan.</li>
-            <li><strong>Banding error code, Manual Status, dan dokumen pendukung tidak ikut</strong> ke hasil baru; entry lama beserta semuanya dihapus setelah reproses berhasil.</li>
+            <li><strong>Hanya hasil penilaian AI yang diganti</strong> — banding error code, Manual Status beserta riwayatnya, cek manual, dan dokumen pendukung dipindah ke entry baru sebelum entry lama dihapus.</li>
             <li>Tiket yang <strong>gagal</strong> diproses tidak disentuh — entry lamanya dipertahankan apa adanya.</li>
           </ul>
         </div>
@@ -287,8 +287,8 @@ async function start() {
   const n = selectedTickets.value
   if (!window.confirm(
     `Proses ulang ${n} tiket pada campaign: ${selected.value.join(', ')}?\n\n` +
-    `Setiap tiket dievaluasi ulang lewat LLM, dan entry lamanya (termasuk banding, ` +
-    `Manual Status, dan dokumen pendukung) dihapus setelah berhasil.`
+    `Setiap tiket dievaluasi ulang lewat LLM. Banding, Manual Status, cek manual, dan ` +
+    `dokumen pendukung dipindah ke entry baru; entry lama dihapus setelah berhasil.`
   )) return
   errorMsg.value = ''
   starting.value = true
