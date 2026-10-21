@@ -780,7 +780,8 @@
     </Teleport>
 
     <!-- Reprocess (Admin only): satu konfirmasi, lalu tiket diproses ulang dan
-         entry lamanya dihapus setelah hasil barunya jadi. -->
+         entry lamanya dihapus setelah hasil barunya jadi; pekerjaan QC-nya dipindah
+         lebih dulu ke entry baru (21 Oktober 2026). -->
     <Teleport to="body">
       <div v-if="reprocessItem" class="modal-overlay" @click.self="closeReprocessModal">
         <div class="del-modal-card" role="dialog" aria-modal="true">
@@ -795,9 +796,10 @@
               <strong>{{ reprocessItem.campaign || '—' }}</strong> yang berlaku sekarang.</p>
             <p>Setelah hasil barunya jadi, <strong>semua entry lama</strong> ticket ini
               dihapus sehingga tersisa tepat satu entry.</p>
-            <p class="del-warn">Banding Error Code, usulan/approval Manual Status, dan
-              dokumen pendukung pada entry lama ikut hilang. Kalau reproses gagal,
-              entry lama dipertahankan apa adanya.</p>
+            <p>Hanya hasil penilaian AI yang diganti: banding Error Code,
+              usulan/approval Manual Status beserta riwayatnya, cek manual, dan dokumen
+              pendukung pada entry lama <strong>dipindah ke entry baru</strong>. Kalau
+              reproses gagal, entry lama dipertahankan apa adanya.</p>
             <p v-if="reprocessModalError" class="del-error">{{ reprocessModalError }}</p>
           </div>
 
@@ -845,9 +847,10 @@
               sekitar <strong>{{ bulkEta }}</strong>. Tiap ticket dievaluasi ulang memakai
               konfigurasi campaign yang berlaku sekarang, lalu entry lamanya dihapus
               setelah hasil barunya jadi.</p>
-            <p class="del-warn">Banding Error Code, usulan/approval Manual Status, dan
-              dokumen pendukung pada entry lama ikut hilang. Ticket yang gagal
-              dipertahankan apa adanya.</p>
+            <p>Hanya hasil penilaian AI yang diganti: banding Error Code,
+              usulan/approval Manual Status beserta riwayatnya, cek manual, dan dokumen
+              pendukung pada entry lama <strong>dipindah ke entry baru</strong>. Ticket
+              yang gagal dipertahankan apa adanya.</p>
             <p v-if="bulkModalError" class="del-error">{{ bulkModalError }}</p>
           </div>
 
