@@ -136,19 +136,21 @@
                 </td>
                 <td class="u-created">{{ formatDate(u.created_at) }}</td>
                 <td class="col-action">
-                  <!-- Toggle aktif/nonaktif — khusus role QC: pembagian tiket
-                       otomatis (qc_assignment.py) cuma menyasar QC yang
-                       is_active, jadi ini yang dipakai supervisor QC untuk
-                       "mengeluarkan" seorang QC dari pool pembagian tanpa
-                       menghapus akunnya. -->
+                  <!-- Toggle aktif/nonaktif. Pembagian tiket otomatis
+                       (qc_assignment.py) cuma menyasar QC yang is_active, jadi
+                       untuk QC ini "mengeluarkan" dari pool pembagian tanpa
+                       menghapus akun; untuk role lain user tidak bisa login.
+                       Admin (Manage User) menjangkau semua role sejak 22 Okt
+                       2026, kecuali role admin yang tombolnya dimatikan. -->
                   <button
-                    v-if="u.role === 'qc' && canToggle"
+                    v-if="canToggle && (manageAll || u.role === 'qc')"
                     class="btn-toggle"
                     :class="u.is_active ? 'btn-toggle-off' : 'btn-toggle-on'"
-                    :disabled="u.id === currentUserId || togglingId === u.id"
-                    :title="u.id === currentUserId
-                      ? 'Tidak dapat menonaktifkan akun sendiri'
-                      : (u.is_active ? 'Nonaktifkan — dikeluarkan dari pembagian tiket QC' : 'Aktifkan kembali')"
+                    :disabled="toggleBlockedReason(u) !== '' || togglingId === u.id"
+                    :title="toggleBlockedReason(u)
+                      || (u.is_active
+                        ? (u.role === 'qc' ? 'Nonaktifkan — dikeluarkan dari pembagian tiket QC' : 'Nonaktifkan — user tidak bisa login')
+                        : 'Aktifkan kembali')"
                     @click="toggleActive(u)"
                   >
                     {{ togglingId === u.id ? '…' : (u.is_active ? 'Nonaktifkan' : 'Aktifkan') }}
@@ -461,15 +463,26 @@ async function deleteUser(u) {
   }
 }
 
+// Alasan tombol Nonaktifkan dimatikan ('' = boleh). Admin yang terlanjur nonaktif
+// tetap boleh diaktifkan; backend menolak hal yang sama (400).
+function toggleBlockedReason(u) {
+  if (u.id === currentUserId.value) return 'Tidak dapat menonaktifkan akun sendiri'
+  if (u.is_active && u.role === 'admin') return 'Akun Admin tidak dapat dinonaktifkan'
+  return ''
+}
+
 async function toggleActive(u) {
-  if (u.id === currentUserId.value) return
+  if (toggleBlockedReason(u)) return
   const next = !u.is_active
+  const who = u.role === 'qc' ? `QC "${u.username}"` : `user "${u.username}"`
   if (!window.confirm(
     next
-      ? `Aktifkan kembali QC "${u.username}"?`
-      : manageAll.value
-        ? `Nonaktifkan QC "${u.username}"? User ini tidak akan lagi kebagian tiket dari pembagian otomatis sampai diaktifkan kembali.`
-        : `Nonaktifkan QC "${u.username}" sampai 00.00 WIB nanti? Sampai jam itu user ini tidak kebagian tiket dari pembagian otomatis; lewat dari itu aktif kembali otomatis.`
+      ? `Aktifkan kembali ${who}?`
+      : !manageAll.value
+        ? `Nonaktifkan ${who} sampai 00.00 WIB nanti? Sampai jam itu user ini tidak kebagian tiket dari pembagian otomatis; lewat dari itu aktif kembali otomatis.`
+        : u.role === 'qc'
+          ? `Nonaktifkan ${who}? User ini tidak akan lagi kebagian tiket dari pembagian otomatis sampai diaktifkan kembali.`
+          : `Nonaktifkan ${who}? User ini tidak bisa login sampai diaktifkan kembali.`
   )) return
   togglingId.value = u.id
   listError.value = ''
@@ -478,7 +491,7 @@ async function toggleActive(u) {
     await fetchUsers()
   } catch (e) {
     listError.value = e.response?.status === 400
-      ? 'Tidak dapat menonaktifkan akun sendiri.'
+      ? `${e.response?.data?.detail || 'Tidak dapat menonaktifkan user ini'}.`
       : e.response?.status === 404
         ? 'User tidak ditemukan.'
         : 'Gagal mengubah status user.'
