@@ -44,8 +44,8 @@
         <option v-for="s in hierOptions.qc_support_users" :key="s.username" :value="s.username">{{ s.name }}</option>
       </select>
       <input v-model="filterTicketId" class="text-input" placeholder="ID..." @input="debouncedFilter" />
-      <div class="date-range" title="Tanggal tiket dimuat App C (load_date terakhir); tiket tanpa data App C memakai Tanggal Agree">
-        <span class="dr-label">Tanggal Load App C</span>
+      <div class="date-range" title="Tanggal Submit (submit_time TMS); tiket tanpa submit_time memakai tanggal transkrip">
+        <span class="dr-label">Tanggal Submit</span>
         <input type="date" v-model="filterDateStart" class="date-input" @change="applyFilter" />
         <span class="dr-sep">s/d</span>
         <input type="date" v-model="filterDateEnd" class="date-input" @change="applyFilter" />
@@ -162,6 +162,9 @@
       </button>
       <span class="export-note">
         Not Qualified &amp; Pending<template v-if="filterCampaign"> · campaign {{ filterCampaign }}</template>
+        <template v-if="filterDateStart || filterDateEnd">
+          · {{ filterDateStart || 'awal' }} s/d {{ filterDateEnd || 'akhir' }}
+        </template>
       </span>
     </div>
 
@@ -2250,6 +2253,10 @@ async function exportVerification() {
   try {
     const params = { category: exportCategory.value }
     if (filterCampaign.value) params.campaign = filterCampaign.value
+    // Rentang filter tanggal ikut (26 Oktober 2026) — sebelumnya export agregat
+    // selalu menarik seluruh periode, apa pun rentang di layar.
+    if (filterDateStart.value) params.date_start = filterDateStart.value
+    if (filterDateEnd.value) params.date_end = filterDateEnd.value
     const res = await apiClient.get('/export_verification_xlsx', { params, responseType: 'blob' })
     downloadBlob(res, `${exportCategory.value.replace(/[^a-z0-9]+/gi, '_').toLowerCase()}.xlsx`)
   } catch {
