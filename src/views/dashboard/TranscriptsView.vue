@@ -250,10 +250,12 @@ function formatDate(value) {
     })
   }
 
-  // String "YYYY-MM-DD HH:MM:SS.mmm" -> ganti spasi jadi 'T' (format ISO),
-  // tambah 'Z' kalau belum ada info timezone -> di-parse sebagai UTC.
+  // String "YYYY-MM-DD HH:MM:SS.mmm" -> ganti spasi jadi 'T' (format ISO).
+  // [FIX] Tanpa info timezone = WIB, BUKAN UTC: created_time di
+  // recording_tms_api disimpan naive WIB (App C kirim "2026-10-20T09:24:48"
+  // untuk rekaman 09.24). Dulu ditambah 'Z' -> tampil maju 7 jam (16.24).
   const iso = String(value).trim().replace(' ', 'T')
-  const withTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}Z`
+  const withTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}+07:00`
   const d = new Date(withTz)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('id-ID', {
