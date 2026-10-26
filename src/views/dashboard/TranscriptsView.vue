@@ -208,14 +208,15 @@ const groups = computed(() => {
     }
     g.items.push(it)
     if (it.campaign && !g.campaigns.includes(it.campaign)) g.campaigns.push(it.campaign)
-    const ts = it.created_time || 0
-    if (!g.latest || ts > g.latest) g.latest = ts
+    if (toMs(it.created_time) > toMs(g.latest)) g.latest = it.created_time
   }
+  // [FIX] created_time berupa string ISO; `b - a` pada string = NaN, jadi
+  // sort lama tidak mengurutkan apa-apa (tetap urutan App C, inserted_at).
   const arr = Array.from(map.values())
   arr.forEach((g) =>
-    g.items.sort((a, b) => (b.created_time || 0) - (a.created_time || 0)),
+    g.items.sort((a, b) => toMs(b.created_time) - toMs(a.created_time)),
   )
-  arr.sort((a, b) => (b.latest || 0) - (a.latest || 0))
+  arr.sort((a, b) => toMs(b.latest) - toMs(a.latest))
   return arr
 })
 
@@ -236,19 +237,10 @@ function normAiStatus(status) {
   return (status || '').toString().trim().toUpperCase()
 }
 
-// [FIX] Deklarasi `function formatDate(value) { ... }` beserta `}` penutupnya
-// hilang saat resolve konflik merge, menyisakan badan fungsi menggantung di
-// scope modul -> "'return' outside of function" saat build.
-function formatDate(value) {
-  if (!value) return '—'
-
-  if (typeof value === 'number') {
-    return new Date(value * 1000).toLocaleString('id-ID', {
-      dateStyle: 'short',
-      timeStyle: 'short',
-      timeZone: 'Asia/Jakarta',
-    })
-  }
+// Epoch ms untuk sort; nilai kosong / tak terbaca = 0 (paling bawah).
+function toMs(value) {
+  if (!value) return 0
+  if (typeof value === 'number') return value * 1000
 
   // String "YYYY-MM-DD HH:MM:SS.mmm" -> ganti spasi jadi 'T' (format ISO).
   // [FIX] Tanpa info timezone = WIB, BUKAN UTC: created_time di
@@ -256,9 +248,17 @@ function formatDate(value) {
   // untuk rekaman 09.24). Dulu ditambah 'Z' -> tampil maju 7 jam (16.24).
   const iso = String(value).trim().replace(' ', 'T')
   const withTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso) ? iso : `${iso}+07:00`
-  const d = new Date(withTz)
-  if (Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleString('id-ID', {
+  const ms = new Date(withTz).getTime()
+  return Number.isNaN(ms) ? 0 : ms
+}
+
+// [FIX] Deklarasi `function formatDate(value) { ... }` beserta `}` penutupnya
+// hilang saat resolve konflik merge, menyisakan badan fungsi menggantung di
+// scope modul -> "'return' outside of function" saat build.
+function formatDate(value) {
+  const ms = toMs(value)
+  if (!ms) return '—'
+  return new Date(ms).toLocaleString('id-ID', {
     dateStyle: 'short',
     timeStyle: 'short',
     timeZone: 'Asia/Jakarta',
