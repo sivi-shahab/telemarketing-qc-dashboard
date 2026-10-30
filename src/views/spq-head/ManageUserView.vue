@@ -90,18 +90,19 @@
                 <th>Campaign</th>
                 <th class="sortable" @click="sortBy('status')">Status <span class="sort-ind">{{ sortIndicator('status') }}</span></th>
                 <th class="sortable" @click="sortBy('created')">Created <span class="sort-ind">{{ sortIndicator('created') }}</span></th>
+                <th v-if="manageAll">Akses Upload</th>
                 <th class="col-action">Aksi</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="loading">
-                <td colspan="6" class="empty">Memuat...</td>
+                <td :colspan="tableCols" class="empty">Memuat...</td>
               </tr>
               <tr v-else-if="users.length === 0">
-                <td colspan="6" class="empty">Tidak ada user.</td>
+                <td :colspan="tableCols" class="empty">Tidak ada user.</td>
               </tr>
               <tr v-else-if="displayUsers.length === 0">
-                <td colspan="6" class="empty">Tidak ada user yang cocok dengan pencarian/filter.</td>
+                <td :colspan="tableCols" class="empty">Tidak ada user yang cocok dengan pencarian/filter.</td>
               </tr>
               <tr v-for="u in displayUsers" :key="u.id">
                 <td>
@@ -135,6 +136,22 @@
                   >s/d 00.00 WIB</div>
                 </td>
                 <td class="u-created">{{ formatDate(u.created_at) }}</td>
+                <!-- Saklar Upload Audio / Upload Transcript per user (30 Okt 2026).
+                     Default ikut role (mis. Team Leader QC aktif keduanya); akun
+                     admin selalu punya keduanya dan tidak bisa diubah. -->
+                <td v-if="manageAll" class="upload-cell">
+                  <button
+                    v-for="k in UPLOAD_KINDS"
+                    :key="k.field"
+                    class="upload-switch"
+                    :class="u[k.field] ? 'upload-on' : 'upload-off'"
+                    :disabled="u.role === 'admin' || uploadSavingId === u.id"
+                    :title="u.role === 'admin'
+                      ? 'Akses upload akun Admin tidak dapat diubah'
+                      : `${k.label}: ${u[k.field] ? 'aktif — klik untuk menonaktifkan' : 'nonaktif — klik untuk mengaktifkan'}`"
+                    @click="toggleUpload(u, k)"
+                  >{{ k.short }} {{ u[k.field] ? 'ON' : 'OFF' }}</button>
+                </td>
                 <td class="col-action">
                   <!-- Toggle aktif/nonaktif. Pembagian tiket otomatis
                        (qc_assignment.py) cuma menyasar QC yang is_active, jadi
@@ -180,7 +197,7 @@
       <!-- Riwayat Perubahan — hanya untuk yang boleh edit (endpoint-nya 403 bila tidak). -->
       <div v-if="canEdit" class="card">
         <h2 class="card-title">Riwayat Perubahan</h2>
-        <p class="card-subtitle">Perubahan username (NIP), nama, email, role, dan password. Isi password tidak pernah disimpan.</p>
+        <p class="card-subtitle">Perubahan username (NIP), nama, email, role, password, dan akses upload. Isi password tidak pernah disimpan.</p>
         <div class="table-toolbar">
           <select v-model="historyUserId" class="text-input filter-select" @change="loadHistory">
             <option value="">Semua User</option>
@@ -284,6 +301,7 @@ const currentUserId = computed(() => auth.user?.id)
 const manageAll = computed(() => auth.can(P.ADMIN_USER_WRITE))
 const canEdit = computed(() => auth.can(P.ADMIN_USER_WRITE) || auth.can(P.QC_USER_EDIT))
 const canToggle = computed(() => auth.can(P.ADMIN_USER_WRITE) || auth.can(P.QC_USER_ACTIVE_WRITE))
+const tableCols = computed(() => (manageAll.value ? 7 : 6))
 
 const users = ref([])
 const loading = ref(true)
@@ -500,6 +518,32 @@ async function toggleActive(u) {
   }
 }
 
+// ---- Saklar Upload Audio / Upload Transcript per user (Admin) ----
+const UPLOAD_KINDS = [
+  { field: 'upload_audio', label: 'Upload Audio', short: 'Audio' },
+  { field: 'upload_transcript', label: 'Upload Transcript', short: 'Transcript' },
+]
+const uploadSavingId = ref(null)
+
+async function toggleUpload(u, kind) {
+  if (u.role === 'admin') return
+  const next = !u[kind.field]
+  if (!window.confirm(`${next ? 'Aktifkan' : 'Nonaktifkan'} ${kind.label} untuk user "${u.username}"?`)) return
+  uploadSavingId.value = u.id
+  listError.value = ''
+  try {
+    const res = await apiClient.patch(`/auth/users/${u.id}/upload_access`, { [kind.field]: next })
+    Object.assign(u, { upload_audio: res.data.upload_audio, upload_transcript: res.data.upload_transcript })
+    loadHistory()
+  } catch (e) {
+    listError.value = e.response?.status === 400 || e.response?.status === 404
+      ? `${e.response?.data?.detail || 'Tidak dapat mengubah akses upload'}.`
+      : 'Gagal mengubah akses upload.'
+  } finally {
+    uploadSavingId.value = null
+  }
+}
+
 // ---- Edit user ----
 const editing = ref(null)        // baris user yang sedang diedit
 const editForm = reactive({ username: '', name: '', email: '', role: '', password: '', confirmPassword: '' })
@@ -675,6 +719,16 @@ label { font-size: 13px; font-weight: 600; }
 .btn-toggle-on { background: #fff; color: #16a34a; border: 1.5px solid #bbf7d0; }
 .btn-toggle-on:hover:not(:disabled) { background: #16a34a; color: #fff; }
 .btn-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.upload-cell { white-space: nowrap; }
+.upload-switch {
+  padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+  margin-right: 4px; letter-spacing: 0.03em; transition: background 0.15s, color 0.15s;
+}
+.upload-on { background: var(--green-bg); color: #16a34a; border: 1.5px solid #bbf7d0; }
+.upload-off { background: #f1f5f9; color: var(--text-muted); border: 1.5px solid var(--border); }
+.upload-switch:hover:not(:disabled) { filter: brightness(0.95); }
+.upload-switch:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-edit { color: var(--blue); border: 1.5px solid var(--border); background: #fff; }
 .btn-edit:hover:not(:disabled) { background: var(--blue-bg); }

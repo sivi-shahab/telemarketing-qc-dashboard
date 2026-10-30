@@ -6,6 +6,8 @@ const LABELS = {
   email: 'Email',
   role: 'Role',
   password: 'Password',
+  upload_audio: 'Upload Audio',
+  upload_transcript: 'Upload Transcript',
 }
 
 export function fieldLabel(field) {
