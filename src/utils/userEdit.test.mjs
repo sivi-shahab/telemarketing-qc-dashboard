@@ -50,4 +50,6 @@ test('fieldLabel', () => {
   assert.equal(fieldLabel('email'), 'Email')
   assert.equal(fieldLabel('role'), 'Role')
   assert.equal(fieldLabel('password'), 'Password')
+  assert.equal(fieldLabel('upload_audio'), 'Upload Audio')
+  assert.equal(fieldLabel('upload_transcript'), 'Upload Transcript')
 })
