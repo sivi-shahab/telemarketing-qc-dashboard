@@ -30,6 +30,8 @@ export const P = {
   MENU_ROLE_HIERARCHY: 'menu.role_hierarchy',
   MENU_COLLECTION_RESULTS: 'menu.collection_results',
   MENU_OCR_IMAGE: 'menu.ocr_image',
+  // Builder: dibatasi ke akun tertentu oleh backend (BUILDER_ALLOWED_USERNAMES), bukan oleh role.
+  MENU_BUILDER: 'menu.builder',
 
   // Fitur di halaman Results
   RESULTS_EVALUATION_DETAIL: 'results.evaluation_detail',
@@ -101,6 +103,7 @@ export const ROUTE_PERMISSIONS = {
   '/spq-head/manage-roles': P.MENU_MANAGE_ROLE,
   '/spq-head/roles': P.MENU_ROLE_HIERARCHY,
   '/qc/assign': P.MENU_ASSIGN_TICKET,
+  '/builder': P.MENU_BUILDER,
   '/qc/users': [P.QC_USER_ACTIVE_WRITE, P.QC_USER_EDIT], // array = cukup salah satu
 }
 

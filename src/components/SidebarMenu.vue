@@ -101,6 +101,13 @@
         </RouterLink>
       </div>
 
+      <div v-if="can(P.MENU_BUILDER)" class="menu-group">
+        <div class="group-label">Generate</div>
+        <RouterLink to="/builder" class="menu-item" active-class="active" :title="collapsed ? 'Builder Scorecard & KB' : ''">
+          <span class="icon">BD</span> <span class="label">Builder Scorecard &amp; KB</span>
+        </RouterLink>
+      </div>
+
       <div v-if="can(P.MENU_DELETE_CAMPAIGN)" class="menu-group">
         <div class="group-label">Delete Data</div>
         <RouterLink to="/delete/campaign" class="menu-item" active-class="active" :title="collapsed ? 'Delete Campaign' : ''">
