@@ -80,7 +80,7 @@
                       <col style="width: 30%" />
                       <col style="width: 12%" />
                       <col style="width: 18%" />
-                      <col style="width: 14%" />
+                      <col :style="{ width: canDownload ? '22%' : '14%' }" />
                     </colgroup>
                     <thead>
                       <tr>
@@ -117,6 +117,17 @@
                           >
                             Buka PDF ↗
                           </RouterLink>
+                          <!-- Unduh PDF — khusus role admin (5 November 2026). Server
+                               menolak role lain (403); tombolnya hanya disembunyikan. -->
+                          <button
+                            v-if="canDownload"
+                            type="button"
+                            class="btn-download-row"
+                            :disabled="downloadingId === pdfKey(t)"
+                            @click.stop="downloadPdf(t)"
+                          >
+                            {{ downloadingId === pdfKey(t) ? 'Mengunduh…' : 'Unduh PDF ⤓' }}
+                          </button>
                         </td>
                       </tr>
                     </tbody>
@@ -144,6 +155,8 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import SidebarLayout from '../../components/SidebarLayout.vue'
 import apiClient from '../../api/client.js'
+import { useAuthStore } from '../../stores/auth.js'
+import { canDownloadTranscriptPdf, downloadTranscriptPdf } from '../../utils/transcriptPdf.js'
 
 // Baris tiket sekarang diambil lewat App B (`GET /tickets_daily`), BUKAN lagi
 // menembak App C langsung dari browser. Dua alasannya:
@@ -346,6 +359,24 @@ function pdfRoute(item) {
   return `/dashboard/transcripts/${encodeURIComponent(pdfKey(item) || '')}`
 }
 
+// Unduh PDF — khusus role admin (lihat utils/transcriptPdf.js).
+const auth = useAuthStore()
+const canDownload = computed(() => canDownloadTranscriptPdf(auth.user))
+const downloadingId = ref(null)
+
+async function downloadPdf(item) {
+  const key = pdfKey(item)
+  if (!key || downloadingId.value) return
+  downloadingId.value = key
+  try {
+    await downloadTranscriptPdf(key)
+  } catch (e) {
+    window.alert(e.message)
+  } finally {
+    downloadingId.value = null
+  }
+}
+
 onMounted(() => {
   fetchTickets()
 })
@@ -401,6 +432,9 @@ onUnmounted(() => {
    tampil sama persis seperti tombol sebelumnya. */
 .btn-open-row { display: inline-block; padding: 5px 10px; background: var(--blue-bg); border: 1.5px solid var(--blue); border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--blue); text-decoration: none; transition: all 0.15s; white-space: nowrap; }
 .btn-open-row:hover { background: var(--blue); color: #fff; }
+.btn-download-row { margin-left: 6px; padding: 5px 10px; background: #fff; border: 1.5px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; cursor: pointer; transition: all 0.15s; }
+.btn-download-row:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
+.btn-download-row:disabled { opacity: 0.6; cursor: progress; }
 .empty { text-align: center; padding: 40px; color: var(--text-muted); }
 .pagination { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; font-size: 13px; color: var(--text-muted); border-top: 1px solid var(--border); }
 .page-controls { display: flex; align-items: center; gap: 10px; }
