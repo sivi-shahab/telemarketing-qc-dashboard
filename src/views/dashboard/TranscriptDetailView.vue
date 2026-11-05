@@ -4,6 +4,16 @@
       <div class="viewer-info">
         <span class="viewer-ticket">{{ tiketId || '—' }}</span>
         <span v-if="campaign" class="viewer-campaign">{{ campaign }}</span>
+        <!-- Unduh PDF — khusus role admin (5 November 2026); lihat utils/transcriptPdf.js. -->
+        <button
+          v-if="canDownload && tiketId"
+          type="button"
+          class="viewer-download"
+          :disabled="downloading"
+          @click="downloadPdf"
+        >
+          {{ downloading ? 'Mengunduh…' : 'Unduh PDF ⤓' }}
+        </button>
       </div>
     </header>
     <div class="viewer-body">
@@ -22,12 +32,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { createPdfPageRenderer } from '../../utils/pdfRender.js'
 import apiClient from '../../api/client.js'
+import { useAuthStore } from '../../stores/auth.js'
+import { canDownloadTranscriptPdf, downloadTranscriptPdf } from '../../utils/transcriptPdf.js'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -48,6 +60,22 @@ const route = useRoute()
 // `resultId` ikut dibaca demi tautan lama yang memakai nama param itu.
 const tiketId = route.params.tiketId || route.params.resultId || route.query.tiket_id || ''
 const campaign = route.query.campaign || ''
+
+const auth = useAuthStore()
+const canDownload = computed(() => canDownloadTranscriptPdf(auth.user))
+const downloading = ref(false)
+
+async function downloadPdf() {
+  if (downloading.value) return
+  downloading.value = true
+  try {
+    await downloadTranscriptPdf(tiketId)
+  } catch (e) {
+    window.alert(e.message)
+  } finally {
+    downloading.value = false
+  }
+}
 
 const loading = ref(true)
 const error = ref('')
@@ -119,6 +147,12 @@ onUnmounted(() => {
 }
 .viewer-info { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .viewer-ticket { font-weight: 700; font-size: 14px; color: var(--text); font-family: monospace; word-break: break-all; }
+.viewer-download {
+  margin-left: auto; padding: 5px 12px; background: var(--blue-bg); border: 1.5px solid var(--blue);
+  border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--blue); cursor: pointer; white-space: nowrap;
+}
+.viewer-download:hover:not(:disabled) { background: var(--blue); color: #fff; }
+.viewer-download:disabled { opacity: 0.6; cursor: progress; }
 .viewer-campaign {
   font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
   background: var(--blue-bg); color: var(--blue); text-transform: uppercase; letter-spacing: 0.04em;
