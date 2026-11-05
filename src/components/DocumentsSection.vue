@@ -127,8 +127,22 @@ const FIELD_TO_QC = {
 
 // Ambil nilai transkrip (extracted_value) untuk satu baris verifikasi dokumen,
 // dicari di Card Holder + Cashline Data verification pada hasil QC utama.
+// NTB: KTP membandingkan NIK dan Kewarganegaraan; nilai transkripnya dari tabel
+// NTB Data Verification (``ntb_data_verification``, kolom Transkrip).
+const FIELD_TO_NTB = {
+  nik: 'no_ktp',
+  kewarganegaraan: 'kewarganegaraan',
+}
+
 function transkripFor(v) {
-  const key = FIELD_TO_QC[String(v?.field || '').trim().toLowerCase()]
+  const fieldName = String(v?.field || '').trim().toLowerCase()
+  const ntbRows = props.evaluation?.ntb_data_verification
+  if (Array.isArray(ntbRows)) {
+    const ntbKey = FIELD_TO_NTB[fieldName]
+    const hit = ntbKey ? ntbRows.find((x) => x.field === ntbKey) : null
+    return hit ? hit.extracted_value : null
+  }
+  const key = FIELD_TO_QC[fieldName]
   if (!key || !props.evaluation) return null
   const arr = [
     ...(props.evaluation.card_holder_verification || []),

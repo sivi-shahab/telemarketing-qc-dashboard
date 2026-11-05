@@ -336,8 +336,172 @@
         <div v-else class="empty-inline">Tidak ada ringkasan kategori.</div>
       </div>
 
+      <!-- NTB: KTP lama (NIK bukan 16 digit) atau usia menurut KTP di luar 21-65 tahun -> tiket ditolak (skor 0, FAIL). -->
+      <div v-if="isNtb && ev.ntb_ktp_rejection" class="exec-sub">
+        <div class="exec-sub-head">
+          <span class="exec-sub-title">{{ ev.ntb_ktp_rejection.kind === 'ktp_lama' ? 'Tiket Ditolak (KTP Lama)' : 'Tiket Ditolak (Usia KTP)' }}</span>
+          <span class="badge badge-red">{{ ev.ntb_ktp_rejection.kind === 'ktp_lama' ? 'NIK ' + (ev.ntb_ktp_rejection.nik || '').length + ' digit' : ev.ntb_ktp_rejection.age + ' tahun' }}</span>
+        </div>
+        <div class="empty-inline">{{ ev.ntb_ktp_rejection.reason }}</div>
+      </div>
+
+      <!-- NTB Data Verification: data TMS NTB + ucapan di transkrip, tiap field ditautkan
+           ke item SC_NTB. Tampilan saja (tanpa vonis match, tanpa pengaruh skor). -->
+      <div v-if="isNtb && !isReinstate" class="exec-sub">
+        <div class="exec-sub-head">
+          <span class="exec-sub-title">NTB Data Verification</span>
+          <span class="badge badge-gray">{{ ev.ntb_data_verification?.length || 0 }}</span>
+          <span v-if="ev.ntb_tms_found === false" class="badge badge-amber" title="Tidak ada baris tms_ntb untuk ticket ini">Data TMS NTB belum ada</span>
+        </div>
+        <table v-if="ev.ntb_data_verification?.length" class="tbl">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th title="Item scorecard yang menilai field ini">Item SC</th>
+              <th v-if="showNtbStatusSc">Status SC</th>
+              <th>TMS</th>
+              <th>Transkrip</th>
+              <th title="Data Microsite (Source Data dari Bank Mega): daftar nilai atau hasil OCR KTP; dibandingkan dengan TMS dan transkrip">Microsite</th>
+              <th>Match</th>
+              <th>Reason</th>
+              <th>Similarity</th>
+              <th v-if="showThresholds" title="Ambang similarity yang berlaku untuk field ini">Threshold Similarity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(v, i) in ev.ntb_data_verification" :key="i">
+              <td class="strong">{{ v.label }}</td>
+              <td>{{ v.item_code }}</td>
+              <td v-if="showNtbStatusSc"><span :class="['badge', scorecardStatusBadge(v.item_status)]">{{ v.item_status || '—' }}</span></td>
+              <td>{{ v.tms_value ?? '—' }}</td>
+              <td>{{ v.extracted_value ?? '—' }}</td>
+              <td>{{ v.source_value ?? '—' }}</td>
+              <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
+              <td class="reason">{{ v.reason || '—' }}</td>
+              <td>{{ v.similarity_percent != null ? v.similarity_percent + '%' : '—' }}</td>
+              <td v-if="showThresholds">
+                <ul class="threshold-list">
+                  <li v-for="(t, ti) in v.thresholds || []" :key="ti">{{ t }}</li>
+                </ul>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty-inline">Tidak ada data NTB.</div>
+      </div>
+
+      <!-- NTB Supplement Verification: data kartu tambahan (nama, jenis kelamin, hubungan, alamat kirim)
+           TMS vs transkrip. Tampilan saja; hanya muncul bila ada kartu tambahan. -->
+      <div v-if="isNtb && !isReinstate && ev.ntb_supplement_verification?.length" class="exec-sub">
+        <div class="exec-sub-head">
+          <span class="exec-sub-title">NTB Supplement Verification</span>
+          <span class="badge badge-gray">{{ ev.ntb_supplement_verification.length }}</span>
+        </div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th title="Item scorecard yang menilai field ini">Item SC</th>
+              <th v-if="showNtbStatusSc">Status SC</th>
+              <th>TMS</th>
+              <th>Transkrip</th>
+              <th title="Data Microsite per kolom TMS kartu tambahan; dibandingkan dengan TMS dan transkrip (voting 2 dari 3)">Microsite</th>
+              <th>Match</th>
+              <th>Reason</th>
+              <th>Similarity</th>
+              <th v-if="showThresholds" title="Ambang similarity yang berlaku untuk field ini">Threshold Similarity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(v, i) in ev.ntb_supplement_verification" :key="i">
+              <td class="strong">{{ v.label }}</td>
+              <td>{{ v.item_code }}</td>
+              <td v-if="showNtbStatusSc"><span :class="['badge', scorecardStatusBadge(v.item_status)]">{{ v.item_status || '—' }}</span></td>
+              <td>{{ v.tms_value ?? '—' }}</td>
+              <td>{{ v.extracted_value ?? '—' }}</td>
+              <td>{{ v.source_value ?? '—' }}</td>
+              <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
+              <td class="reason">{{ v.reason || '—' }}</td>
+              <td>{{ v.similarity_percent != null ? v.similarity_percent + '%' : '—' }}</td>
+              <td v-if="showThresholds">
+                <ul class="threshold-list">
+                  <li v-for="(t, ti) in v.thresholds || []" :key="ti">{{ t }}</li>
+                </ul>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- NTB Phone Number Verification: nomor nasabah, keluarga dekat, dan Supplement 1-4 dibandingkan satu sama lain
+           (TMS vs TMS) untuk mendeteksi nomor yang nyaris sama. Tampilan saja; hanya muncul bila ada data TMS. -->
+      <div v-if="isNtb && !isReinstate && ev.ntb_phone_verification?.length" class="exec-sub">
+        <div class="exec-sub-head">
+          <span class="exec-sub-title">NTB Phone Number Verification</span>
+          <span class="badge badge-gray">{{ ev.ntb_phone_verification.length }}</span>
+        </div>
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>TMS</th>
+              <th title="Nomor lain di tiket ini yang paling mirip">Nomor terdekat</th>
+              <th title="Jarak edit (jumlah digit berbeda)">Jarak</th>
+              <th>Hasil</th>
+              <th>Reason</th>
+              <th v-if="showThresholds" title="Aturan yang berlaku untuk tabel ini">Threshold</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(v, i) in ev.ntb_phone_verification" :key="i">
+              <td class="strong">{{ v.label }}</td>
+              <td>{{ v.tms_value ?? '—' }}</td>
+              <td>{{ v.nearest_value ? v.nearest_value + ' (' + v.nearest_label + ')' : '—' }}</td>
+              <td>{{ v.distance ?? '—' }}</td>
+              <td><span :class="['badge', phoneResultBadge(v.result)]">{{ v.result }}</span></td>
+              <td class="reason">{{ v.reason || '—' }}</td>
+              <td v-if="showThresholds">
+                <ul class="threshold-list">
+                  <li v-for="(t, ti) in v.thresholds || []" :key="ti">{{ t }}</li>
+                </ul>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Campaign Interest Verification NTB: satu baris per campaign (NTB, Supplement, MUS),
+           TMS vs status minat di transkrip. Tampilan saja. -->
+      <div v-if="isNtb && !isReinstate" class="exec-sub">
+        <div class="exec-sub-head">
+          <span class="exec-sub-title">Campaign Interest Verification</span>
+          <span class="badge badge-gray">{{ ev.ntb_campaign_interest_verification?.length || 0 }}</span>
+        </div>
+        <table v-if="ev.ntb_campaign_interest_verification?.length" class="tbl">
+          <thead>
+            <tr>
+              <th>Campaign</th>
+              <th>TMS</th>
+              <th>Transkrip</th>
+              <th>Match</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(v, i) in ev.ntb_campaign_interest_verification" :key="i">
+              <td class="strong">{{ v.label }}</td>
+              <td>{{ v.tms_value ?? '—' }}</td>
+              <td><span :class="['badge', interestClass(v.extracted_value)]">{{ v.extracted_value || '—' }}</span></td>
+              <td><span :class="['badge', matchBadgeClass(v.match)]">{{ v.match || '—' }}</span></td>
+              <td class="reason">{{ v.reason || '—' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty-inline">Tidak ada data verifikasi campaign interest.</div>
+      </div>
+
       <!-- Campaign Interest Verification -->
-      <div class="exec-sub">
+      <div v-if="!isNtb" class="exec-sub">
         <div class="exec-sub-head">
           <span class="exec-sub-title">Campaign Interest Verification</span>
           <span class="badge badge-gray">{{ ev.campaign_interest_verification?.length || 0 }}</span>
@@ -366,9 +530,10 @@
       </div>
 
       <!-- Card Holder Verification -->
-      <div class="exec-sub">
+      <div v-if="!isNtb || isReinstate" class="exec-sub">
         <div class="exec-sub-head">
           <span class="exec-sub-title">Card Holder Verification</span>
+          <span v-if="isReinstate && ev.reinstate_ascend_found === false" class="badge badge-amber" title="Tidak ada baris ascend_reinstate untuk ticket ini">Data Ascend belum ada</span>
           <span class="badge badge-gray">{{ ev.card_holder_verification?.length || 0 }}</span>
         </div>
         <table v-if="ev.card_holder_verification?.length" class="tbl">
@@ -428,7 +593,7 @@
       </div>
 
       <!-- Cashline Data Verification -->
-      <div class="exec-sub">
+      <div v-if="!isNtb" class="exec-sub">
         <div class="exec-sub-head">
           <span class="exec-sub-title">Cashline Data Verification</span>
           <span class="badge badge-gray">{{ ev.cashline_data_verification?.length || 0 }}</span>
@@ -657,7 +822,21 @@
       <!-- Interest -->
       <div class="block">
         <div class="block-title">Minat Nasabah</div>
-        <div class="interest-grid">
+        <div v-if="isNtb" class="interest-grid">
+          <div v-for="c in ntbInterestCards" :key="c.key" class="interest-card">
+            <div class="interest-head">
+              <span class="interest-name">{{ c.name }}</span>
+              <span :class="['badge', interestClass(ev[c.key]?.status)]">
+                {{ ev[c.key]?.status || 'NOT_STATED' }}
+              </span>
+            </div>
+            <Evidence :evidence="ev[c.key]?.evidence" />
+            <div v-if="ev[c.key]?.reason" class="interest-reason">
+              <span class="reason-label">Alasan</span> {{ ev[c.key].reason }}
+            </div>
+          </div>
+        </div>
+        <div v-else class="interest-grid">
           <div class="interest-card">
             <div class="interest-head">
               <span class="interest-name">Mega Cashline</span>
@@ -844,6 +1023,8 @@ const showCategoryScore = computed(() => auth.can(P.RESULTS_CATEGORY_SCORE))
 // letak Demo (27 Agustus 2026) — melepas gate ini akan memunculkannya untuk semua
 // role, dan isinya memang tidak rahasia bagi siapa pun.
 const showThresholds = computed(() => auth.can(P.RESULTS_LAYOUT_DEMO))
+// Kolom Status SC di tabel NTB Data Verification dan NTB Supplement Verification disembunyikan sementara (27 Okt 2026).
+const showNtbStatusSc = false
 
 const showManualCheckCol = computed(() => canAppeal.value && !!props.resultId)
 // Both reviewers see a review column: Team Leader QC does the intermediate check
@@ -1006,6 +1187,23 @@ function deltaClass(v) {
 
 // Skor scorecard deterministik (sumber tunggal, sama dengan backend):
 // phase2 = skor maksimal − bobot tiap item BELUM_SESUAI; phase3 = phase2 + verif + kritis.
+// Campaign NTB membawa kunci minat sendiri (``ntb_interest`` dst.), bukan
+// ``cashline_interest``/``mus_interest``. Cermin core/compliance/campaign_profile.py.
+const isNtb = computed(() => ev.value != null && 'ntb_interest' in ev.value)
+// Reinstate memakai kunci minat ``ntb_*`` tetapi item scorecard-nya ``SC_RI_*``; tabel verifikasi
+// NTB (TMS NTB / SC_NTB) tidak berlaku untuk campaign ini. Cermin campaign_profile.is_reinstate_evaluation.
+const isReinstate = computed(() =>
+  (ev.value?.scorecard_result || []).some((it) => String(it?.item_code || '').startsWith('SC_RI_'))
+)
+const ntbInterestCards = [
+  { key: 'ntb_interest', name: 'NTB' },
+  { key: 'ntb_supplement_interest', name: 'Supplement' },
+  { key: 'ntb_mus_interest', name: 'MUS' },
+  { key: 'ntb_mus_eligibility', name: 'Health Declaration MUS' },
+]
+const ntbStatus = (k) => String(ev.value?.[k]?.status || '').toUpperCase()
+const ntbMusInScope = () =>
+  ntbStatus('ntb_mus_interest') === 'INTERESTED' && ntbStatus('ntb_mus_eligibility') !== 'NOT_ELIGIBLE'
 const maxScore = computed(() =>
   maxScoreBreakdown.value.length ? maxScoreTotal.value : numOr0(ev.value?.maximum_score)
 )
@@ -1016,6 +1214,8 @@ const maxScore = computed(() =>
 // rapi. Evaluasi lama tanpa kedua blok minat dikecualikan — tanpa datanya "tidak
 // berminat" hanyalah tebakan, dan menebak di sini menolkan tiket yang tidak bersalah.
 const noProductInterest = computed(() => {
+  // NTB: cukup nasabah menyetujui kartu utama (cermin scoring.no_product_interest).
+  if (isNtb.value) return !!ev.value.ntb_interest && ntbStatus('ntb_interest') !== 'INTERESTED'
   const cl = ev.value?.cashline_interest
   const mus = ev.value?.mus_interest
   if (!cl && !mus) return false
@@ -1258,6 +1458,7 @@ function negatedRequirement(it) {
 
 // Products the customer was interested in (drives maximum_score).
 const interestedProducts = computed(() => {
+  if (isNtb.value) return maxScoreBreakdown.value.map((p) => p.name)
   const arr = []
   if (ev.value?.cashline_interest?.status === 'INTERESTED') arr.push('Mega Cashline')
   if (ev.value?.mus_interest?.status === 'INTERESTED') arr.push('Mega Ultima Shield')
@@ -1274,7 +1475,7 @@ const maxScoreReason = computed(() => {
 // eligible MUS (sakit / mengandung >7 bulan), yang tercatat di `mus_exemption`.
 // Cerminan dari compliance/scoring.py::mus_wajib_tidak_dipenuhi — dijaga tetap sama.
 const musExempt = computed(
-  () => String(ev.value?.mus_exemption?.status || '').toUpperCase() === 'EXEMPT'
+  () => !isNtb.value && String(ev.value?.mus_exemption?.status || '').toUpperCase() === 'EXEMPT'
 )
 const musWajibTidakDipenuhi = computed(() => {
   if (ev.value?.cashline_interest?.status !== 'INTERESTED') return false
@@ -1292,6 +1493,15 @@ const musWajibTidakDipenuhi = computed(() => {
 // rekaman cashline-saja jadi bisa LULUS dengan nilai penuh.
 const maxScoreBreakdown = computed(() => {
   const out = []
+  if (isNtb.value) {
+    // NTB aditif (scorecard 05102026): NTB 100 + Supplement 25 + MUS 50.
+    if (ntbStatus('ntb_interest') === 'INTERESTED') {
+      out.push({ name: 'NTB', score: 100 })
+      if (ntbStatus('ntb_supplement_interest') === 'INTERESTED') out.push({ name: 'Supplement', score: 25 })
+      if (ntbMusInScope()) out.push({ name: 'MUS', score: 50 })
+    }
+    return out
+  }
   if (ev.value?.cashline_interest?.status === 'INTERESTED') out.push({ name: 'Mega Cashline', score: 100 })
   if (ev.value?.mus_interest?.status === 'INTERESTED') {
     out.push({ name: 'Mega Ultima Shield', score: 50 })
@@ -1524,6 +1734,10 @@ function titleizeField(field) {
 // PENDING (verifikasi statik): nilainya di zona abu-abu dan dokumen pendukungnya
 // masih ditunggu dalam tenggat H+2. Amber, bukan hijau — belum terbukti cocok — dan
 // bukan merah, karena belum tentu salah. Lewat tenggat tanpa unggah ia menjadi MISMATCH.
+function phoneResultBadge(result) {
+  return { AMAN: 'badge-green', MIRIP: 'badge-amber', IDENTIK: 'badge-red', KOSONG: 'badge-gray' }[result] || 'badge-gray'
+}
+
 function matchBadgeClass(match) {
   return {
     MATCH: 'badge-green',
@@ -1543,6 +1757,8 @@ const CARD_HOLDER_DYNAMIC_FIELDS = [
   'alamat_pengiriman_tagihan', 'alamat_rumah', 'no_telpon_terdaftar',
   'alamat_kantor', 'no_telpon_kantor', 'alamat_email_terdaftar',
   'nama_kartu_suplement', 'jumlah_kartu_suplement', 'nama_keluarga_relasi',
+  // Reinstate (parameter dinamis script Reinstate; lihat core/compliance/reinstate_verification.py)
+  'alamat_pengiriman_kartu', 'no_telpon_rumah',
 ]
 
 function cardHolderVerificationType(field) {

@@ -116,6 +116,10 @@ const routes = [
     component: () => import('../views/qc/AssignTicketView.vue'),
   },
   {
+    path: '/builder',
+    component: () => import('../views/builder/BuilderView.vue'),
+  },
+  {
     // Kelola QC (Team Leader QC): halaman Manage User dalam mode terbatas —
     // hanya QC Telemarketing, hanya tombol Aktifkan/Nonaktifkan.
     path: '/qc/users',
