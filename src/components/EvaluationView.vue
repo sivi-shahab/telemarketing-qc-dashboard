@@ -1782,6 +1782,14 @@ const GENERIC_THRESHOLD = ['≥ 80% → MATCH', '< 80% → MISMATCH']
 // dipakai untuk menilainya.
 const staticRulesVersion = computed(() => (Number(ev.value?.static_rules_version) >= 2 ? 2 : 1))
 
+// Round-up ke ambang MATCH (compliance/static_similarity.py: ROUNDUP_WINDOW = 2). Ambang
+// resminya tidak diturunkan; nilai yang hampir mencapainya dibulatkan naik dan tampil
+// sebagai ambang itu sendiri.
+const ROUNDUP_WINDOW = 2
+function roundupThresholdLine(threshold) {
+  return `${threshold - ROUNDUP_WINDOW}% s/d < ${threshold}% → dibulatkan ke ${threshold}% → MATCH`
+}
+
 function cardHolderThresholds(field) {
   if (field === 'tanggal_lahir') {
     return [
@@ -1792,8 +1800,8 @@ function cardHolderThresholds(field) {
   }
   if (field === 'nama_ibu_kandung') {
     return staticRulesVersion.value >= 2
-      ? ['≥ 80% → MATCH', '50% s/d < 80% → MATCH, perlu KK', '< 50% → MISMATCH']
-      : ['≥ 90% → MATCH', '80% s/d < 90% → MATCH, perlu KK', '< 80% → MISMATCH']
+      ? ['≥ 80% → MATCH', roundupThresholdLine(80), '50% s/d < 80% → MATCH, perlu KK', '< 50% → MISMATCH']
+      : ['≥ 90% → MATCH', roundupThresholdLine(90), '80% s/d < 90% → MATCH, perlu KK', '< 80% → MISMATCH']
   }
   if (ADDRESS_FIELDS.includes(field)) {
     return ['Nilai pendek termuat utuh di nilai panjang → MATCH (100%)', ...GENERIC_THRESHOLD]

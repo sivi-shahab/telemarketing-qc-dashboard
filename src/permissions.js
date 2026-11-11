@@ -30,7 +30,7 @@ export const P = {
   MENU_ROLE_HIERARCHY: 'menu.role_hierarchy',
   MENU_COLLECTION_RESULTS: 'menu.collection_results',
   MENU_OCR_IMAGE: 'menu.ocr_image',
-  // Builder: dibatasi ke akun tertentu oleh backend (BUILDER_ALLOWED_USERNAMES), bukan oleh role.
+  // Builder: dibatasi ke role tertentu oleh backend (BUILDER_ALLOWED_ROLES), bukan lewat Manage Role.
   MENU_BUILDER: 'menu.builder',
 
   // Fitur di halaman Results

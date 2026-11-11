@@ -393,6 +393,9 @@
                      berubah-ubah tetap menggugurkan tiket, tetapi tidak lagi diberi
                      komentar di sini — sebabnya terbaca di kolom Critical Failure. -->
                 <div v-if="group.primary.fail_reason" class="ai-status-note note-fail">{{ group.primary.fail_reason }}</div>
+                <!-- Peringatan informasi, merah (mis. sapaan pembuka agent berbeda): TIDAK
+                     mengurangi skor dan tidak mengubah status, hanya untuk ditinjau QC. -->
+                <div v-for="(w, wi) in (group.primary.warnings || [])" :key="'w' + wi" class="ai-status-note note-warn" :title="w">⚠ {{ w }}</div>
               </td>
               <!-- Manual Status (sisi QC + administrasi): verdict QC via hierarki +
                    default missing-docs. Divisi sales tidak melihat kolom ini. -->
@@ -2917,6 +2920,7 @@ onBeforeUnmount(() => {
 .ai-status-note { margin-top: 3px; font-size: 10.5px; font-weight: 600; color: #b45309; line-height: 1.3; white-space: normal; }
 /* Catatan kegagalan (badword) dibedakan dari catatan Pending: merah, bukan amber. */
 .ai-status-note.note-fail { color: var(--red); font-weight: 700; }
+.ai-status-note.note-warn { color: var(--red); font-weight: 600; }
 /* Jadwal cek ulang data acuan: keterangan sekunder di bawah alasan Pending. */
 .ai-status-note.note-retry { color: #64748b; font-weight: 500; }
 /* Masih mengikuti AI Status (belum disentuh human) — dibuat lebih redup. */
